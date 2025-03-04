@@ -11,11 +11,12 @@ const R4Check = require("./r4check.js");
 // const LocationCheck = require("./locationCheck.js");
 
 class AllianceManager {
-  constructor(options, sql, runningAlliances) {
+  constructor(options, sql, runningAlliances, acceptRequestLock) {
 
     // Credentials
     this.token = options.token;
     this.runningAlliances = runningAlliances;
+    this.acceptRequestLock = acceptRequestLock;
     this.discordClient = new Client({
       intents: [GatewayIntentBits.Guilds],
     });
@@ -33,7 +34,7 @@ class AllianceManager {
 
     this.helpCheck = new HelpCheck(this.sql);
     this.acceptCheck = new AcceptCheck(this.sql);
-    
+
     this.shrineCheck = new ShrineCheck(this.api);
 
     this.updateInfo = new UpdateInfo(this.sql, this.api);
@@ -60,6 +61,22 @@ class AllianceManager {
     this.acceptLogChannel = "945404350229000252";
     this.rejectLogChannel = "945404350229000252";
     // setInterval(() => this.accept(), (this.interval || 60) * 1000); //mauro v2.1
+  }
+
+  async acceptRequest(kid, token) {
+    console.log("accepting start");
+    return this.acceptRequestLock.acquire('acceptRequest', async () => {
+      const acceptResponse = await this.api.request(
+        "https://api-lok-live.leagueofkingdoms.com/api/alliance/request/accept",
+        { kingdomId: kid },
+        {
+          "x-access-token": token,
+          "Content-Type": "application/json",
+        }
+      );
+      console.log("accepting end");
+      return acceptResponse;
+    });
   }
 
   async kick(token, maxkick, cvcmode, titleGrace) {
@@ -250,7 +267,7 @@ class AllianceManager {
         await this.sql.setManagerIdle(this.managerId);
         return;
       }
-      
+
       const token = tokenResponse[0].token;
 
       const allianceSettings = (await this.sql.getAllianceSettings(this.allianceId))[0];
@@ -368,16 +385,16 @@ class AllianceManager {
                   }
                 );
 
-                await axios.post(
+                await this.api.request(
                   "https://api-lok-live.leagueofkingdoms.com/api/mail/send",
                   new URLSearchParams({
-                    json: `{"toName":"${name}","subject":"Rejected from ${this.allianceTag
-                      }","content":"You have been rejected because you are ${permanent ? "permanent " : ""
-                      }blacklisted${!permanent ? " until " + ditim : ""
-                      } for the reason: ${blacklisted.description
-                      }"}`,
+                    json: JSON.stringify({
+                      toName: name,
+                      subject: `Rejected from ${this.allianceTag}`,
+                      content: `You have been rejected because you are ${permanent ? "permanent " : ""}blacklisted${!permanent ? " until " + ditim : ""} for the reason: ${blacklisted.description}`
+                    })
                   }),
-                  { headers: { "x-access-token": token } }
+                  { "x-access-token": token }
                 );
 
                 this.discordClient.channels.cache
@@ -409,14 +426,7 @@ class AllianceManager {
               // console.log('holders: ', holders);
 
               if (holders.includes(kid)) {
-                const acceptResponse = await this.api.request(
-                  "https://api-lok-live.leagueofkingdoms.com/api/alliance/request/accept",
-                  { kingdomId: kid },
-                  {
-                    "x-access-token": token,
-                    "Content-Type": "application/json",
-                  }
-                );
+                const acceptResponse = await this.acceptRequest(kid, token);
 
                 if (
                   acceptResponse.status === 200 &&
@@ -450,14 +460,16 @@ class AllianceManager {
                   }
                 );
 
-                await axios.post(
+                await this.api.request(
                   "https://api-lok-live.leagueofkingdoms.com/api/mail/send",
                   new URLSearchParams({
-                    json: `{"toName":"${name}","subject":"Rejected from ${this.allianceTag
-                      }","content":"You have been rejected because your power is too low, minimum requirement is ${powerlimit / 1000000
-                      }m power"}`,
+                    json: JSON.stringify({
+                      toName: name,
+                      subject: `Rejected from ${this.allianceTag}`,
+                      content: `You have been rejected because your power is too low, minimum requirement is ${powerlimit / 1000000}m power`
+                    })
                   }),
-                  { headers: { "x-access-token": token } }
+                  { "x-access-token": token }
                 );
 
                 this.discordClient.channels.cache
@@ -490,12 +502,16 @@ class AllianceManager {
                     }
                   );
 
-                  const speedResp = await axios.post(
+                  const speedResp = await this.api.request(
                     "https://api-lok-live.leagueofkingdoms.com/api/mail/send",
                     new URLSearchParams({
-                      json: `{"toName":"${name}","subject":"Rejected from ${this.allianceTag}","content":"You have been rejected because your speed is too low, minimum requirement is ${speedlimit}% speed (cav + troops)"}`,
+                      json: JSON.stringify({
+                        toName: name,
+                        subject: `Rejected from ${this.allianceTag}`,
+                        content: `You have been rejected because your speed is too low, minimum requirement is ${speedlimit}% speed (cav + troops)`
+                      })
                     }),
-                    { headers: { "x-access-token": token } }
+                    { "x-access-token": token }
                   );
                   console.log(`rejected by speed: ${name}`);
 
@@ -523,12 +539,16 @@ class AllianceManager {
                   }
                 );
 
-                await axios.post(
+                await this.api.request(
                   "https://api-lok-live.leagueofkingdoms.com/api/mail/send",
                   new URLSearchParams({
-                    json: `{"toName":"${name}","subject":"Rejected from ${this.allianceTag}","content":"You have been rejected because you aren't verified on discord"}`,
+                    json: JSON.stringify({
+                      toName: name,
+                      subject: `Rejected from ${this.allianceTag}`,
+                      content: "You have been rejected because you aren't verified on discord"
+                    })
                   }),
-                  { headers: { "x-access-token": token } }
+                  { "x-access-token": token }
                 );
 
                 this.discordClient.channels.cache
@@ -565,12 +585,16 @@ class AllianceManager {
                   }
                 );
 
-                await axios.post(
+                await this.api.request(
                   "https://api-lok-live.leagueofkingdoms.com/api/mail/send",
                   new URLSearchParams({
-                    json: `{"toName":"${name}","subject":"Rejected from ${this.allianceTag}","content":"You have been rejected because you don't meet the required amount of kills. (${this.kills})"}`,
+                    json: JSON.stringify({
+                      toName: name,
+                      subject: `Rejected from ${this.allianceTag}`,
+                      content: `You have been rejected because you don't meet the required amount of kills. (${this.kills})`
+                    })
                   }),
-                  { headers: { "x-access-token": token } }
+                  { "x-access-token": token }
                 );
 
                 this.discordClient.channels.cache
@@ -612,25 +636,25 @@ class AllianceManager {
                 console.log(this.mastery);
 
                 try {
-                  const masteryMailResponse = await axios.post(
+                  const masteryMailResponse = await this.api.request(
                     "https://api-lok-live.leagueofkingdoms.com/api/mail/send",
                     new URLSearchParams({
-                      json: `{"toName":"${name}","subject":"Rejected from ${this.allianceTag
-                        }","content":" ${Math.floor(
-                          Date.now()
-                        )} \n You have been rejected because you don't have the correct mastery.  The minimum mastery is: 
-                                      \n- Infantry: ${this.mastery.infantry}
-                                      \n- Ranged: ${this.mastery.archers}
-                                      \n- Cavalry: ${this.mastery.cavalry}
-                                      \n- Combat: ${this.mastery.combat}
-                                      \n- Monster: ${this.mastery.monster}
-                                      \n- Governor: ${this.mastery.governor}"
-                                      "}`,
+                      json: JSON.stringify({
+                        toName: name,
+                        subject: `Rejected from ${this.allianceTag}`,
+                        content: `${Math.floor(Date.now())} \n You have been rejected because you don't have the correct mastery. The minimum mastery is:
+                            \n- Infantry: ${this.mastery.infantry}
+                            \n- Ranged: ${this.mastery.ranged}
+                            \n- Cavalry: ${this.mastery.cavalry}
+                            \n- Combat: ${this.mastery.combat}
+                            \n- Monster: ${this.mastery.monster}
+                            \n- Governor: ${this.mastery.governor}`
+                      }),
                     }),
-                    { headers: { "x-access-token": token } }
+                    { "x-access-token": token }
                   );
 
-                  console.log(masteryMailResponse.data);
+                  // console.log(masteryMailResponse.data);
                 } catch (error) {
                   console.log("Error sending mastery rejection mail:", error);
                   console.log(error.response.data);
@@ -639,23 +663,16 @@ class AllianceManager {
                 continue;
               }
 
-              if (!this.acceptCheck.checkAccept(kid)) { // If already accepted in the past 5 seconds, don't accept again.
+              if (!this.acceptCheck.checkAccept(kid)) {
                 continue;
               }
 
               if (numtkn < 99) {
-                const response31 = await this.api.request(
-                  "https://api-lok-live.leagueofkingdoms.com/api/alliance/request/accept",
-                  { kingdomId: kid },
-                  {
-                    "x-access-token": token,
-                    "Content-Type": "application/json",
-                  }
-                );
+                const acceptResponse = await this.acceptRequest(kid, token);
 
                 if (
-                  response31.status === 200 &&
-                  response31.data.result
+                  acceptResponse.status === 200 &&
+                  acceptResponse.data.result
                 ) {
 
                   await this.sql.addAcceptLog(kid, name);
@@ -672,7 +689,7 @@ class AllianceManager {
                   numtkn++;
                 } else {
                   console.log("error accepting");
-                  console.log(response31.data);
+                  console.log(acceptResponse.data);
 
                   await this.api.request(
                     "https://api-lok-live.leagueofkingdoms.com/api/alliance/request/deny",

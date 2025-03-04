@@ -1,9 +1,11 @@
 const AllianceManager = require('./alliancemanager.js');
 const sqlFunctions = require('../database/sql.js');
+const AsyncLock = require('async-lock');
 
 // Create a MySQL connection
 const sql = new sqlFunctions();
 const runningAlliances = new Set();
+const acceptRequestLock = new AsyncLock();
 
 // function to start all the alliance manager instances
 async function manageAlliances() {
@@ -50,7 +52,7 @@ async function manageAlliances() {
 
                 // console.log(options);
 
-                new AllianceManager(options, sql, runningAlliances);
+                new AllianceManager(options, sql, runningAlliances, acceptRequestLock);
                 // console.log("before: ",runningAlliances);
                 runningAlliances.add(botInfo.allianceId);
                 console.log("Started alliance manager instance for " + botInfo.allianceTag);
