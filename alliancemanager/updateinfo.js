@@ -1,5 +1,6 @@
 const mysql = require('mysql2');
 const Encryption = require('../encryption/encryption.js')
+require('dotenv').config();
 
 class UpdateInfo {
     constructor(sql, api) {
@@ -102,10 +103,10 @@ module.exports = UpdateInfo;
 
 async function runExample() {
     const connection = mysql.createConnection({
-        host: ***REMOVED***,
-        user: ***REMOVED***,
-        password: ***REMOVED***,
-        database: "c24"
+        host: process.env.DB_HOST,
+        user: process.env.DB_USER,
+        password: process.env.DB_PASSWORD,
+        database: process.env.DB_NAME
     });
 
     const updateInfo = new UpdateInfo(connection);

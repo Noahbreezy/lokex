@@ -1,3 +1,4 @@
+require('dotenv').config();
 
 class MasteryCheck {
 
@@ -57,11 +58,11 @@ module.exports = MasteryCheck;
 //example
 async function runExample() {
     const connection = mysql.createConnection({
-        host: ***REMOVED***,
-        user: ***REMOVED***,
-        password: ***REMOVED***,
-        database: "c24"
-    });
+            host: process.env.DB_HOST,
+            user: process.env.DB_USER,
+            password: process.env.DB_PASSWORD,
+            database: process.env.DB_NAME
+        });
 
     connection.connect(function (err) {
         if (err) throw err;

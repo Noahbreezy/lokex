@@ -9,10 +9,10 @@ class sqlFunctions {
 
     createPool() {
         this.pool = mysql.createPool({
-            host: ***REMOVED***,
-            user: ***REMOVED***,
-            password: ***REMOVED***,
-            database: "lokex",
+            host: process.env.DB_HOST,
+            user: process.env.DB_USER,
+            password: process.env.DB_PASSWORD,
+            database: process.env.DB_NAME,
             waitForConnections: true,
             connectionLimit: 20,
             queueLimit: 10
