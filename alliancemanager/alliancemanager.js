@@ -58,6 +58,7 @@ class AllianceManager {
     this.maxkick = null;
     this.cvcmode = null;
     this.titleGrace = 0;
+    this.guild = null;
     this.acceptLogChannel = "945404350229000252";
     this.rejectLogChannel = "945404350229000252";
     // setInterval(() => this.accept(), (this.interval || 60) * 1000); //mauro v2.1
@@ -295,8 +296,11 @@ class AllianceManager {
       this.maxkick = allianceSettings.maxkick;
       this.cvcmode = allianceSettings.cvcmode === 1 ? true : false;
       this.titleGrace = allianceSettings.titlegrace;
+      this.guild = allianceSettings.guild;
       this.acceptLogChannel = logChannels.accept_log_channel;
       this.rejectLogChannel = logChannels.reject_log_channel;
+
+      const mailAccountToken = await this.sql.getRandomManagerTokenFromGuild(this.guild);
 
       // console.log("token: ", token);
 
@@ -394,7 +398,7 @@ class AllianceManager {
                       content: `You have been rejected because you are ${permanent ? "permanent " : ""}blacklisted${!permanent ? " until " + ditim : ""} for the reason: ${blacklisted.description}`
                     })
                   }),
-                  { "x-access-token": token }
+                  { "x-access-token": mailAccountToken }
                 );
 
                 this.discordClient.channels.cache
@@ -469,7 +473,7 @@ class AllianceManager {
                       content: `You have been rejected because your power is too low, minimum requirement is ${powerlimit / 1000000}m power`
                     })
                   }),
-                  { "x-access-token": token }
+                  { "x-access-token": mailAccountToken }
                 );
 
                 this.discordClient.channels.cache
@@ -511,7 +515,7 @@ class AllianceManager {
                         content: `You have been rejected because your speed is too low, minimum requirement is ${speedlimit}% speed (cav + troops)`
                       })
                     }),
-                    { "x-access-token": token }
+                    { "x-access-token": mailAccountToken }
                   );
                   console.log(`rejected by speed: ${name}`);
 
@@ -548,7 +552,7 @@ class AllianceManager {
                       content: "You have been rejected because you aren't verified on discord"
                     })
                   }),
-                  { "x-access-token": token }
+                  { "x-access-token": mailAccountToken }
                 );
 
                 this.discordClient.channels.cache
@@ -594,7 +598,7 @@ class AllianceManager {
                       content: `You have been rejected because you don't meet the required amount of kills. (${this.kills})`
                     })
                   }),
-                  { "x-access-token": token }
+                  { "x-access-token": mailAccountToken }
                 );
 
                 this.discordClient.channels.cache
@@ -651,7 +655,7 @@ class AllianceManager {
                             \n- Governor: ${this.mastery.governor}`
                       }),
                     }),
-                    { "x-access-token": token }
+                    { "x-access-token": mailAccountToken }
                   );
 
                   // console.log(masteryMailResponse.data);

@@ -101,6 +101,12 @@ class sqlFunctions {
         return this.query(query, [allianceId]);
     }
 
+    // Get a random token from a specific guild
+    async getRandomManagerTokenFromGuild(guild) {
+        const query = `SELECT token FROM botAccounts WHERE guild = ? AND role = 'MANAGER' ORDER BY RAND() LIMIT 1;`;
+        return this.query(query, [guild]);
+    }
+
     // Set a manager bot account role as IDLE.
     async setManagerIdle(kingdomId) {
         const query = `UPDATE botAccounts SET role = 'IDLE' WHERE kingdomId = ?;`;
