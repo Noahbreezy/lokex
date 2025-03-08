@@ -9,9 +9,10 @@ const updatePlayers = new UpdatePlayers(sql, api);
 const updateBots = new UpdateBots(sql, api);
 
 async function startUpdaters() {
-    updatePlayers.updatePlayers()
     updateBots.updateBotsToken();
     updateBots.updateBotsInfo();
+    await new Promise(resolve => setTimeout(resolve, 30000));
+    updatePlayers.updatePlayers();
 }
 
 startUpdaters();

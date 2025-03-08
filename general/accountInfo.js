@@ -222,6 +222,7 @@ class AccountInfo {
     }
 
     let location = false;
+    // console.log('R4 Flag: ', r4Flag);
     if (r4Flag) {
       // console.log('Is R4: can get locations');
       location = await this.getMemberLocation(token, kingdomId);
@@ -231,10 +232,10 @@ class AccountInfo {
 
     // console.log(await this.encryption.decryptXorMessage(basicPlayerInfoResponse.data, xorPass));
 
-    const basicPlayerInfo = (JSON.parse(await this.encryption.decryptXorMessage(basicPlayerInfoResponse.data, xorPass))).profile;
+    const basicPlayerInfo = await (JSON.parse(await this.encryption.decryptXorMessage(basicPlayerInfoResponse.data, xorPass))).profile;
     const historyPlayerInfo = historyPlayerInfoResponse.data.history;
 
-    // console.log('Basic Player Info: ', basicPlayerInfo);
+    // console.log(`Basic Player Info of kingdomId ${kingdomId}: `, basicPlayerInfo);
     // console.log('History Player Info: ', historyPlayerInfo);
     
     // Combine the required fields into a single object

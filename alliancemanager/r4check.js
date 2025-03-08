@@ -1,4 +1,3 @@
-
 class R4Check {
     constructor(sql, api) {
         this.api = api;
@@ -17,7 +16,8 @@ class R4Check {
             )).data;
 
             // console.log("Alliance members:", allianceMembers);
-            const allianceR4s = [...allianceMembers.members[0].members, ...allianceMembers.members[1].members];
+            const filteredMembers = allianceMembers.members.filter(member => member._id === 99 || member._id === 4);
+            const allianceR4s = filteredMembers.flatMap(member => member.members);
             const allianceR4sIds = allianceR4s.map(member => member.kingdomId);
             if (allianceR4sIds.includes(kingdomId)) {
                 return true;

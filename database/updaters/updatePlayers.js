@@ -49,13 +49,28 @@ class UpdatePlayers {
                 );
 
                 for (const account of botAccountsFiltered) {
-                    const kingdomIds = await this.getAllAllianceMemberId(account.token, account.allianceId);
-                    for (const kingdomId of kingdomIds) {
-                        let r4Flag = await this.r4Check.checkR4(account.token, account.kingdomId, account.allianceId);
-                        const accountInfo = await this.AccountInfo.getMemberProfileInfo(account.token, account.allianceId, kingdomId, r4Flag);
-                        if (accountInfo) {
-                            await this.sql.updateFullKingdomInfo(accountInfo);
+                    let token = account.token;
+                    let r4Flag = false;
+                    try {
+                        const kingdomIds = await this.getAllAllianceMemberId(token, account.allianceId);
+                        // console.log('Kingdom IDs:', kingdomIds);
+                        r4Flag = await this.r4Check.checkR4(token, account.kingdomId, account.allianceId);
+                        for (const kingdomId of kingdomIds) {
+                            try {
+                                const accountInfo = await this.AccountInfo.getMemberProfileInfo(token, account.allianceId, kingdomId, r4Flag);
+                                if (accountInfo) {
+                                    await this.sql.updateFullKingdomInfo(accountInfo);
+                                }
+                            } catch (error) {
+                                token = (await this.sql.getManagerTokenByKingdomId(kingdomId))[0].token;
+                                r4Flag = await this.r4Check.checkR4(token, kingdomId, account.allianceId);
+                                console.error(`Error updating kingdom info for kingdomId ${kingdomId}:`, error);
+                            }
                         }
+                    } catch (error) {
+                        token = (await this.sql.getManagerTokenByKingdomId(kingdomId))[0].token;
+                        r4Flag = await this.r4Check.checkR4(token, kingdomId, account.allianceId);
+                        console.error(`Error processing account with allianceId ${account.allianceId}:`, error);
                     }
                 }
             } catch (error) {
