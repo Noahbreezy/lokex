@@ -1,6 +1,6 @@
 const { SlashCommandBuilder, PermissionFlagsBits } = require("discord.js");
 const AccountInfo = require("../../../general/accountInfo.js");
-
+const R4Check = require("../../../alliancemanager/r4check.js");
 
 async function handleNameAutocomplete(interaction, sql) {
     const focusedValue = interaction.options.getFocused();
@@ -18,6 +18,20 @@ async function handleRoleAutocomplete(interaction, sql) {
     await interaction.respond(
         filtered.map(role => ({ name: role, value: role }))
     );
+}
+
+async function addAlliance(kingdomId, sql, r4Check) {
+    const managerInfo = (await sql.getManagerInfoByKingdomId(kingdomId))[0];
+    const allianceId = managerInfo.allianceId;
+    const token = managerInfo.token;
+    const guildId = managerInfo.guild;
+    const allianceTag = managerInfo.allianceTag;
+    // console.log(managerInfo);
+    const r4Flag = await r4Check.checkR4(token, kingdomId, allianceId);
+    const allianceExistsFlag = await sql.allianceExists(allianceId);
+    if (r4Flag && !allianceExistsFlag) {
+        await sql.addAllianceSettings(allianceId, allianceTag, guildId);
+    }
 }
 
 module.exports = {
@@ -75,7 +89,9 @@ module.exports = {
         ),
     async execute(interaction) {
         const sql = module.exports.sql;
-        const accountInfo = new AccountInfo(sql);
+        const api = module.exports.api;
+        const accountInfo = new AccountInfo(sql, api);
+        const r4Check = new R4Check(sql, api);
         const { commandName, options, guildId, user } = interaction;
         const userId = user.id;
         const guildName = interaction.guild.name;
@@ -84,23 +100,22 @@ module.exports = {
         console.log(`Command: ${commandName}, Subcommand: ${options.getSubcommand()}, Guild: ${guildName}, User: ${userName}`);
 
         try {
-            await interaction.deferReply({ ephemeral: true });
-
+            await interaction.deferReply({ flags: 64  });
             switch (options.getSubcommand()) {
                 case "add":
                     {
                         const existingAccount = await sql.getAccountByEmail(options.getString("email"));
                         if (existingAccount.length > 0) {
-                            await interaction.editReply({ content: "An account with this email already exists.", ephemeral: true });
+                            await interaction.editReply({ content: "An account with this email already exists.", flags: 64 });
                             break;
                         }
                         const info = await accountInfo.collectInfo(options.getString("email"), options.getString("password"));
                         if (info) {
                             await sql.addAccount(info.name, info.email, info.password, info.token, info.kingdomId, info.allianceid, info.alliancetag, guildId, userId);
-                            await interaction.editReply({ content: "Account added!", ephemeral: true });
+                            await interaction.editReply({ content: "Account added!", flags: 64 });
                         } else {
                             console.log("Couldn't get account info");
-                            await interaction.editReply({ content: "Couldn't get account info", ephemeral: true });
+                            await interaction.editReply({ content: "Couldn't get account info", flags: 64 });
                         }
                     }
                     break;
@@ -109,25 +124,30 @@ module.exports = {
                         const kingdomId = options.getString("name");
                         console.log(kingdomId);
                         await sql.removeAccount(kingdomId, guildId);
-                        await interaction.editReply({ content: "Account removed!", ephemeral: true });
+                        await interaction.editReply({ content: "Account removed!", flags: 64 });
                     }
                     break;
                 case "editrole":
                     {
                         const kingdomId = options.getString("name");
                         const name = (await sql.getBotNameByKingdomId(kingdomId))[0].name;
+                        console.log(name);
                         const role = options.getString("role");
+                        console.log(role);
                         await sql.editRole(kingdomId, role, guildId);
-                        await interaction.editReply({ content: `Role of ${name} edited to ${role}!`, ephemeral: true });
+                        await interaction.editReply({ content: `Role of ${name} edited to ${role}!`, flags: 64 });
+                        if (role === "MANAGER") {
+                            addAlliance(kingdomId, sql, r4Check);
+                        }
                     }
                     break;
                 default:
-                    await interaction.editReply({ content: "Unknown subcommand", ephemeral: true });
+                    await interaction.editReply({ content: "Unknown subcommand", flags: 64 });
                     break;
             }
         } catch (error) {
             console.error(error);
-            await interaction.editReply({ content: "An error occurred while executing the command.", ephemeral: true });
+            await interaction.editReply({ content: "An error occurred while executing the command.", flags: 64 });
         }
     },
     async autocomplete(interaction) {

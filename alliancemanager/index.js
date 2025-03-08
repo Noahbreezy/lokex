@@ -18,11 +18,11 @@ async function manageAlliances() {
         for (const botInfo of botManagerInfo) {
             if (!runningAlliances.has(botInfo.allianceId)) {
                 const allianceSettings = (await sql.getAllianceSettings(botInfo.allianceId))[0];
-                console.log(`Retrieved settings for ${botInfo.allianceTag}...`);
+                // console.log(`Retrieved settings for ${botInfo.allianceTag}...`);
                 // console.log(allianceSettings);
 
                 if (allianceSettings === undefined || allianceSettings.length === 0) {
-                    console.log(`No settings found for ${botInfo.allianceTag}. Skipping...`);
+                    // console.log(`No settings found for ${botInfo.allianceTag}. Skipping...`);
                     continue;
                 }
 
@@ -68,21 +68,18 @@ async function manageAlliances() {
 manageAlliances();
 
 process.on('exit', () => {
-    sql.close();
+    sql.closeConnection();
 });
 
 process.on('SIGINT', () => {
-    sql.close();
     process.exit();
 });
 
 process.on('SIGTERM', () => {
-    sql.close();
     process.exit();
 });
 
 process.on('uncaughtException', (err) => {
     console.error('Uncaught Exception:', err);
-    sql.close();
     process.exit(1);
 });

@@ -95,10 +95,16 @@ class sqlFunctions {
         return this.query(query, [kingdomId]);
     }
 
-    // Get a manager token
+    // Get a manager token of an alliance
     async getManagerToken(allianceId) {
         const query = `SELECT token FROM botAccounts WHERE allianceId = ? AND role = 'MANAGER';`;
         return this.query(query, [allianceId]);
+    }
+
+    // Get a manager token by kingdomId
+    async getManagerInfoByKingdomId(kingdomId) {
+        const query = `SELECT token, kingdomId, allianceId, allianceTag, guild FROM botAccounts WHERE kingdomId = ? AND role = 'MANAGER';`;
+        return this.query(query, [kingdomId]);
     }
 
     // Get a random token from a specific guild
@@ -167,8 +173,8 @@ class sqlFunctions {
     }
 
     // Edit a role of a bot account
-    async editRole(name, role, guild) {
-        return this.query("UPDATE botAccounts SET role = ? WHERE name = ? AND guild = ?", [role, name, guild]);
+    async editRole(kingdomId, role, guild) {
+        return this.query("UPDATE botAccounts SET role = ? WHERE kingdomId = ? AND guild = ?", [role, kingdomId, guild]);
     }
 
     // Get accounts' alliance IDs
@@ -242,6 +248,21 @@ class sqlFunctions {
         WHERE allianceId = ?;`
         return this.query(query, [allianceId]);
     }
+
+    // check if the alliance exists in the settings already
+    async allianceExists(allianceId) {
+        const query = `SELECT allianceId FROM allianceinf WHERE allianceId = ?;`;
+        const results = await this.query(query, [allianceId]);
+        return results.length > 0;
+    }
+
+    // Add alliance to the settings table (allianceID, tag, guild required only)
+    async addAllianceSettings(allianceId, tag, guild) {
+        // console.log("Adding alliance to settings", allianceId, tag, guild);
+        const query = `INSERT INTO allianceinf (allianceId, tag, guild) VALUES (?, ?, ?);`;
+        return this.query(query, [allianceId, tag, guild]);
+    }
+
 
     // Information tables functions
 

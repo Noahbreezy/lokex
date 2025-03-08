@@ -18,6 +18,7 @@ class AccountInfo {
   async login(email, password) {
     let loginResponse;
     try {
+      console.log(email, password);
       loginResponse = await this.api.request(
         "https://lok-api-live.leagueofkingdoms.com/api/auth/login",
         new URLSearchParams({
@@ -26,11 +27,11 @@ class AccountInfo {
             email: email,
             password: password,
             deviceInfo: {
-              OS: "Mac OS X 10_15_7",
+              OS: "Windows 10",
               country: "USA",
               language: "English",
               bundle: "",
-              version: "1.1758.157.241", //1.1758.157.241
+              version: "1.1789.164.245", //1.1758.157.241
               platform: "web",
               pushId: "",
               build: "global",

@@ -7,7 +7,7 @@ const Api = require("../general/api.js");
 
 const client = new Client({ intents: [GatewayIntentBits.Guilds] });
 const sql = new sqlFunctions();
-const api = new Api();
+const api = new Api(sql);
 
 client.commands = new Collection();
 const commandsPath = path.join(__dirname, "command-deployment/commands");
@@ -125,3 +125,20 @@ client.on(Events.InteractionCreate, async (interaction) => {
 });
 
 client.login(token);
+
+process.on('exit', () => {
+  sql.closeConnection();
+});
+
+process.on('SIGINT', () => {
+  process.exit();
+});
+
+process.on('SIGTERM', () => {
+  process.exit();
+});
+
+process.on('uncaughtException', (err) => {
+  console.error('Uncaught Exception:', err);
+  process.exit(1);
+});
