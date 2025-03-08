@@ -19,8 +19,8 @@ class sqlFunctions {
         });
 
         this.pool.on('error', (err) => {
-            if (err.code === 'PROTOCOL_CONNECTION_LOST') {
-                console.error('Database connection was closed.');
+            if (err.code === 'PROTOCOL_CONNECTION_LOST' || err.code === 'ECONNRESET' || err.code === 'ENOTFOUND' || err.code === 'EPIPE') {
+                console.error('Database connection was lost:', err.code);
                 this.retryConnection();
             } else {
                 console.error('Database error:', err);
