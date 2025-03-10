@@ -96,11 +96,14 @@ module.exports = {
         const userId = user.id;
         const guildName = interaction.guild.name;
         const userName = user.username;
+        const ephemeralFlag = await sql.getEphemeral(guildId);
+        const ephemeral = ephemeralFlag ? {flags:64} : {};
+        console.log(ephemeral);
 
         console.log(`Command: ${commandName}, Subcommand: ${options.getSubcommand()}, Guild: ${guildName}, User: ${userName}`);
 
         try {
-            await interaction.deferReply({ flags: 64  });
+            await interaction.deferReply({ flags: 64 });
             switch (options.getSubcommand()) {
                 case "add":
                     {
@@ -135,7 +138,7 @@ module.exports = {
                         const role = options.getString("role");
                         console.log(role);
                         await sql.editRole(kingdomId, role, guildId);
-                        await interaction.editReply({ content: `Role of ${name} edited to ${role}!`, flags: 64 });
+                        await interaction.editReply({ content: `Role of ${name} edited to ${role}!`, ...ephemeral });
                         if (role === "MANAGER") {
                             addAlliance(kingdomId, sql, r4Check);
                         }

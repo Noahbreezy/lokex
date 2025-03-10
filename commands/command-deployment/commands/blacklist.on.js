@@ -68,6 +68,8 @@ module.exports = {
         const sql = module.exports.sql;
         const { commandName, options } = interaction;
         const guild = interaction.guild.id;
+        const ephemeralFlag = await sql.getEphemeral(guildId);
+        const ephemeral = ephemeralFlag ? {flags:64} : {};
 
         let logChannel;
         try {
@@ -87,7 +89,7 @@ module.exports = {
                 if (!alreadybs) {
                     return await interaction.reply({
                         content: "This kingdom is not blacklisted",
-                        ephemeral: true,
+                        flags: 64,
                     });
                 }
 
@@ -101,7 +103,7 @@ module.exports = {
                 await sql.removeFromBlacklist(kingdomId, guild);
                 await interaction.reply({
                     content: name + " has been unblacklisted",
-                    ephemeral: true,
+                    ...ephemeral,
                 });
 
                 const discordList = await sql.getVerifiedDiscordId(kingdomId, guild);
@@ -228,14 +230,14 @@ module.exports = {
                 if (messages.length > 0) {
                     await interaction.reply({
                         content: messages[0],
-                        ephemeral: true,
+                        ...ephemeral,
                     });
 
                     // Send the rest of the messages as follow-ups
                     for (let i = 1; i < messages.length; i++) {
                         await interaction.followUp({
                             content: messages[i],
-                            ephemeral: true,
+                            ...ephemeral,
                         });
                     }
                 }
@@ -299,7 +301,7 @@ async function handleBlacklistModal(interaction, sql, api) {
                     Math.floor(date.getTime() / 1000) +
                     ":f> for the reason: " +
                     isBlacklisted[0].description,
-                ephemeral: true,
+                ...ephemeral,
             });
         }
         const nameList = await sql.getKingdomNameAndAlliance(kingdomId);
@@ -329,7 +331,7 @@ async function handleBlacklistModal(interaction, sql, api) {
                 (!permanent ? " until " + ditim : "") +
                 " for the reason: " +
                 desc,
-            ephemeral: true,
+            ...ephemeral,
         });
         if (discordList.length > 0) {
             try {
@@ -400,7 +402,7 @@ async function handleBlacklistModal(interaction, sql, api) {
             if (!managerToken.length > 0) {
                 return await interaction.followUp({
                     content: "Can't kick from alliance " + allianceTag ? allianceTag : "" + "(no manager bot) or user is not in an alliance.",
-                    ephemeral: true,
+                    flags: 64,
                 });
             }
 
@@ -420,7 +422,7 @@ async function handleBlacklistModal(interaction, sql, api) {
                 if (response.data.result) {
                     await interaction.followUp({
                         content: "Kicked successfully",
-                        ephemeral: true,
+                        ...ephemeral,
                     });
                     await interaction.client.channels.cache
                         .get(logChannel)
@@ -437,20 +439,20 @@ async function handleBlacklistModal(interaction, sql, api) {
                     console.log(response);
                     return await interaction.followUp({
                         content: "There has been an error",
-                        ephemeral: true,
+                        flags: 64,
                     });
                 }
             } catch (error) {
                 console.log(error);
                 return await interaction.followUp({
                     content: "There has been an error",
-                    ephemeral: true,
+                    flags: 64,
                 });
             }
         } else {
             return await interaction.followUp({
                 content: "User needs manual kick.",
-                ephemeral: true,
+                flags: 64,
             });
         }
     }

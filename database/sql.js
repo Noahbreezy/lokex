@@ -208,8 +208,16 @@ class sqlFunctions {
     }
 
     // Get all alliance settings
-    async getAllAllianceSettings() {
-        return this.query("SELECT `tag`,  `power`, `kills`, `speed`, `combat`, `monster`, `infantry`, `cavalry`, `ranged`, `governor`, `verified`, `interval`, `accept`, `kick`, `maxkick`, `cvcmode`, 'titlegrace' FROM `allianceinf` WHERE 1");
+    async getAllAllianceSettings(guild) {
+        const query = `
+            SELECT 
+                tag, power, kills, speed, combat, monster, infantry, cavalry, 
+                ranged, governor, verified, \`interval\`, \`accept\`, kick, 
+                maxkick, cvcmode, titlegrace 
+            FROM allianceinf 
+            WHERE guild = ?;
+        `;
+        return this.query(query, [guild]);
     }
 
     // Get alliance settings
@@ -373,6 +381,32 @@ class sqlFunctions {
     async setGuildVerificationRole(role, guild) {
         const query = "UPDATE guild_settings SET verified_role=? WHERE guild_id=?;";
         return this.query(query, [role, guild]);
+    }
+
+    // Check if a guild exists in the settings already
+    async guildExists(guildId) {
+        const query = `SELECT guild_id FROM guild_settings WHERE guild_id = ?;`;
+        const results = await this.query(query, [guildId]);
+        return results.length > 0;
+    }
+
+    // Add guild to the settings table (guild_id required only)
+    async addGuild(guildId, guildName) {
+        const query = `INSERT INTO guild_settings (guild_id, guild_name) VALUES (?, ?);`;
+        return this.query(query, [guildId, guildName]);
+    }
+
+    // Use ephemeral messages flag
+    async setEphemeral(flag, guildId) {
+        const query = `UPDATE guild_settings SET ephemeral = ? WHERE guild_id = ?;`;
+        return this.query(query, [flag, guildId]);
+    }
+
+    // Get the use ephemeral messages flag
+    async getEphemeral(guildId) {
+        const query = `SELECT ephemeral FROM guild_settings WHERE guild_id = ?;`;
+        const results = await this.query(query, [guildId]);
+        return results.length > 0 ? results[0].ephemeral === 1 : false;
     }
 
     // Accept log functions

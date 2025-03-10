@@ -117,6 +117,9 @@ module.exports = {
     async execute(interaction) {
         const { commandName, options } = interaction;
         const sql = module.exports.sql; // Access the sql instance
+        const guildId = interaction.guild.id;
+        const ephemeralFlag = await sql.getEphemeral(guildId);
+        const ephemeral = ephemeralFlag ? {flags:64} : {};
 
         switch (options.getSubcommand()) {
             case "setlimit":
@@ -140,7 +143,7 @@ module.exports = {
                     }
 
                     if (updates.length === 0) {
-                        await interaction.reply({ content: 'No columns to update.', ephemeral: true });
+                        await interaction.reply({ content: 'No columns to update.', flags: 64 });
                         return;
                     }
 
@@ -148,10 +151,10 @@ module.exports = {
                         for (const { column, value } of updates) {
                             await sql.updateAllianceSetting(column, value, alliance);
                         }
-                        await interaction.reply({ content: 'Alliance information updated successfully!', ephemeral: true });
+                        await interaction.reply({ content: 'Alliance information updated successfully!', ...ephemeral });
                     } catch (error) {
                         console.error(error);
-                        await interaction.reply({ content: 'There was an error updating the alliance information.', ephemeral: true });
+                        await interaction.reply({ content: 'There was an error updating the alliance information.', flags: 64 });
                     }
                 }
                 break;
@@ -168,12 +171,12 @@ module.exports = {
                     // }).join(', ');
 
                     await sql.resetAllianceSettings(alliance);
-                    await interaction.reply({ content: 'Alliance limit has been resetted!', ephemeral: true });
+                    await interaction.reply({ content: 'Alliance limit has been resetted!', ...ephemeral });
                 }
                 break;
             case "limitinfo":
                 {
-                    const rows = await sql.getAllAllianceSettings()
+                    const rows = await sql.getAllAllianceSettings(guildId);
                     console.log(rows);
 
                     const embeds = [];
@@ -208,14 +211,14 @@ module.exports = {
                         for (let i = 0; i < embeds.length; i += 10) {
                             chunks.push(embeds.slice(i, i + 10));
                         }
-                        await interaction.reply({ embeds: chunks[0], ephemeral: true });
+                        await interaction.reply({ embeds: chunks[0], ...ephemeral });
                         // Send each chunk of embeds as a separate message
                         chunks.slice(1).forEach(async chunk => {
-                            await interaction.followUp({ embeds: chunk, ephemeral: true });
+                            await interaction.followUp({ embeds: chunk, ...ephemeral });
                         });
                     } else {
                         // Send all embeds in a single message
-                        await interaction.reply({ embeds: embeds, ephemeral: true });
+                        await interaction.reply({ embeds: embeds, ...ephemeral });
                     }
                 }
         }

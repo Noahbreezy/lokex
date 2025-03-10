@@ -270,6 +270,7 @@ class AllianceManager {
       }
 
       const token = tokenResponse[0].token;
+      // console.log("token: ", token);
 
       const allianceSettings = (await this.sql.getAllianceSettings(this.allianceId))[0];
       //console.log("alliance settings: ", allianceSettings);
@@ -277,6 +278,7 @@ class AllianceManager {
       const logChannels = (await this.sql.getGuildLogChannelsByAlliance(this.allianceId))[0];
       // console.log("logchannels: ", logChannels);
       // console.log(settingsQueryResponse)
+      // console.log("log channels: ", logChannels);
 
       this.power = allianceSettings.power;
       this.kills = allianceSettings.kills;
@@ -301,6 +303,7 @@ class AllianceManager {
       this.rejectLogChannel = logChannels.reject_log_channel;
 
       const mailAccountToken = await this.sql.getRandomManagerTokenFromGuild(this.guild);
+      // console.log("mail token: ", mailAccountToken);
 
       // console.log("token: ", token);
 

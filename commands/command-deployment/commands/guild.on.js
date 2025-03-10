@@ -37,6 +37,17 @@ module.exports = {
                         .setDescription("Channel to log rejected members and more")
                         .setRequired(true)
                 )
+        )
+        .addSubcommand((subcommand) =>
+            subcommand
+                .setName("hide-answers")
+                .setDescription("Hide the bot's answers to commands")
+                .addBooleanOption((option) =>
+                    option
+                        .setName("hidden")
+                        .setDescription("True = hides bot answers")
+                        .setRequired(true)
+                )
         ),
     async execute(interaction) {
         const sql = module.exports.sql;
@@ -44,10 +55,17 @@ module.exports = {
         const userId = user.id;
         const guildName = interaction.guild.name;
         const userName = user.username;
+        const ephemeralFlag = await sql.getEphemeral(guildId);
+        const ephemeral = ephemeralFlag ? {flags:64} : {};
+
 
         console.log(`Command: ${commandName}, Subcommand: ${options.getSubcommand()}, Guild: ${guildName}, User: ${userName}`);
 
         try {
+            const guildExistsFlag = await sql.guildExists(guildId);
+            if (!guildExistsFlag) {
+                await sql.addGuild(guildId, guildName);
+            }
             switch (options.getSubcommand()) {
                 case "verified-role":
                     {
@@ -55,7 +73,7 @@ module.exports = {
                         const roleId = role.id;
                         const roleName = role.name;
                         await sql.setGuildVerificationRole(roleId, guildId);
-                        await interaction.reply({ content: `Role ${roleName} has been set as the verified role.`, ephemeral: true });
+                        await interaction.reply({ content: `Role ${roleName} has been set as the verified role.`, ...ephemeral });
                         break;
                     }
                 case "accept-log-channel":
@@ -64,7 +82,7 @@ module.exports = {
                         const channelId = channel.id;
                         const channelName = channel.name;
                         await sql.setGuildAcceptLogChannel(channelId, guildId);
-                        await interaction.reply({ content: `Channel ${channelName} has been set as the accept log channel.`, ephemeral: true });
+                        await interaction.reply({ content: `Channel ${channelName} has been set as the accept log channel.`, ...ephemeral });
                         break;
                     }
                 case "reject-log-channel":
@@ -73,16 +91,28 @@ module.exports = {
                         const channelId = channel.id;
                         const channelName = channel.name;
                         await sql.setGuildRejectLogChannel(channelId, guildId);
-                        await interaction.reply({ content: `Channel ${channelName} has been set as the reject log channel.`, ephemeral: true });
+                        await interaction.reply({ content: `Channel ${channelName} has been set as the reject log channel.`, ...ephemeral });
+                        break;
+                    }
+                case "hide-answers":
+                    {
+                        const hidden = options.getBoolean("hidden");
+                        await sql.setEphemeral(hidden, guildId);
+                        if(hidden) {
+                            await interaction.reply({ content: `Bot answers are now hidden.`, flags : 64 });
+                        }
+                        else {
+                            await interaction.reply({ content: `Bot answers are now visible.` });
+                        }
                         break;
                     }
                 default:
-                    await interaction.editReply({ content: "Unknown subcommand", ephemeral: true });
+                    await interaction.editReply({ content: "Unknown subcommand", ...ephemeral });
                     break;
             }
         } catch (error) {
             console.error(error);
-            await interaction.reply({ content: "There was an error while changing guild settings!", ephemeral: true });
+            await interaction.reply({ content: "There was an error while changing guild settings! If this is the first time using the /guild command it's normal. It should work if you try again.", ephemeral: true });
         }
     },
 };
