@@ -18,7 +18,7 @@ async function handleNameAutocomplete(interaction, sql) {
     const names = await sql.searchKingdomName(focusedValue);
 
     // Ensure each alliance object has both name and value properties
-    const choices = names.map(nameObj => ({
+    const choices = names.slice(0, 25).map(nameObj => ({
         name: nameObj.name || 'Unknown',
         value: nameObj.kingdomId || 'Unknown'
     }));
@@ -68,12 +68,12 @@ module.exports = {
         const sql = module.exports.sql;
         const { commandName, options } = interaction;
         const guild = interaction.guild.id;
-        const ephemeralFlag = await sql.getEphemeral(guildId);
+        const ephemeralFlag = await sql.getEphemeral(guild);
         const ephemeral = ephemeralFlag ? {flags:64} : {};
 
         let logChannel;
         try {
-            logChannel = (await sql.getGuildLogChannels(guild))[0].accept_log_channel;
+            logChannel = (await sql.getGuildAcceptLogChannels(guild))[0].accept_log_channel;
         } catch (error) {
             logChannel = "1064289954739523654";
         }
@@ -87,7 +87,7 @@ module.exports = {
                 console.log(alreadybs);
 
                 if (!alreadybs) {
-                    return await interaction.reply({
+                    return await interaction.followUp({
                         content: "This kingdom is not blacklisted",
                         flags: 64,
                     });
@@ -140,15 +140,19 @@ module.exports = {
                     } catch (error) { }
                 }
 
-                await interaction.client.channels.cache
-                    .get(logChannel)
-                    .send(
+                const logChannelCache = interaction.client.channels.cache.get(logChannel);
+
+                if (logChannelCache) {
+                    await logChannelCache.send(
                         name +
                         ` has been ` +
                         "unblacklisted by <@" +
                         interaction.user.id +
                         ">"
                     );
+                } else {
+                    console.error("Log channel not found or bot lacks permissions.");
+                }
                 break;
             }
             case "add": {
@@ -247,11 +251,12 @@ module.exports = {
         }
     },
     async modals(interaction) {
-        console.log("modals1");
         const sql = module.exports.sql;
         const api = module.exports.api;
-        console.log("modals");
-        await handleBlacklistModal(interaction, sql, api);
+        const guild = interaction.guild.id;
+        const ephemeralFlag = await sql.getEphemeral(guild);
+        const ephemeral = ephemeralFlag ? {flags:64} : {};
+        await handleBlacklistModal(interaction, sql, api, ephemeral);
     },
     async autocomplete(interaction) {
         const sql = module.exports.sql;
@@ -279,7 +284,8 @@ function formatDateTime(data) {
     );
 }
 
-async function handleBlacklistModal(interaction, sql, api) {
+async function handleBlacklistModal(interaction, sql, api, ephemeral) {
+    await interaction.deferReply({ ...ephemeral });
     const userId = interaction.user.id;
     const guild = interaction.guild.id;
     let logChannel;
@@ -294,9 +300,9 @@ async function handleBlacklistModal(interaction, sql, api) {
 
         if (isBlacklisted) {
             let date = new Date(isBlacklisted[0].expiration);
-            return await interaction.reply({
+            return await interaction.followUp({
                 content:
-                    "This kingdom is alredy blacklisted until " +
+                    "This kingdom is already blacklisted until " +
                     "<t:" +
                     Math.floor(date.getTime() / 1000) +
                     ":f> for the reason: " +
@@ -323,7 +329,7 @@ async function handleBlacklistModal(interaction, sql, api) {
         const discordList = await sql.getVerifiedDiscordId(kingdomId, guild);
         console.log(userId, kingdomId, dateexp, desc, guild);
         await sql.addToBlacklist(userId, kingdomId, dateexp, desc, guild);
-        await interaction.reply({
+        await interaction.followUp({
             content:
                 name +
                 ` has been ` +
@@ -379,9 +385,9 @@ async function handleBlacklistModal(interaction, sql, api) {
             } catch (error) { }
         }
 
-        await interaction.client.channels.cache
-            .get(logChannel)
-            .send(
+        const logChannelCache = interaction.client.channels.cache.get(logChannel);
+        if (logChannelCache) {
+            await logChannelCache.send(
                 name +
                 ` has been ` +
                 (permanent ? "permanent " : "") + "blacklisted" +
@@ -391,11 +397,17 @@ async function handleBlacklistModal(interaction, sql, api) {
                 "> for the reason: " +
                 desc
             );
+        } else {
+            console.error("Log channel not found or bot lacks permissions.");
+        }
 
         if (nameList.length > 0 || nameList[0].allianceId) {
             console.log("namelist: ", nameList);
             let allianceId = nameList[0].allianceId;
             let allianceTag = nameList[0].allianceTag;
+            if (!allianceId) {
+                return;
+            }
             console.log("alliance ID: ", allianceId);
             const managerToken = (await sql.getManagerToken(allianceId));
             console.log("token: ", managerToken);
@@ -438,7 +450,7 @@ async function handleBlacklistModal(interaction, sql, api) {
                 } else {
                     console.log(response);
                     return await interaction.followUp({
-                        content: "There has been an error",
+                        content: "Couldn't kick player, manual kick needed",
                         flags: 64,
                     });
                 }

@@ -39,7 +39,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
       console.error(error);
       await interaction.reply({
         content: "There was an error while executing this command!",
-        ephemeral: true,
+        flags: 64,
       });
     }
   } else if (interaction.isAutocomplete()) {
@@ -69,7 +69,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
         console.error(error);
         await interaction.reply({
           content: "There was an error while executing this command!",
-          ephemeral: true,
+          flags: 64,
         });
       }
     }
@@ -85,7 +85,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
         console.error(error);
         await interaction.reply({
           content: "There was an error while executing this command!",
-          ephemeral: true,
+          flags: 64,
         });
       }
     }
@@ -99,7 +99,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
         console.error(error);
         await interaction.reply({
           content: "There was an error while executing this command!",
-          ephemeral: true,
+          flags: 64,
         });
       }
 
@@ -117,7 +117,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
         console.error(error);
         await interaction.reply({
           content: "There was an error while executing this command!",
-          ephemeral: true,
+          flags: 64,
         });
       }
     }

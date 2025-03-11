@@ -101,6 +101,19 @@ class sqlFunctions {
         return this.query(query, [allianceId]);
     }
 
+    // Get the manager's role status
+    async getManagerRole(kingdomId) {
+        const query = `SELECT role FROM botAccounts WHERE kingdomId = ?;`;
+        return this.query(query, [kingdomId]);
+    }
+
+    // Check if the manager account has manager role
+    async checkManagerRole(kingdomId) {
+        const query = `SELECT role FROM botAccounts WHERE kingdomId = ? AND role = 'MANAGER';`;
+        const results = await this.query(query, [kingdomId]);
+        return results.length > 0;
+    }
+
     // Get a manager token by kingdomId
     async getManagerTokenByKingdomId(kingdomId) {
         const query = `SELECT token FROM botAccounts WHERE kingdomId = ? AND role = 'MANAGER';`;
@@ -355,7 +368,13 @@ class sqlFunctions {
 
     // Get guild logchannels of a specific guild
     async getGuildLogChannels(guild) {
-        const query = "SELECT accept_log_channel, reject_log_channel FROM guild_settings WHERE guild_id=?;";
+        const query = "SELECT accept_log_channel, reject_log_channel, verification_channel, titles_channel, pledgers_channel, buff_channel, ranking_channel, cmine_whitelist_channel, dsa_whitelist_channel FROM guild_settings WHERE guild_id=?;";
+        return this.query(query, [guild]);
+    }
+
+    // get channels managed by the bot
+    async getManagedChannels(guild) {
+        const query = "SELECT verification_channel, titles_channel, pledgers_channel, buff_channel, ranking_channel, cmine_whitelist_channel, dsa_whitelist_channel FROM guild_settings WHERE guild_id=?;";
         return this.query(query, [guild]);
     }
 
@@ -371,6 +390,48 @@ class sqlFunctions {
         return this.query(query, [channel, guild]);
     }
 
+    // Set guild verification channel
+    async setGuildVerificationChannel(channel, guild) {
+        const query = "UPDATE guild_settings SET verification_channel=? WHERE guild_id=?;";
+        return this.query(query, [channel, guild]);
+    }
+
+    // Set guild titles channel
+    async setGuildTitlesChannel(channel, guild) {
+        const query = "UPDATE guild_settings SET titles_channel=? WHERE guild_id=?;";
+        return this.query(query, [channel, guild]);
+    }
+
+    // Set guild pledgers channel
+    async setGuildPledgersChannel(channel, guild) {
+        const query = "UPDATE guild_settings SET pledgers_channel=? WHERE guild_id=?;";
+        return this.query(query, [channel, guild]);
+    }
+
+    // Set guild buff channel
+    async setGuildBuffChannel(channel, guild) {
+        const query = "UPDATE guild_settings SET buff_channel=? WHERE guild_id=?;";
+        return this.query(query, [channel, guild]);
+    }
+
+    // Set guild ranking channel
+    async setGuildRankingChannel(channel, guild) {
+        const query = "UPDATE guild_settings SET ranking_channel=? WHERE guild_id=?;";
+        return this.query(query, [channel, guild]);
+    }
+
+    // Set guild cmine whitelist channel
+    async setGuildCmineWhitelistChannel(channel, guild) {
+        const query = "UPDATE guild_settings SET cmine_whitelist_channel=? WHERE guild_id=?;";
+        return this.query(query, [channel, guild]);
+    }
+
+    // Set guild dsa whitelist channel
+    async setGuildDsaWhitelistChannel(channel, guild) {
+        const query = "UPDATE guild_settings SET dsa_whitelist_channel=? WHERE guild_id=?;";
+        return this.query(query, [channel, guild]);
+    }
+
     // Get verification role of a guild
     async getGuildVerificationRole(guild) {
         const query = "SELECT verified_role FROM guild_settings WHERE guild_id=?;";
@@ -381,6 +442,12 @@ class sqlFunctions {
     async setGuildVerificationRole(role, guild) {
         const query = "UPDATE guild_settings SET verified_role=? WHERE guild_id=?;";
         return this.query(query, [role, guild]);
+    }
+
+    // Check if a channel exists in the settings already for a specific guild
+    async channelExists(channel, guild) {
+        const query = `SELECT ${channel} FROM guild_settings WHERE guild_id = ?;`;
+        return this.query(query, [guild]);
     }
 
     // Check if a guild exists in the settings already
@@ -491,6 +558,11 @@ class sqlFunctions {
     // Get XOR password
     async getXORPass() {
         return this.query("SELECT value FROM utils WHERE name='password'");
+    }
+
+    // Add XOR password
+    async updateXORPass(value) {
+        return this.query("UPDATE utils SET value=? WHERE name='password'", [value]);
     }
 
     // Proxies functions

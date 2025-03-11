@@ -1,4 +1,5 @@
-const { SlashCommandBuilder, PermissionFlagsBits, Options } = require("discord.js");
+const { SlashCommandBuilder, PermissionFlagsBits, Options, ChannelType, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require("discord.js");
+
 
 module.exports = {
     data: new SlashCommandBuilder()
@@ -15,6 +16,11 @@ module.exports = {
                         .setDescription("Role to be assigned to verified members")
                         .setRequired(true)
                 )
+        )
+        .addSubcommand((subcommand) =>
+            subcommand
+                .setName("create-channels")
+                .setDescription("Create verification channel and more")
         )
         .addSubcommand((subcommand) =>
             subcommand
@@ -53,10 +59,11 @@ module.exports = {
         const sql = module.exports.sql;
         const { commandName, options, guildId, user } = interaction;
         const userId = user.id;
+        const guild = interaction.guild;
         const guildName = interaction.guild.name;
         const userName = user.username;
         const ephemeralFlag = await sql.getEphemeral(guildId);
-        const ephemeral = ephemeralFlag ? {flags:64} : {};
+        const ephemeral = ephemeralFlag ? { flags: 64 } : {};
 
 
         console.log(`Command: ${commandName}, Subcommand: ${options.getSubcommand()}, Guild: ${guildName}, User: ${userName}`);
@@ -74,6 +81,12 @@ module.exports = {
                         const roleName = role.name;
                         await sql.setGuildVerificationRole(roleId, guildId);
                         await interaction.reply({ content: `Role ${roleName} has been set as the verified role.`, ...ephemeral });
+                        break;
+                    }
+                case "create-channels":
+                    {
+                        await interaction.deferReply({ ...ephemeral });
+                        await createGuildChannels(interaction, guild, guildName, guildId, ephemeral, sql);
                         break;
                     }
                 case "accept-log-channel":
@@ -98,8 +111,8 @@ module.exports = {
                     {
                         const hidden = options.getBoolean("hidden");
                         await sql.setEphemeral(hidden, guildId);
-                        if(hidden) {
-                            await interaction.reply({ content: `Bot answers are now hidden.`, flags : 64 });
+                        if (hidden) {
+                            await interaction.reply({ content: `Bot answers are now hidden.`, flags: 64 });
                         }
                         else {
                             await interaction.reply({ content: `Bot answers are now visible.` });
@@ -112,7 +125,185 @@ module.exports = {
             }
         } catch (error) {
             console.error(error);
-            await interaction.reply({ content: "There was an error while changing guild settings! If this is the first time using the /guild command it's normal. It should work if you try again.", ephemeral: true });
+            await interaction.reply({ content: "There was an error while changing guild settings! If this is the first time using the /guild command it's normal. It should work if you try again.", flags: 64 });
         }
     },
 };
+
+async function createGuildChannels(interaction, guild, guildName, guildId, ephemeral, sql) {
+    try {
+
+        const existingChannels = await guild.channels.fetch();
+        const existingChannelIds = existingChannels.map(channel => channel.id);
+        // console.log(existingChannelIds);
+        // console.log(existingChannels);
+        const managedChannelsDB = (await sql.getManagedChannels(guildId))[0];
+        console.log(managedChannelsDB);
+
+        for (const [key, value] of Object.entries(managedChannelsDB)) {
+            if (!existingChannelIds.includes(value)) {
+                switch (key) {
+                    case "verification_channel":
+                        await createVerificationChannel(interaction, guild, guildName, guildId, ephemeral, sql);
+                        break;
+                    case "titles_channel":
+                        await createTitlesChannel(interaction, guild, guildName, guildId, ephemeral, sql);
+                        break;
+                    case "pledgers_channel":
+                        break;
+                    case "buff_channel":
+                        break;
+                    case "ranking_channel":
+                        break;
+                    case "cmine_whitelist_channel":
+                        break;
+                    case "dsa_whitelist_channel":
+                        break;
+                    case "open_chat_channel":
+                        break;
+                    default:
+                        break;
+                }
+            }
+        }
+
+
+        // Respond to the interaction
+        await interaction.followUp({ content: `✅ Channels created for ${guildName}`, ...ephemeral });
+    } catch (error) {
+        console.error(error);
+        await interaction.followUp({ content: "There was an error while creating the channels.", flags: 64 });
+    }
+
+}
+
+async function createVerificationChannel(interaction, guild, guildName, guildId, ephemeral, sql) {
+    try {
+        let verificationChannel = await guild.channels.create({
+            name: "verification",
+            type: ChannelType.GuildText,
+            permissionOverwrites: [
+                {
+                    id: guildId, // @everyone role
+                    allow: [PermissionFlagsBits.ViewChannel],
+                    deny: [PermissionFlagsBits.SendMessages],
+                }
+            ]
+        });
+
+        await sql.setGuildVerificationChannel(verificationChannel.id, guildId);
+
+        // Create embed message
+        const embed = new EmbedBuilder()
+            .setColor(0x5865F2)
+            .setTitle(`🔹 Automated Verification of ${guildName}`)
+            .setDescription(
+                "🇬🇧 **Push 'Verify' to receive instructions in your private messages!**\n" +
+                "Please check messages from Lokex for a step-by-step guide."
+            )
+            .addFields(
+                { name: "🇫🇷 French", value: "**Appuyez sur 'Verify' pour recevoir des instructions dans vos messages privés !**\nVeuillez vérifier les messages de Lokex pour un guide étape par étape." },
+                { name: "🇪🇸 Spanish", value: "**Presiona 'Verify' para recibir instrucciones en tus mensajes privados!**\nPor favor, revisa los mensajes de Lokex para obtener una guía paso a paso." },
+                { name: "🇩🇪 German", value: "**Drücken Sie 'Verify', um Anweisungen in Ihren privaten Nachrichten zu erhalten!**\nBitte überprüfen Sie die Nachrichten von Lokex für eine Schritt-für-Schritt-Anleitung." },
+                { name: "🇵🇹 Portuguese", value: "**Pressione 'Verify' para receber instruções em suas mensagens privadas!**\nPor favor, verifique as mensagens de Lokex para um guia passo a passo." },
+                { name: "🇷🇺 Russian", value: "**Нажмите 'Verify', чтобы получить инструкции в личных сообщениях!**\nПожалуйста, проверьте сообщения от Lokex для пошагового руководства." },
+                { name: "🇮🇷 Persian", value: "**دکمه 'Verify' را فشار دهید تا دستورالعمل‌ها را در پیام‌های خصوصی خود دریافت کنید!**\nلطفاً پیام‌های Lokex را برای راهنمای گام به گام بررسی کنید." },
+                { name: "🇨🇳 Chinese", value: "**点击 'Verify' 按钮在您的私信中获取指示！**\n请检查 Lokex 发送的消息以获取分步指南。" }
+            )
+            .setFooter({ text: "Ask for help in: #open-chat" });
+
+
+        // Create the "Verify" button
+        const row = new ActionRowBuilder().addComponents(
+            new ButtonBuilder()
+                .setCustomId("verify")
+                .setLabel("Verify")
+                .setStyle(ButtonStyle.Primary)
+        );
+
+        // Send message to the new channel
+        let message = await verificationChannel.send({ embeds: [embed], components: [row] });
+
+        // Respond to the interaction
+        await interaction.followUp({ content: `✅ Verification channel created: ${verificationChannel}`, ...ephemeral });
+    } catch (error) {
+        console.error(error);
+        await interaction.followUp({ content: "There was an error while creating the verification channel.", flags: 64 });
+    }
+}
+
+async function createTitlesChannel(interaction, guild, guildName, guildId, ephemeral, sql) {
+    try {
+        // Create the "titles" channel with appropriate permissions
+        let titlesChannel = await guild.channels.create({
+            name: "titles-request",
+            type: ChannelType.GuildText,
+            permissionOverwrites: [
+                {
+                    id: guildId, // @everyone role
+                    allow: [PermissionFlagsBits.ViewChannel],
+                    deny: [PermissionFlagsBits.SendMessages],
+                }
+            ]
+        });
+
+        // Store the channel ID in the database
+        await sql.setGuildTitlesChannel(titlesChannel.id, guildId);
+
+        // Create the embed message for the titles panel
+        const embed = new EmbedBuilder()
+            .setColor(0x5865F2) // Matching the color from the image
+            .setTitle(`🔹 Titles for ${guildName}`)
+            .setDescription(
+                "Choose a title, then select the target kingdom. IF you have only one kingdom verified, the title will be delivered directly.\n\n" +
+                "1. Click on **Alchemist** 🧪 (for research) or **Architect** 🏰 (for building)\n" +
+                "2. Select the target kingdom for the title from the dropdown menu.\n" +
+                "3. If the target kingdom is not in the dropdown menu, please click **\"Add Kingdom\"** and follow the instructions to verify it. Once verified, start over at step 1.\n\n" +
+                "🚨 **PLEASE NOTE:** The title is reserved for **2 minutes ⏰** then someone else can take it from you. If you finish with the title more quickly, please click **\"Free the Title\"** ❌ so that the others can use it! 🙏"
+            )
+        // .addFields(
+        //     { name: "Alchemist status:", value: "Free", inline: true },
+        //     { name: "Architect status:", value: "Free", inline: true },
+        //     { name: "Titles applied today:", value: "0", inline: false },
+        //     { name: "Titles applied from start:", value: "0", inline: false }
+        // )
+        // .setFooter({ text: "Lokex" });
+
+        // Create the buttons for the panel
+        const row = new ActionRowBuilder().addComponents(
+            new ButtonBuilder()
+                .setCustomId("alchemist")
+                .setLabel("Alchemist")
+                .setStyle(ButtonStyle.Primary)
+                .setEmoji("🧪"),
+            new ButtonBuilder()
+                .setCustomId("architect")
+                .setLabel("Architect")
+                .setStyle(ButtonStyle.Success)
+                .setEmoji("🔨"),
+            new ButtonBuilder()
+                .setCustomId("free_title")
+                .setLabel("Free the Title")
+                .setStyle(ButtonStyle.Danger)
+                .setEmoji("❌")
+        );
+
+        // Create the "Add Kingdom" button in a separate row
+        const row2 = new ActionRowBuilder().addComponents(
+            new ButtonBuilder()
+                .setCustomId("add_kingdom")
+                .setLabel("Add Kingdom")
+                .setStyle(ButtonStyle.Secondary)
+                .setEmoji("🏰")
+        );
+
+        // Send the message to the new titles channel
+        let message = await titlesChannel.send({ embeds: [embed], components: [row, row2] });
+
+        // Respond to the interaction
+        await interaction.followUp({ content: `✅ Titles channel created: ${titlesChannel}`, ...ephemeral });
+    } catch (error) {
+        console.error(error);
+        await interaction.followUp({ content: "There was an error while creating the titles channel.", flags: 64 });
+    }
+}

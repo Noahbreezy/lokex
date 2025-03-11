@@ -261,9 +261,11 @@ class AllianceManager {
       console.log("manager: ", this.allianceTag);
 
       const tokenResponse = (await this.sql.getManagerToken(this.allianceId));
+      const roleFlag = await this.sql.checkManagerRole(this.managerId);
+      console.log("role: ", roleFlag);
       // console.log("token: ", tokenResponse);
-      if (tokenResponse === undefined || tokenResponse.length === 0 || !(await this.r4Check.checkR4(tokenResponse[0].token, this.managerId, this.allianceId))) {
-        console.error(`Manager token not found or not R4. Closing AllianceManager instance for ${allianceTag}.`);
+      if (!roleFlag || tokenResponse === undefined || tokenResponse.length === 0 || !(await this.r4Check.checkR4(tokenResponse[0].token, this.managerId, this.allianceId))) {
+        console.error(`Manager token not found or not R4. Closing AllianceManager instance for ${this.allianceTag}.`);
         this.runningAlliances.delete(this.allianceId);
         await this.sql.setManagerIdle(this.managerId);
         return;
@@ -322,7 +324,7 @@ class AllianceManager {
         return;
       }
 
-      console.log("accept function");
+      console.log("accept function", this.allianceTag);
       try {
         const requestListResponse = await this.api.request(
           "https://api-lok-live.leagueofkingdoms.com/api/alliance/request/list",
