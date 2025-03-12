@@ -9,7 +9,7 @@ class UpdateInfo {
         this.enc = new Encryption();
     }
 
-    async updateInfo(token, kingdomId) {
+    async updateInfo(token, kingdomId, allianceId, allianceTag) {
 
         const xor_password = (await this.sql.getXORPass())[0].value;
         console.log('XOR Password: ', xor_password);
@@ -46,7 +46,7 @@ class UpdateInfo {
             );
         } catch (error) {
             console.log('Error getting player info: ', error);
-            console.log('Error response: ', await this.enc.decryptXor(await this.enc.decryptBase64(error.response.data), xor_password));
+            console.log('Error response: ', error.response.data);
             return;
         }
 
@@ -60,6 +60,8 @@ class UpdateInfo {
 
         // Combine the required fields into a single object
         const playerInfo = {
+            allianceId: allianceId,
+            allianceTag: allianceTag,
             kingdomId: kingdomId,
             name: basicPlayerInfo.name,
             level: basicPlayerInfo.level,
@@ -73,6 +75,8 @@ class UpdateInfo {
         };
 
         const values = [
+            playerInfo.allianceId,
+            playerInfo.allianceTag,
             playerInfo.kingdomId,
             playerInfo.name,
             playerInfo.level,

@@ -580,11 +580,11 @@ class AllianceManager {
                 playerKills = (await this.sql.getKingdomKills(kid))[0].kills;
               } catch (error) {
                 console.log("cannot find kills, updating data");
-                await this.updateInfo.updateInfo(token, kid);
+                await this.updateInfo.updateInfo(token, kid, this.allianceId, this.allianceTag);
               }
 
               if (this.kills > playerKills) {
-                await this.updateInfo.updateInfo(token, kid);
+                await this.updateInfo.updateInfo(token, kid, this.allianceId, this.allianceTag);
                 await this.api.request(
                   "https://api-lok-live.leagueofkingdoms.com/api/alliance/request/deny",
                   { kingdomId: kid },

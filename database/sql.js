@@ -132,6 +132,12 @@ class sqlFunctions {
         return this.query(query, [guild]);
     }
 
+    // Get the information of the queen account in a guild
+    async getQueenInfo(guild) {
+        const query = `SELECT name, token, kingdomId, allianceId, allianceTag FROM botAccounts WHERE guild = ? AND role = 'QUEEN';`;
+        return this.query(query, [guild]);
+    }
+
     // Set a manager bot account role as IDLE.
     async setManagerIdle(kingdomId) {
         const query = `UPDATE botAccounts SET role = 'IDLE' WHERE kingdomId = ?;`;
@@ -358,6 +364,27 @@ class sqlFunctions {
         return this.query(query, [kingdomId, guild]);
     }
 
+    // Save a verification code to the database
+    async saveVerificationCode(code, discordId, guildId) {
+        const query = 'INSERT INTO verification_codes (code, discord_id, guild_id, used, expired) VALUES (?, ?, ?, 0, 0)';
+        return this.query(query, [code, discordId, guildId]);
+    }
+
+    async checkVerificationCode(code, guildId) {
+        const query = 'SELECT discord_id FROM verification_codes WHERE code = ? AND guild_id = ? AND used = 0 AND expired = 0';
+        return this.query(query, [code, guildId]);
+    }
+
+    async markCodeUsed(code, guildId) {
+        const query = 'UPDATE verification_codes SET used = 1 WHERE code = ? AND guild_id = ?';
+        return this.query(query, [code, guildId]);
+    }
+
+    async markCodeExpired(code, guildId) {
+        const query = 'UPDATE verification_codes SET expired = 1 WHERE code = ? AND guild_id = ?';
+        return this.query(query, [code, guildId]);
+    }
+
     // Guild settings functions
 
     // Get guild logchannels of a specific alliance
@@ -518,6 +545,12 @@ class sqlFunctions {
         return this.query(query, [kingdomId]);
     }
 
+    // Get latest kingdom location
+    async getKingdomLocation(kingdomId) {
+        const query = "SELECT continent, x, y FROM info WHERE kingdomId=? AND continent > 0 ORDER BY id DESC LIMIT 1";
+        return this.query(query, [kingdomId]);
+    }
+
     // search for a kingdom by name
     async searchKingdomName(name) {
         const query = "SELECT kingdomId, name FROM info WHERE name LIKE ? AND id IN (SELECT MAX(id) FROM info GROUP BY kingdomId) ORDER BY id DESC";
@@ -527,19 +560,8 @@ class sqlFunctions {
     // Update a user in info
     async updateKingdomInfo(values) {
         const query = `
-        INSERT INTO info (kingdomId, name, level, power, kills, death, victory, defeat, gathering)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON DUPLICATE KEY UPDATE
-            name = VALUES(name),
-            level = VALUES(level),
-            lord = VALUES(lord),
-            power = VALUES(power),
-            kills = VALUES(kills),
-            death = VALUES(death),
-            victory = VALUES(victory),
-            defeat = VALUES(defeat),
-            gathering = VALUES(gathering)
-    `;
+        INSERT INTO info (allianceId, allianceTag, kingdomId, name, level, lord, power, kills, death, victory, defeat, gathering)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
         return this.query(query, values);
     }
 
