@@ -262,7 +262,7 @@ class AllianceManager {
 
       const tokenResponse = (await this.sql.getManagerToken(this.allianceId));
       const roleFlag = await this.sql.checkManagerRole(this.managerId);
-      console.log("role: ", roleFlag);
+      // console.log("role: ", roleFlag);
       // console.log("token: ", tokenResponse);
       if (!roleFlag || tokenResponse === undefined || tokenResponse.length === 0 || !(await this.r4Check.checkR4(tokenResponse[0].token, this.managerId, this.allianceId))) {
         console.error(`Manager token not found or not R4. Closing AllianceManager instance for ${this.allianceTag}.`);
@@ -377,7 +377,7 @@ class AllianceManager {
               const name = requestListResponse.data.requestList[xx].name;
               const power = requestListResponse.data.requestList[xx].power;
 
-              const blacklisted = await this.sql.isKingdomBlacklisted(kid);
+              const blacklisted = await this.sql.isKingdomBlacklisted(kid, this.guild);
 
               if (blacklisted) {
                 const dateexp = new Date(blacklisted.expiration);
