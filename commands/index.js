@@ -59,6 +59,20 @@ client.on(Events.InteractionCreate, async (interaction) => {
     }
   }
   else if (interaction.isButton()) {
+    if (interaction.customId === 'verify') {
+      const command = client.commands.get('verify');
+      if (!command) return;
+
+      try {
+        await command.execute(interaction);
+      } catch (error) {
+        console.error(error);
+        await interaction.reply({
+          content: 'There was an error starting the verification process!',
+          flags: 64,
+        });
+      }
+    }
     if (interaction.customId.startsWith("playerinfo_")) {
       const command = client.commands.get("playerinfo");
       if (!command) return;

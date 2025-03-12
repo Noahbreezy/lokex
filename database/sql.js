@@ -101,6 +101,12 @@ class sqlFunctions {
         return this.query(query, [allianceId]);
     }
 
+    // Get a queen token of a guild
+    async getQueenToken(guild) {
+        const query = `SELECT token FROM botAccounts WHERE guild = ? AND role = 'QUEEN';`;
+        return this.query(query, [guild]);
+    }
+
     // Get the manager's role status
     async getManagerRole(kingdomId) {
         const query = `SELECT role FROM botAccounts WHERE kingdomId = ?;`;
@@ -364,25 +370,41 @@ class sqlFunctions {
         return this.query(query, [kingdomId, guild]);
     }
 
+    // Add a kingdom to the verified list
+    async addVerified(kingdomId, kingdomName, userId, userName, guildId, wallet) {
+        const query = "INSERT INTO verified (kingdomId, kingdomName, discordId, name, guild, wallet) VALUES (?, ?, ?, ?, ?, ?)";
+        return this.query(query, [kingdomId, kingdomName, userId, userName, guildId, wallet]);
+    }
+
     // Save a verification code to the database
     async saveVerificationCode(code, discordId, guildId) {
         const query = 'INSERT INTO verification_codes (code, discord_id, guild_id, used, expired) VALUES (?, ?, ?, 0, 0)';
         return this.query(query, [code, discordId, guildId]);
     }
 
+    // Check if a verification code is valid
     async checkVerificationCode(code, guildId) {
         const query = 'SELECT discord_id FROM verification_codes WHERE code = ? AND guild_id = ? AND used = 0 AND expired = 0';
         return this.query(query, [code, guildId]);
     }
 
+    // Mark a verification code as used
     async markCodeUsed(code, guildId) {
         const query = 'UPDATE verification_codes SET used = 1 WHERE code = ? AND guild_id = ?';
         return this.query(query, [code, guildId]);
     }
 
+    // Mark a verification code as expired
     async markCodeExpired(code, guildId) {
         const query = 'UPDATE verification_codes SET expired = 1 WHERE code = ? AND guild_id = ?';
         return this.query(query, [code, guildId]);
+    }
+
+    // Check if a verification code is unique for a guild
+    async checkUniqueVerificationCode(code, guildId) {
+        const query = 'SELECT code FROM verification_codes WHERE code = ? AND guild_id = ?';
+        const results = await this.query(query, [code, guildId]);
+        return results.length === 0;
     }
 
     // Guild settings functions
@@ -560,8 +582,8 @@ class sqlFunctions {
     // Update a user in info
     async updateKingdomInfo(values) {
         const query = `
-        INSERT INTO info (allianceId, allianceTag, kingdomId, name, level, lord, power, kills, death, victory, defeat, gathering)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+        INSERT INTO info (allianceId, allianceTag, kingdomId, name, level, lord, power, kills, death, victory, defeat, gathering, continent)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
         return this.query(query, values);
     }
 

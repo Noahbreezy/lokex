@@ -71,7 +71,8 @@ class UpdateInfo {
             death: historyPlayerInfo.stats.battle.death,
             victory: historyPlayerInfo.stats.battle.victory,
             defeat: historyPlayerInfo.stats.battle.defeated,
-            gathering: historyPlayerInfo.stats.economy.gathering
+            gathering: historyPlayerInfo.stats.economy.gathering,
+            continent: basicPlayerInfo.worldId
         };
 
         const values = [
@@ -86,7 +87,8 @@ class UpdateInfo {
             playerInfo.death,
             playerInfo.victory,
             playerInfo.defeat,
-            playerInfo.gathering
+            playerInfo.gathering,
+            playerInfo.continent
         ];
 
         try {
