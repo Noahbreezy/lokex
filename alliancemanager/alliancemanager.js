@@ -328,6 +328,21 @@ class AllianceManager {
       //   new Helper(token);
       // }
 
+      const requirementMessage = `
+      All the requirements for ${this.allianceTag} are:
+      - Power: ${this.power / 1000000}m
+      - Kills: ${this.kills}
+      - Speed: ${this.speed}%
+      - Mastery:
+        - Infantry: ${this.mastery.infantry}
+        - Ranged: ${this.mastery.ranged}
+        - Cavalry: ${this.mastery.cavalry}
+        - Combat: ${this.mastery.combat}
+        - Monster: ${this.mastery.monster}
+        - Governor: ${this.mastery.governor}
+      - Discord verification: ${this.verification ? "Verified" : "Not verified"}
+      `
+
       if (!this.accepting) {
         setTimeout(
           () => this.accept(),
@@ -424,7 +439,7 @@ class AllianceManager {
                     `**${this.allianceTag
                     }**\nRejected: ${name}, power: ${this.addThousandSeparator(
                       power
-                    )} blacklisted\nmore info coming soon`
+                    )} blacklisted\n`
                   );
                 console.log(`rejected by blacklist: ${name}`);
                 continue;
@@ -462,7 +477,7 @@ class AllianceManager {
                       `**${this.allianceTag
                       }**\nAccepted by title: ${name}, power: ${this.addThousandSeparator(
                         power
-                      )}\nmore info coming soon`
+                      )}\n`
                     );
                   console.log(`accepted by title: ${name}`);
                   numtkn++;
@@ -487,7 +502,8 @@ class AllianceManager {
                     json: JSON.stringify({
                       toName: name,
                       subject: `Rejected from ${this.allianceTag}`,
-                      content: `You have been rejected because your power is too low, minimum requirement is ${powerlimit / 1000000}m power`
+                      content: `You have been rejected because your power is too low, minimum requirement is ${powerlimit / 1000000}m power
+                      \n${requirementMessage}`
                     })
                   }),
                   { "x-access-token": mailAccountToken }
@@ -499,7 +515,7 @@ class AllianceManager {
                     `**${this.allianceTag
                     }**\nRejected: ${name}, power: ${this.addThousandSeparator(
                       power
-                    )} not enough power\nmore info coming soon`
+                    )} not enough power\n`
                   );
                 console.log(`rejected by power: ${name}`);
                 continue;
@@ -529,7 +545,8 @@ class AllianceManager {
                       json: JSON.stringify({
                         toName: name,
                         subject: `Rejected from ${this.allianceTag}`,
-                        content: `You have been rejected because your speed is too low, minimum requirement is ${speedlimit}% speed (cav + troops)`
+                        content: `You have been rejected because your speed is too low, minimum requirement is ${speedlimit}% speed (cav + troops)
+                      \n${requirementMessage}`
                       })
                     }),
                     { "x-access-token": mailAccountToken }
@@ -542,7 +559,7 @@ class AllianceManager {
                     .get(this.rejectLogChannel)
                     .send(
                       `**${this.allianceTag
-                      }**\nRejected: ${name}, speed: ${playerSpeed} not enough speed\nmore info coming soon`
+                      }**\nRejected: ${name}, speed: ${playerSpeed} not enough speed\n`
                     );
                   continue;
                 }
@@ -566,7 +583,8 @@ class AllianceManager {
                     json: JSON.stringify({
                       toName: name,
                       subject: `Rejected from ${this.allianceTag}`,
-                      content: "You have been rejected because you aren't verified on discord"
+                      content: `You have been rejected because you aren't verified on discord
+                      \n${requirementMessage}`
                     })
                   }),
                   { "x-access-token": mailAccountToken }
@@ -578,7 +596,7 @@ class AllianceManager {
                     `**${this.allianceTag
                     }**\nRejected: ${name}, power: ${this.addThousandSeparator(
                       power
-                    )} not verified\nmore info coming soon`
+                    )} not verified\n`
                   );
                 console.log(
                   `rejected by discord verification: ${name}`
@@ -612,7 +630,8 @@ class AllianceManager {
                     json: JSON.stringify({
                       toName: name,
                       subject: `Rejected from ${this.allianceTag}`,
-                      content: `You have been rejected because you don't meet the required amount of kills. (${this.kills})`
+                      content: `You have been rejected because you don't meet the required amount of kills. (${this.kills})
+                      \n${requirementMessage}`
                     })
                   }),
                   { "x-access-token": mailAccountToken }
@@ -624,7 +643,7 @@ class AllianceManager {
                     `**${this.allianceTag
                     }**\nRejected: ${name}, power: ${this.addThousandSeparator(
                       power
-                    )} not enough kills.\nmore info coming soon`
+                    )} not enough kills.\n`
                   );
                 console.log(`rejected by kills: ${name}`);
                 continue;
@@ -651,7 +670,7 @@ class AllianceManager {
                     `**${this.allianceTag
                     }**\nRejected: ${name}, power: ${this.addThousandSeparator(
                       power
-                    )} incorrect mastery\nmore info coming soon`
+                    )} incorrect mastery\n`
                   );
 
                 console.log(this.mastery);
@@ -664,12 +683,13 @@ class AllianceManager {
                         toName: name,
                         subject: `Rejected from ${this.allianceTag}`,
                         content: `${Math.floor(Date.now())} \n You have been rejected because you don't have the correct mastery. The minimum mastery is:
-                            \n- Infantry: ${this.mastery.infantry}
-                            \n- Ranged: ${this.mastery.ranged}
-                            \n- Cavalry: ${this.mastery.cavalry}
-                            \n- Combat: ${this.mastery.combat}
-                            \n- Monster: ${this.mastery.monster}
-                            \n- Governor: ${this.mastery.governor}`
+                            - Infantry: ${this.mastery.infantry}
+                            - Ranged: ${this.mastery.ranged}
+                            - Cavalry: ${this.mastery.cavalry}
+                            - Combat: ${this.mastery.combat}
+                            - Monster: ${this.mastery.monster}
+                            - Governor: ${this.mastery.governor}
+                      \n${requirementMessage}`
                       }),
                     }),
                     { "x-access-token": mailAccountToken }
@@ -704,7 +724,7 @@ class AllianceManager {
                       `**${this.allianceTag
                       }**\nAccepted: ${name}, power: ${this.addThousandSeparator(
                         power
-                      )}\nmore info coming soon`
+                      )}\n`
                     );
                   console.log(`accepted: ${name}`);
                   numtkn++;
@@ -723,14 +743,14 @@ class AllianceManager {
 
                   // console.log(denied.data);
 
-                  this.discordClient.channels.cache
-                    .get(this.rejectLogChannel)
-                    .send(
-                      `**${this.allianceTag
-                      }**\nRejected: ${name}, power: ${this.addThousandSeparator(
-                        power
-                      )} already in an alliance\nmore info coming soon`
-                    );
+                  // this.discordClient.channels.cache
+                  //   .get(this.rejectLogChannel)
+                  //   .send(
+                  //     `**${this.allianceTag
+                  //     }**\nRejected: ${name}, power: ${this.addThousandSeparator(
+                  //       power
+                  //     )} already in an alliance\n`
+                  //   );
                   console.log(
                     `rejected by already in alliance: ${name}`
                   );
