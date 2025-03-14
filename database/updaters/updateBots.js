@@ -22,21 +22,23 @@ class UpdateBots {
 
             console.log("Waiting before updating botinfo again...");
             // Wait before the next execution (ensures no overlapping)
-            await new Promise(resolve => setTimeout(resolve, 5 * 60 * 1000)); // Wait 5 minutes
+            await new Promise(resolve => setTimeout(resolve, 10 * 60 * 1000)); // Wait X minutes
         }
     }
 
     async updateBotsToken() {
         while (true) {
+        let loginInfo;
             try {
                 const accounts = await this.sql.getActiveBotsLogin();
                 for (const account of accounts) {
-                    const token = await this.accountInfo.login(account.email, account.password);
-                    if (token) {
-                        await this.sql.updateBotToken(token, account.kingdomId);
+                    loginInfo = await this.accountInfo.login(account.email, account.password);
+                    if (loginInfo) {
+                        await this.sql.updateBotToken(loginInfo.token, account.kingdomId);
                         console.log(account.email + " token updated");
                     }
                 }
+                await this.sql.updateXORPass(loginInfo.xorPass);
             } catch (error) {
                 console.error('Error updating bot tokens:', error);
             }

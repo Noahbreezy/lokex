@@ -81,12 +81,12 @@ class sqlFunctions {
 
     // Get all bot accounts except IDLE
     async getActiveBots() {
-        return this.query(`SELECT token, kingdomId, allianceId, allianceTag FROM botAccounts WHERE role <> 'IDLE';`);
+        return this.query(`SELECT token, kingdomId, allianceId, allianceTag FROM botAccounts;`);
     }
 
     // Get active bot logins
     async getActiveBotsLogin() {
-        return this.query(`SELECT email, password, kingdomId FROM botAccounts WHERE role <> 'IDLE';`);
+        return this.query(`SELECT email, password, kingdomId FROM botAccounts;`);
     }
 
     // Get single bot account login

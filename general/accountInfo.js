@@ -46,7 +46,8 @@ class AccountInfo {
     }
 
     if (loginResponse.status === 200) {
-      return loginResponse.data.token;
+      const xorPass = (await this.encryption.decryptBase64(loginResponse.data.regionHash)).split('-')[1];
+      return {token: loginResponse.data.token, xorPass: xorPass};
     } else {
       return false;
     }
