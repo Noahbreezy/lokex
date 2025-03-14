@@ -265,11 +265,23 @@ class AllianceManager {
       // console.log("role: ", roleFlag);
       // console.log("token: ", tokenResponse);
       if (!roleFlag || tokenResponse === undefined || tokenResponse.length === 0 || !(await this.r4Check.checkR4(tokenResponse[0].token, this.managerId, this.allianceId))) {
-        console.error(`Manager token not found or not R4. Closing AllianceManager instance for ${this.allianceTag}.`);
+        let errorMessage = `Closing AllianceManager instance for ${this.allianceTag}. Reason: `;
+        
+        if (!roleFlag) {
+            errorMessage += "Role flag is false";
+        } else if (tokenResponse === undefined) {
+            errorMessage += "Token response is undefined";
+        } else if (tokenResponse.length === 0) {
+            errorMessage += "Token response is empty";
+        } else {
+            errorMessage += "R4 check failed for manager token";
+        }
+        
+        console.error(errorMessage);
         this.runningAlliances.delete(this.allianceId);
         await this.sql.setManagerIdle(this.managerId);
         return;
-      }
+    }
 
       const token = tokenResponse[0].token;
       // console.log("token: ", token);
