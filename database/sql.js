@@ -561,6 +561,12 @@ class sqlFunctions {
         return this.query(query, [kingdomId]);
     }
 
+    // Get a kingdom's castle level
+    async getKingdomLevel(kingdomId) {
+        const query = "SELECT level FROM info WHERE kingdomId=? ORDER BY id DESC LIMIT 1";
+        return this.query(query, [kingdomId]);
+    }
+
     // Get kills of a kingdom
     async getKingdomKills(kingdomId) {
         const query = "SELECT kills FROM info WHERE kingdomId=? ORDER BY id DESC LIMIT 1";
@@ -570,6 +576,12 @@ class sqlFunctions {
     // Get latest kingdom location
     async getKingdomLocation(kingdomId) {
         const query = "SELECT continent, x, y FROM info WHERE kingdomId=? AND continent > 0 ORDER BY id DESC LIMIT 1";
+        return this.query(query, [kingdomId]);
+    }
+
+    // Get a Kingdom's continent
+    async getKingdomContinent(kingdomId) {
+        const query = "SELECT continent FROM info WHERE kingdomId=? ORDER BY id DESC LIMIT 1";
         return this.query(query, [kingdomId]);
     }
 

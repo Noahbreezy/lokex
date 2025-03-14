@@ -47,6 +47,7 @@ class AllianceManager {
     this.managerId = options.settings.managerId;
     this.allianceId = options.settings.allianceId;
     this.allianceTag = options.settings.allianceTag;
+    this.castle = null;
     this.power = null;
     this.kills = null;
     this.speed = null;
@@ -266,22 +267,22 @@ class AllianceManager {
       // console.log("token: ", tokenResponse);
       if (!roleFlag || tokenResponse === undefined || tokenResponse.length === 0 || !(await this.r4Check.checkR4(tokenResponse[0].token, this.managerId, this.allianceId))) {
         let errorMessage = `Closing AllianceManager instance for ${this.allianceTag}. Reason: `;
-        
+
         if (!roleFlag) {
-            errorMessage += "Role flag is false";
+          errorMessage += "Role flag is false";
         } else if (tokenResponse === undefined) {
-            errorMessage += "Token response is undefined";
+          errorMessage += "Token response is undefined";
         } else if (tokenResponse.length === 0) {
-            errorMessage += "Token response is empty";
+          errorMessage += "Token response is empty";
         } else {
-            errorMessage += "R4 check failed for manager token";
+          errorMessage += "R4 check failed for manager token";
         }
-        
+
         console.error(errorMessage);
         this.runningAlliances.delete(this.allianceId);
         await this.sql.setManagerIdle(this.managerId);
         return;
-    }
+      }
 
       const token = tokenResponse[0].token;
       // console.log("token: ", token);
@@ -294,6 +295,7 @@ class AllianceManager {
       // console.log(settingsQueryResponse)
       // console.log("log channels: ", logChannels);
 
+      this.castle = allianceSettings.castle;
       this.power = allianceSettings.power;
       this.kills = allianceSettings.kills;
       this.speed = allianceSettings.speed;
@@ -605,7 +607,6 @@ class AllianceManager {
               }
 
               let playerKills = 0;
-
               try {
                 playerKills = (await this.sql.getKingdomKills(kid))[0].kills;
               } catch (error) {
@@ -698,6 +699,55 @@ class AllianceManager {
                   // console.log(masteryMailResponse.data);
                 } catch (error) {
                   console.log("Error sending mastery rejection mail:", error);
+                  console.log(error.response.data);
+                }
+
+                continue;
+              }
+
+              let kingdomLevel = 0;
+              try {
+                kingdomLevel = (await this.sql.getKingdomLevel(kid))[0].level;
+              } catch (error) {
+                console.log("cannot find kingdom level, updating data");
+                await this.updateInfo.updateInfo(token, kid, this.allianceId, this.allianceTag);
+              }
+              if (this.castle > kingdomLevel) {
+                await this.api.request(
+                  "https://api-lok-live.leagueofkingdoms.com/api/alliance/request/deny",
+                  { kingdomId: kid },
+                  {
+                    "x-access-token": token,
+                    "Content-Type": "application/json",
+                  }
+                );
+
+                console.log(`rejected by castle level: ${name}`);
+
+                this.discordClient.channels.cache
+                  .get(this.rejectLogChannel)
+                  .send(
+                    `**${this.allianceTag
+                    }**\nRejected: ${name}, level: ${kingdomLevel} castle level too low\n`
+                  );
+
+                try {
+                  const castleMailResponse = await this.api.request(
+                    "https://api-lok-live.leagueofkingdoms.com/api/mail/send",
+                    new URLSearchParams({
+                      json: JSON.stringify({
+                        toName: name,
+                        subject: `Rejected from ${this.allianceTag}`,
+                        content: `You have been rejected because your castle level is too low. The minimum requirement is ${this.castle}
+                      \n${requirementMessage}`
+                      }),
+                    }),
+                    { "x-access-token": mailAccountToken }
+                  );
+
+                  // console.log(castleMailResponse.data);
+                } catch (error) {
+                  console.log("Error sending castle rejection mail:", error);
                   console.log(error.response.data);
                 }
 
