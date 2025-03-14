@@ -73,7 +73,7 @@ module.exports = {
 
         let logChannel;
         try {
-            logChannel = (await sql.getGuildAcceptLogChannels(guild))[0].accept_log_channel;
+            logChannel = (await sql.getGuildLogChannels(guild))[0].accept_log_channel;
         } catch (error) {
             logChannel = "1064289954739523654";
         }
@@ -210,7 +210,7 @@ module.exports = {
                         }
 
                         let rowMessage =
-                            `${i + 1}) ${(blacklisted[i].name) ? (blacklisted[i].name) : (blacklisted[i].kingdomid)} is ${blacklistMessage} by <@${blacklisted[i].discordid
+                            `${i + 1}. ${(blacklisted[i].name) ? (blacklisted[i].name) : ""} (${(blacklisted[i].kingdomid)}) is ${blacklistMessage} by <@${blacklisted[i].discordid
                             }> ` +
                             `on: ${formatDateTime(blacklisted[i].date)} for: ${blacklisted[i].description
                             }\n`;
@@ -413,7 +413,7 @@ async function handleBlacklistModal(interaction, sql, api, ephemeral) {
             console.log("token: ", managerToken);
             if (!managerToken.length > 0) {
                 return await interaction.followUp({
-                    content: "Can't kick from alliance " + allianceTag ? allianceTag : "" + "(no manager bot) or user is not in an alliance.",
+                    content: "Can't kick from alliance " + (allianceTag ? allianceTag : "") + " (no manager bot) or user is not in an alliance.",
                     flags: 64,
                 });
             }
