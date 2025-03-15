@@ -1,10 +1,5 @@
 const { SlashCommandBuilder, EmbedBuilder } = require("discord.js");
 
-// const choices = [
-//     { name: "VSR*", value: "65139685285e0658a86c2952" },
-//     { name: "VSR1", value: "628bd5402c03d96e44702f93" },
-//     { name: "VSR2", value: "62f721570f8e9e1c68c9acdf" },
-// ];
 
 async function handleAllianceAutocomplete(interaction, sql) {
     const focusedValue = interaction.options.getFocused();
@@ -125,7 +120,7 @@ module.exports = {
             case "setlimit":
                 {
                     const alliance = options.getString('alliance');
-                    const columns = ['power', 'kills', 'speed', 'combat', 'monster', 'infantry', 'cavalry', 'ranged', 'governor', 'verified', 'interval', 'accept', 'kick', 'maxkick', 'cvcmode', 'titlegrace'];
+                    const columns = ['castle', 'power', 'kills', 'speed', 'combat', 'monster', 'infantry', 'cavalry', 'ranged', 'governor', 'verified', 'interval', 'accept', 'kick', 'maxkick', 'cvcmode', 'titlegrace'];
                     const updates = [];
 
                     for (const column of columns) {
@@ -184,6 +179,7 @@ module.exports = {
                     rows.forEach(row => {
                         const allianceInfo = {
                             tag: row.tag,
+                            castle: row.castle,
                             power: row.power,
                             kills: row.kills,
                             speed: row.speed,
@@ -255,6 +251,7 @@ function createAllianceEmbed(allianceInfo) {
         .setTitle(`Alliance Info: ${allianceInfo.tag}`)
         .setColor('#0099ff');
 
+    embed.addFields({ name: 'Castle', value: allianceInfo.castle > 0 ? allianceInfo.castle.toString() : 'no limits', inline: true });
     embed.addFields({ name: 'Power', value: allianceInfo.power > 0 ? formatNumberWithSuffix(allianceInfo.power) : 'no limits', inline: true });
     embed.addFields({ name: 'Kills', value: allianceInfo.kills > 0 ? formatNumberWithSuffix(allianceInfo.kills) : 'no limits', inline: true });
     embed.addFields({ name: 'Speed', value: allianceInfo.speed > 0 ? allianceInfo.speed.toString() + "%" : 'no limits', inline: true });
