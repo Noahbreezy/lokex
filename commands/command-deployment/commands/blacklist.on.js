@@ -23,7 +23,7 @@ async function handleNameAutocomplete(interaction, sql) {
         value: nameObj.kingdomId || 'Unknown'
     }));
 
-    console.log(choices);
+    // console.log(choices);
     await interaction.respond(choices);
 }
 
@@ -84,7 +84,7 @@ module.exports = {
 
                 // Check if the kingdom is already blacklisted before removing
                 const alreadybs = await sql.isKingdomBlacklisted(kingdomId, guild);
-                console.log(alreadybs);
+                // console.log(alreadybs);
 
                 if (!alreadybs) {
                     return await interaction.followUp({
@@ -402,7 +402,7 @@ async function handleBlacklistModal(interaction, sql, api, ephemeral) {
         }
 
         if (nameList.length > 0 || nameList[0].allianceId) {
-            console.log("namelist: ", nameList);
+            // console.log("namelist: ", nameList);
             let allianceId = nameList[0].allianceId;
             let allianceTag = nameList[0].allianceTag;
             if (!allianceId) {

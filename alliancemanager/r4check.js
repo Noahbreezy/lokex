@@ -5,8 +5,9 @@ class R4Check {
     }
 
     async checkR4(token, kingdomId, allianceId) {
+        let allianceMembers;
         try {
-            const allianceMembers = (await this.api.request(
+            allianceMembers = (await this.api.request(
                 "https://api-lok-live.leagueofkingdoms.com/api/alliance/members/list",
                 { allianceId: allianceId },
                 {
@@ -26,6 +27,12 @@ class R4Check {
                 return false;
             }
         } catch (error) {
+            if(allianceMembers.status !== 200) {
+                console.error("Error checking R4, need to check again:", error);
+                setTimeout(() => {
+                    this.checkR4(token, kingdomId, allianceId);
+                }, 30000);
+            }
             console.error("Error checking R4, probably not R4:", error);
             return false;
         }
