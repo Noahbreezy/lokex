@@ -318,6 +318,37 @@ class sqlFunctions {
         return this.query(query, [titleGrace]);
     }
 
+    // Get the amount of titles that were applied today in a guild
+    async getTitlesToday(guild) {
+        const query = `SELECT COUNT(*) as count FROM titlelog WHERE date >= CURDATE() AND guild = ?;`;
+        return this.query(query, [guild]);
+    }
+
+    // Get the amount of titles that were ever applied in a guild
+    async getTitlesTotal(guild) {
+        const query = `SELECT COUNT(*) as count FROM titlelog WHERE guild = ?;`;
+        return this.query(query, [guild]);
+    }
+
+    // Check if a title was applied in the last 2 minutes
+    async checkTitleStatus(titleID) {
+        const query = `SELECT discordId, free, date FROM titlelog WHERE titleId = ? AND date >= NOW() - INTERVAL 2 MINUTE;`;
+        const results = await this.query(query, [titleID]);
+        return results.length > 0 ? results[0] : null;
+    }
+
+    // log a title request
+    async logTitleRequest(titleId, kingdomId, discordId, guildId) {
+        const query = `INSERT INTO titlelog (titleId, kingdomId, discordId, guild) VALUES (?, ?, ?, ?);`;
+        return this.query(query, [titleId, kingdomId, discordId, guildId]);
+    }
+
+    // Set the latest title log of a discord user as free
+    async freeTitle(discordId, guildId) {
+        const query = `UPDATE titlelog SET free = 1 WHERE free = 0 AND discordId = ? AND date >= NOW() - INTERVAL 2 MINUTE AND guild = ?;`;
+        return this.query(query, [discordId, guildId]);
+    }
+
     // Blacklist functions
 
     // Check if a kingdom is blacklisted
@@ -405,6 +436,13 @@ class sqlFunctions {
         const query = 'SELECT code FROM verification_codes WHERE code = ? AND guild_id = ?';
         const results = await this.query(query, [code, guildId]);
         return results.length === 0;
+    }
+
+    // Check if a discord user has more than one verified kingdom
+    async checkVerifiedKingdoms(discordId, guild) {
+        const query = 'SELECT kingdomId, kingdomName FROM verified WHERE discordId = ? AND guild = ?';
+        const results = await this.query(query, [discordId, guild]);
+        return results.length > 0 ? results : false;
     }
 
     // Guild settings functions

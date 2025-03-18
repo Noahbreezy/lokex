@@ -100,8 +100,6 @@ module.exports = {
         const ephemeral = ephemeralFlag ? {flags:64} : {};
         console.log(ephemeral);
 
-        console.log(`Command: ${commandName}, Subcommand: ${options.getSubcommand()}, Guild: ${guildName}, User: ${userName}`);
-
         try {
             await interaction.deferReply({ flags: 64 });
             switch (options.getSubcommand()) {

@@ -1,6 +1,6 @@
 const fs = require("node:fs");
 const path = require("node:path");
-const { Client, Collection, Events, GatewayIntentBits } = require("discord.js");
+const { Client, Collection, Events, GatewayIntentBits, Options } = require("discord.js");
 const { token } = require("./config.json");
 const sqlFunctions = require("../database/sql.js");
 const Api = require("../general/api.js");
@@ -28,6 +28,11 @@ client.once(Events.ClientReady, () => {
 });
 
 client.on(Events.InteractionCreate, async (interaction) => {
+  const { commandName, customId, options, guild, user } = interaction;
+  const guildName = guild ? guild.name : 'DM';
+  const userName = user.username;
+  const subcommand = options?.getSubcommand(false);
+  console.log(`Command: ${commandName ? commandName : customId}, Subcommand: ${subcommand ? subcommand : 'None'}, Guild: ${guildName}, User: ${userName}`);
   if (interaction.isChatInputCommand()) {
     const command = client.commands.get(interaction.commandName);
 
@@ -59,7 +64,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
     }
   }
   else if (interaction.isButton()) {
-    if (interaction.customId === 'verify') {
+    if (interaction.customId === 'verify' || interaction.customId === 'add_kingdom') {
       const command = client.commands.get('verify');
       if (!command) return;
 
@@ -69,6 +74,21 @@ client.on(Events.InteractionCreate, async (interaction) => {
         console.error(error);
         await interaction.reply({
           content: 'There was an error starting the verification process!',
+          flags: 64,
+        });
+      }
+    } else if (interaction.customId.startsWith('alchemist_') ||
+      interaction.customId.startsWith('architect_') ||
+      interaction.customId.startsWith('freetitle_')) {
+      const command = client.commands.get('title');
+      if (!command) return;
+
+      try {
+        await command.handleButtonInteraction(interaction);
+      } catch (error) {
+        console.error(error);
+        await interaction.reply({
+          content: 'There was an error while executing this action!',
           flags: 64,
         });
       }

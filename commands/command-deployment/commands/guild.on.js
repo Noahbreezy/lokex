@@ -65,9 +65,6 @@ module.exports = {
         const ephemeralFlag = await sql.getEphemeral(guildId);
         const ephemeral = ephemeralFlag ? { flags: 64 } : {};
 
-
-        console.log(`Command: ${commandName}, Subcommand: ${options.getSubcommand()}, Guild: ${guildName}, User: ${userName}`);
-
         try {
             const guildExistsFlag = await sql.guildExists(guildId);
             if (!guildExistsFlag) {
@@ -261,28 +258,28 @@ async function createTitlesChannel(interaction, guild, guildName, guildId, ephem
                 "3. If the target kingdom is not in the dropdown menu, please click **\"Add Kingdom\"** and follow the instructions to verify it. Once verified, start over at step 1.\n\n" +
                 "🚨 **PLEASE NOTE:** The title is reserved for **2 minutes ⏰** then someone else can take it from you. If you finish with the title more quickly, please click **\"Free the Title\"** ❌ so that the others can use it! 🙏"
             )
-        // .addFields(
-        //     { name: "Alchemist status:", value: "Free", inline: true },
-        //     { name: "Architect status:", value: "Free", inline: true },
-        //     { name: "Titles applied today:", value: "0", inline: false },
-        //     { name: "Titles applied from start:", value: "0", inline: false }
-        // )
+            .addFields(
+                { name: "Alchemist status:", value: "Free", inline: true },
+                { name: "Architect status:", value: "Free", inline: true },
+                { name: "Titles applied today:", value: "0", inline: false },
+                { name: "Titles applied from start:", value: "0", inline: false }
+            )
         // .setFooter({ text: "Lokex" });
 
         // Create the buttons for the panel
         const row = new ActionRowBuilder().addComponents(
             new ButtonBuilder()
-                .setCustomId("alchemist")
+                .setCustomId("alchemist_")
                 .setLabel("Alchemist")
                 .setStyle(ButtonStyle.Primary)
                 .setEmoji("🧪"),
             new ButtonBuilder()
-                .setCustomId("architect")
+                .setCustomId("architect_")
                 .setLabel("Architect")
                 .setStyle(ButtonStyle.Success)
                 .setEmoji("🔨"),
             new ButtonBuilder()
-                .setCustomId("free_title")
+                .setCustomId("freetitle_")
                 .setLabel("Free the Title")
                 .setStyle(ButtonStyle.Danger)
                 .setEmoji("❌")
