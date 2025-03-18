@@ -147,8 +147,10 @@ async function createGuildChannels(interaction, guild, guildName, guildId, ephem
                         await createTitlesChannel(interaction, guild, guildName, guildId, ephemeral, sql);
                         break;
                     case "pledgers_channel":
+                        await createPledgersChannel(interaction, guild, guildName, guildId, ephemeral, sql);
                         break;
                     case "buff_channel":
+                        await createBuffChannel(interaction, guild, guildName, guildId, ephemeral, sql);
                         break;
                     case "ranking_channel":
                         break;
@@ -302,5 +304,51 @@ async function createTitlesChannel(interaction, guild, guildName, guildId, ephem
     } catch (error) {
         console.error(error);
         await interaction.followUp({ content: "There was an error while creating the titles channel.", flags: 64 });
+    }
+}
+
+async function createPledgersChannel(interaction, guild, guildName, guildId, ephemeral, sql) {
+    try {
+        let pledgersChannel = await guild.channels.create({
+            name: "pledgers",
+            type: ChannelType.GuildText,
+            permissionOverwrites: [
+                {
+                    id: guildId, // @everyone role
+                    allow: [PermissionFlagsBits.ViewChannel],
+                    deny: [PermissionFlagsBits.SendMessages],
+                }
+            ]
+        });
+
+        await sql.setGuildPledgersChannel(pledgersChannel.id, guildId);
+
+        await interaction.followUp({ content: `✅ Pledgers channel created: ${pledgersChannel}`, ...ephemeral });
+    } catch (error) {
+        console.error(error);
+        await interaction.followUp({ content: "There was an error while creating the pledgers channel.", flags: 64 });
+    }
+}
+
+async function createBuffChannel(interaction, guild, guildName, guildId, ephemeral, sql) {
+    try {
+        let buffChannel = await guild.channels.create({
+            name: "buff-status",
+            type: ChannelType.GuildText,
+            permissionOverwrites: [
+                {
+                    id: guildId, // @everyone role
+                    allow: [PermissionFlagsBits.ViewChannel],
+                    deny: [PermissionFlagsBits.SendMessages],
+                }
+            ]
+        });
+
+        await sql.setGuildBuffChannel(buffChannel.id, guildId);
+
+        await interaction.followUp({ content: `✅ Buff channel created: ${buffChannel}`, ...ephemeral });
+    } catch (error) {
+        console.error(error);
+        await interaction.followUp({ content: "There was an error while creating the buff channel.", flags: 64 });
     }
 }
