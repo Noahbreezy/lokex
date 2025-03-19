@@ -162,7 +162,7 @@ module.exports = {
 
             // Move collector.on('end', ...) outside of modalCollector
             collector.on('end', (collected, reason) => {
-                if (reason === 'time') {
+                if (reason === 'time' && !userWalletAddress) {
                     userDMChannel.send({
                         content: 'You did not enter your wallet address in time. Please try again.'
                     });
