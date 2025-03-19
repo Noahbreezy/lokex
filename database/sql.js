@@ -447,6 +447,18 @@ class sqlFunctions {
 
     // Guild settings functions
 
+    // Set guild to continent link
+    async addGuildContinent(guildId, continent) {
+        const query = "INSERT INTO guild_continent_link (guild_id, continent) VALUES (?, ?);";
+        return this.query(query, [guildId, continent]);
+    }
+
+    // Get guild to continent link
+    async getGuildContinent(guildId) {
+        const query = "SELECT continent FROM guild_continent_link WHERE guild_id = ?;";
+        return this.query(query, [guildId]);
+    }
+
     // Get guild logchannels of a specific alliance
     async getGuildLogChannelsByAlliance(allianceId) {
         const query = "SELECT accept_log_channel, reject_log_channel FROM guild_settings WHERE guild_id=(SELECT guild FROM allianceinf WHERE allianceId=?);";

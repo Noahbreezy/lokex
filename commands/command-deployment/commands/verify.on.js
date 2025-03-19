@@ -32,7 +32,7 @@ module.exports = {
                 queenLocation = '';
             }
 
-            console.log(queenInfo)
+            // console.log(queenInfo)
 
             if (!queenInfo?.name) {
                 await interaction.reply({
@@ -162,7 +162,7 @@ module.exports = {
 
             // Move collector.on('end', ...) outside of modalCollector
             collector.on('end', (collected, reason) => {
-                if (collected.size === 0) {
+                if (reason === 'time') {
                     userDMChannel.send({
                         content: 'You did not enter your wallet address in time. Please try again.'
                     });
@@ -265,11 +265,15 @@ module.exports = {
                     if (mail.content.toUpperCase().includes(code)) {
                         const kingdomId = mail.from._id;
                         const kingdomName = mail.from.name;
+                        const congressTitle = mail.from.congressTitle;
+                        const worldId = mail.from.worldId;
+
+                        if(congressTitle === 101) {
+                            await sql.addGuildContinent(guildId, worldId);
+                        }
                         
                         // Update kingdom info
                         const kingdomInfo = await updateInfo.updateInfo(queenToken, kingdomId, "", "");
-
-
 
                         // Check if kingdom is already verified
                         const verifiedFlag = await sql.isKingdomVerified(kingdomId, guildId);
