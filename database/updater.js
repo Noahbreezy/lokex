@@ -11,11 +11,11 @@ const updateBots = new UpdateBots(sql, api);
 const updateVerified = new UpdateVerified(sql);
 
 async function startUpdaters() {
-    updateBots.updateBotsToken();
-    updateBots.updateBotsInfo();
+    updateBots.updateBotsToken(); // Midnight utc
+    updateBots.updateBotsInfo(); // Every 10 minutes
     await new Promise(resolve => setTimeout(resolve, 60000));
-    updatePlayers.updatePlayers();
-    updateVerified.updateVerified();
+    updatePlayers.updatePlayers(); // Noon utc
+    updateVerified.updateVerified(); // Midnight utc
 }
 
 startUpdaters();

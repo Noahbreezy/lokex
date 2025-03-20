@@ -47,14 +47,14 @@ class UpdatePlayers {
                 const botAccountsFiltered = botAccounts.filter((account, index, self) =>
                     index === self.findIndex((t) => t.allianceId === account.allianceId)
                 );
-
+    
                 for (const account of botAccountsFiltered) {
                     let token = account.token;
                     let r4Flag = false;
                     try {
                         const kingdomIds = await this.getAllAllianceMemberId(token, account.allianceId);
-                        // console.log('Kingdom IDs:', kingdomIds);
                         r4Flag = await this.r4Check.checkR4(token, account.kingdomId, account.allianceId);
+                        
                         for (const kingdomId of kingdomIds) {
                             try {
                                 const accountInfo = await this.AccountInfo.getMemberProfileInfo(token, account.allianceId, kingdomId, r4Flag);
@@ -68,20 +68,36 @@ class UpdatePlayers {
                             }
                         }
                     } catch (error) {
-                        token = (await this.sql.getManagerTokenByKingdomId(kingdomId))[0].token;
-                        r4Flag = await this.r4Check.checkR4(token, kingdomId, account.allianceId);
+                        token = (await this.sql.getManagerTokenByKingdomId(account.kingdomId))[0].token;
+                        r4Flag = await this.r4Check.checkR4(token, account.kingdomId, account.allianceId);
                         console.error(`Error processing account with allianceId ${account.allianceId}:`, error);
                     }
                 }
             } catch (error) {
                 console.error('Error updating players:', error);
             }
-
-            console.log("Waiting before updating players again...");
-            // Wait before the next execution (ensures no overlapping)
-            await new Promise(resolve => setTimeout(resolve, 12 * 60 * 60 * 1000)); // Wait 12 hours
+    
+            // Calculate milliseconds until the next 12:00 UTC
+            const now = new Date();
+            const nextNoonUTC = new Date(
+                now.getUTCFullYear(),
+                now.getUTCMonth(),
+                now.getUTCDate(),
+                12, 0, 0, 0 // Today at 12:00 UTC
+            );
+    
+            if (now >= nextNoonUTC) {
+                // If it's already past 12:00 UTC today, schedule for tomorrow
+                nextNoonUTC.setUTCDate(nextNoonUTC.getUTCDate() + 1);
+            }
+    
+            const millisTillNoon = nextNoonUTC - now;
+            console.log(`Waiting ${millisTillNoon} ms until 12:00 UTC...`);
+    
+            // Wait until 12:00 UTC
+            await new Promise(resolve => setTimeout(resolve, millisTillNoon));
         }
-    }
+    }    
 }
 
 module.exports = UpdatePlayers;
