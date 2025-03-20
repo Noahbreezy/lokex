@@ -445,6 +445,148 @@ class sqlFunctions {
         return results.length > 0 ? results : false;
     }
 
+    // Get kingdoms and Discord users that need status/role changes
+    async getUnlinkedKingdomsAndRoles(days = 30) {
+        // Increase GROUP_CONCAT limit to handle large lists
+        await this.query("SET SESSION group_concat_max_len = 1000000;");
+    
+        const query = `
+            WITH UnlinkedKingdoms AS (
+                -- Identify kingdoms that are not linked to their guild within the time frame
+                SELECT 
+                    v.guild,
+                    v.kingdomId,
+                    v.discordId
+                FROM 
+                    verified v
+                    LEFT JOIN (
+                        SELECT kingdomId, continent
+                        FROM info i
+                        WHERE date >= DATE_SUB(NOW(), INTERVAL ? DAY)
+                        AND date = (
+                            SELECT MAX(date)
+                            FROM info i2
+                            WHERE i2.kingdomId = i.kingdomId
+                            AND i2.date >= DATE_SUB(NOW(), INTERVAL ? DAY)
+                        )
+                    ) i ON v.kingdomId = i.kingdomId
+                    LEFT JOIN guild_continent_link gcl 
+                        ON i.continent = gcl.continent 
+                        AND v.guild = gcl.guild_id
+                WHERE 
+                    v.status = 1  -- Only consider kingdoms that are currently active
+                    AND v.date >= DATE_SUB(NOW(), INTERVAL ? DAY)  -- Filter verified records by date
+                    AND gcl.guild_id IS NULL  -- Kingdom's continent is not linked to the guild
+            ),
+            DiscordStatus AS (
+                -- Determine which Discord users need their role removed
+                SELECT 
+                    v.guild,
+                    v.discordId,
+                    CASE 
+                        WHEN COUNT(*) = SUM(CASE 
+                                                WHEN uk.kingdomId IS NOT NULL THEN 1 
+                                                ELSE 0 
+                                            END)
+                        THEN 1  -- All kingdoms for this discordId need status change due to being unlinked
+                        WHEN SUM(CASE 
+                                    WHEN v.status = 0 THEN 1 
+                                    ELSE 0 
+                                END) = COUNT(*)
+                        THEN 1  -- All kingdoms for this discordId already have status = 0
+                        ELSE 0  -- At least one kingdom is still linked or active
+                    END AS needsRoleRemoval
+                FROM 
+                    verified v
+                    LEFT JOIN UnlinkedKingdoms uk 
+                        ON v.kingdomId = uk.kingdomId 
+                        AND v.guild = uk.guild
+                WHERE 
+                    v.date >= DATE_SUB(NOW(), INTERVAL ? DAY)  -- Filter verified records by date
+                GROUP BY 
+                    v.guild, v.discordId
+                HAVING 
+                    COUNT(*) > 0  -- Ensure the discordId has at least one kingdom
+            )
+            -- Aggregate the results by guild
+            SELECT 
+                uk.guild AS guildId,
+                GROUP_CONCAT(DISTINCT uk2.kingdomId) AS needChangeStatus,
+                GROUP_CONCAT(DISTINCT ds.discordId) AS needChangeRole
+            FROM 
+                (SELECT DISTINCT guild FROM UnlinkedKingdoms) uk
+                LEFT JOIN UnlinkedKingdoms uk2 ON uk.guild = uk2.guild
+                LEFT JOIN DiscordStatus ds ON uk.guild = ds.guild AND ds.needsRoleRemoval = 1
+            GROUP BY 
+                uk.guild
+            UNION
+            SELECT 
+                v.guild AS guildId,
+                NULL AS needChangeStatus,
+                GROUP_CONCAT(DISTINCT v.discordId) AS needChangeRole
+            FROM 
+                verified v
+                LEFT JOIN UnlinkedKingdoms uk 
+                    ON v.kingdomId = uk.kingdomId 
+                    AND v.guild = uk.guild
+            WHERE 
+                v.date >= DATE_SUB(NOW(), INTERVAL ? DAY)
+                AND uk.kingdomId IS NULL  -- Exclude kingdoms that are unlinked (already handled above)
+            GROUP BY 
+                v.guild, v.discordId
+            HAVING 
+                COUNT(*) = SUM(CASE WHEN v.status = 0 THEN 1 ELSE 0 END)  -- All kingdoms have status = 0
+                AND COUNT(*) > 0;  -- Ensure the discordId has at least one kingdom
+        `;
+    
+        try {
+            const results = await this.query(query, [days, days, days, days, days]);
+    
+            // Transform the results into the desired JSON structure
+            const formattedResult = {
+                guilds: []
+            };
+    
+            // Group results by guildId
+            const guildMap = new Map();
+            for (const row of results) {
+                const guildId = row.guildId;
+                if (!guildMap.has(guildId)) {
+                    guildMap.set(guildId, {
+                        guildId,
+                        needChangeStatus: [],
+                        needChangeRole: []
+                    });
+                }
+                const guildEntry = guildMap.get(guildId);
+                if (row.needChangeStatus) {
+                    guildEntry.needChangeStatus.push(...row.needChangeStatus.split(',').filter(id => id));
+                }
+                if (row.needChangeRole) {
+                    guildEntry.needChangeRole.push(...row.needChangeRole.split(',').filter(id => id));
+                }
+            }
+    
+            // Remove duplicates and convert to array
+            for (const entry of guildMap.values()) {
+                entry.needChangeStatus = [...new Set(entry.needChangeStatus)];
+                entry.needChangeRole = [...new Set(entry.needChangeRole)];
+                formattedResult.guilds.push(entry);
+            }
+    
+            return formattedResult;
+        } catch (err) {
+            console.error('Error fetching unlinked kingdoms and roles:', err);
+            throw err;
+        }
+    }
+
+    // Set a kingdom's status to 0
+    async setKingdomStatusToZero(kingdomId, guild) {
+        const query = `UPDATE verified SET status = 0 WHERE kingdomId = ? AND guild = ?;`;
+        return this.query(query, [kingdomId, guild]);
+    }
+
     // Guild settings functions
 
     // Set guild to continent link
@@ -453,10 +595,16 @@ class sqlFunctions {
         return this.query(query, [guildId, continent]);
     }
 
-    // Get guild to continent link
+    // Get guild to continent links
     async getGuildContinent(guildId) {
-        const query = "SELECT continent FROM guild_continent_link WHERE guild_id = ?;";
+        const query = "SELECT DISTINCT continent FROM guild_continent_link WHERE guild_id = ?;";
         return this.query(query, [guildId]);
+    }
+
+    // Get all links to all continents and guilds. Each continent can only be linked once, so using the latest entry for a continent.
+    async getAllGuildContinentLinks() {
+        const query = "SELECT guild_id, continent FROM guild_continent_link WHERE (continent, id) IN (SELECT continent, MAX(id) FROM guild_continent_link GROUP BY continent);";
+        return this.query(query);
     }
 
     // Get guild logchannels of a specific alliance

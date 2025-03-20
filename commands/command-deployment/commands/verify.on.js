@@ -268,7 +268,7 @@ module.exports = {
                         const congressTitle = mail.from.congressTitle;
                         const worldId = mail.from.worldId;
 
-                        if(congressTitle === 101) {
+                        if(congressTitle === 101 || congressTitle === 102) {
                             await sql.addGuildContinent(guildId, worldId);
                         }
                         
