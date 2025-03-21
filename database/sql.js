@@ -390,7 +390,7 @@ class sqlFunctions {
 
     // Check if a kingdom is verified
     async isKingdomVerified(kingdomId, guild) {
-        const query = "SELECT kingdomId FROM verified WHERE kingdomId=? AND guild=?";
+        const query = "SELECT kingdomId FROM verified WHERE kingdomId=? AND guild=? AND status=1";
         const results = await this.query(query, [kingdomId, guild]);
         return results.length > 0;
     }
@@ -599,6 +599,13 @@ class sqlFunctions {
     async getGuildContinent(guildId) {
         const query = "SELECT DISTINCT continent FROM guild_continent_link WHERE guild_id = ?;";
         return this.query(query, [guildId]);
+    }
+
+    // Check if any link to a specific continent already exists
+    async isContinentLinked(continent) {
+        const query = "SELECT guild_id FROM guild_continent_link WHERE continent = ?;";
+        const results = await this.query(query, [continent]);
+        return results.length > 0;
     }
 
     // Get all links to all continents and guilds. Each continent can only be linked once, so using the latest entry for a continent.

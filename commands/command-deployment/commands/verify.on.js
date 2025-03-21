@@ -129,6 +129,7 @@ module.exports = {
             let userWalletAddress;
             collector.on('collect', async (i) => {
                 if (i.customId === 'wallet_input') {
+                    await i.deferUpdate();
                     // Show the modal when the button is clicked
                     await i.showModal(walletModal);
                 }
@@ -268,12 +269,29 @@ module.exports = {
                         const congressTitle = mail.from.congressTitle;
                         const worldId = mail.from.worldId;
 
-                        if(congressTitle === 101 || congressTitle === 102) {
+                        const linkExistsFlag = await sql.isContinentLinked(worldId);
+
+                        if(!linkExistsFlag && congressTitle === 101 || congressTitle === 102) {
                             await sql.addGuildContinent(guildId, worldId);
                         }
+
+                        const continent = (await sql.getGuildContinent(guildId))[0].continent;
+                        console.log('continent:', continent);
+                        console.log('World ID:', worldId);
                         
                         // Update kingdom info
                         const kingdomInfo = await updateInfo.updateInfo(queenToken, kingdomId, "", "");
+
+                        if(continent !== worldId) {
+                            await interaction.user.send(
+                                `Your kingdom is not in the correct continent. Please verify a kingdom that is in the correct continent.`
+                            );
+                            await interaction.followUp({
+                                content: `Your kingdom is not in the correct continent. Please verify a kingdom that is in the correct continent.`,
+                                flags: 64
+                            });
+                            return;
+                        }
 
                         // Check if kingdom is already verified
                         const verifiedFlag = await sql.isKingdomVerified(kingdomId, guildId);
