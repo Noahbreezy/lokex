@@ -401,7 +401,7 @@ async function handleBlacklistModal(interaction, sql, api, ephemeral) {
             console.error("Log channel not found or bot lacks permissions.");
         }
 
-        if (nameList.length > 0 || nameList[0].allianceId) {
+        if (nameList.length > 0 || nameList[0]?.allianceId) {
             // console.log("namelist: ", nameList);
             let allianceId = nameList[0].allianceId;
             let allianceTag = nameList[0].allianceTag;

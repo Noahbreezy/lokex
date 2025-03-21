@@ -28,6 +28,7 @@ class R4Check {
             }
         } catch (error) {
             if(allianceMembers.status !== 200) {
+                token = await this.api.getManagerToken(allianceId);
                 console.error("Error checking R4, need to check again:", error);
                 setTimeout(() => {
                     this.checkR4(token, kingdomId, allianceId);
