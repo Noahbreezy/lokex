@@ -446,7 +446,7 @@ class sqlFunctions {
     }
 
     // Get kingdoms and Discord users that need status/role changes
-    async getUnlinkedKingdomsAndRoles(days = 30) {
+    async getUnlinkedKingdomsAndRoles(days = 7) {
         // Increase GROUP_CONCAT limit to handle large lists
         await this.query("SET SESSION group_concat_max_len = 1000000;");
 

@@ -171,6 +171,13 @@ class UpdateStakers {
             const tokenIdHex = input.substring(74, 138); // tokenId (amount)
 
             continent = parseInt(continentHex, 16);
+
+            // Validate continent value
+            if (isNaN(continent) || continent < 0 || continent > 99999999999) {
+                console.error(`Invalid continent value: ${continent} from transaction ${tx.hash}`);
+                continue; // Skip this transaction
+            }
+
             amount = parseInt(tokenIdHex, 16) / 1000000000000000000; // Convert from wei to LOKA
             amount = isStaking ? amount : -amount; // Negative for unstaking
 
@@ -191,7 +198,7 @@ class UpdateStakers {
             );
 
             // Log to Discord
-            // await this.logToDiscord(tx, continent, amount, comment, isStaking);
+            await this.logToDiscord(tx, continent, amount, comment, isStaking);
 
             // Update channel name
             await this.updateChannelName();
@@ -209,7 +216,7 @@ class UpdateStakers {
         for (const guild of guilds) {
             const guildId = guild.guild_id;
             const channelId = guild.pledgers_channel;
-            const guildContinent = guild.continent;
+            const guildContinent = Number(guild.continent);
 
             try {
                 const channel = await this.discordClient.channels.fetch(channelId);
@@ -217,11 +224,14 @@ class UpdateStakers {
                     console.error(`Pledgers channel ${channelId} not found in guild ${guildId}`);
                     continue;
                 }
+                // console.log(continent, guildContinent, isStaking);
+                // console.log(typeof continent, typeof guildContinent, typeof isStaking);
 
                 // Format the message
-                const emoji = (continent === guildContinent && isStaking) || (continent !== guildContinent && !isStaking)
+                let emoji = (continent === guildContinent && isStaking) || (continent !== guildContinent && !isStaking)
                     ? '<a:8697pepehyped:1352775694287110185>'
                     : '<a:1314kekwholup:1352775612389003396>';
+                
                 const action = isStaking ? 'New staking' : 'New unstaking';
                 const formattedAmount = this.formatNumberWithSuffix(Math.abs(amount));
                 const message = comment
