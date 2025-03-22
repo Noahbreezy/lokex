@@ -45,13 +45,13 @@ class UpdateStakers {
                 now.getUTCMonth(),
                 now.getUTCDate(),
                 now.getUTCHours(),
-                now.getUTCMinutes() + 1,
+                now.getUTCMinutes() + 5,
                 0, // Seconds
                 0  // Milliseconds
             );
             const millisTillNextMinute = nextMinute - now;
 
-            console.log(`Stake Update: Waiting ${millisTillNextMinute} ms until the next minute...`);
+            // console.log(`Stake Update: Waiting ${millisTillNextMinute} ms until the next minute...`);
             await new Promise(resolve => setTimeout(resolve, millisTillNextMinute));
         }
     }
@@ -204,9 +204,9 @@ class UpdateStakers {
             await this.updateChannelName();
         }
 
-        if (!newTransactionsFound) {
-            console.log('No new staking transactions found.');
-        }
+        // if (!newTransactionsFound) {
+        //     console.log('No new staking transactions found.');
+        // }
     }
 
     // Log the transaction to the Discord pledgers channel
@@ -271,7 +271,7 @@ class UpdateStakers {
                 let channelName = `📈 ┃ pledging ${this.formatNumberWithSuffix2(Math.abs(difference))}`;
     
                 await channel.setName(channelName);
-                console.log(`Updated channel name for ${channelId} to ${channelName}`);
+                // console.log(`Updated channel name for ${channelId} to ${channelName}`);
             } catch (err) {
                 console.error(`Error updating channel name for ${channelId} in guild ${guildId}:`, err);
             }
