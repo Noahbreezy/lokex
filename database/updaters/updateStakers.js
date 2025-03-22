@@ -268,7 +268,7 @@ class UpdateStakers {
                 // console.log(`Computed Difference:`, difference);
     
                 // Determine new channel name
-                let channelName = `pledging ${this.formatNumberWithSuffix2(Math.abs(difference))}`;
+                let channelName = `📈 ┃ pledging ${this.formatNumberWithSuffix2(Math.abs(difference))}`;
     
                 await channel.setName(channelName);
                 console.log(`Updated channel name for ${channelId} to ${channelName}`);
