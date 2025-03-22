@@ -449,7 +449,7 @@ class sqlFunctions {
     async getUnlinkedKingdomsAndRoles(days = 30) {
         // Increase GROUP_CONCAT limit to handle large lists
         await this.query("SET SESSION group_concat_max_len = 1000000;");
-    
+
         const query = `
             WITH UnlinkedKingdoms AS (
                 -- Identify kingdoms that are not linked to their guild within the time frame
@@ -538,15 +538,15 @@ class sqlFunctions {
                 COUNT(*) = SUM(CASE WHEN v.status = 0 THEN 1 ELSE 0 END)  -- All kingdoms have status = 0
                 AND COUNT(*) > 0;  -- Ensure the discordId has at least one kingdom
         `;
-    
+
         try {
             const results = await this.query(query, [days, days, days, days, days]);
-    
+
             // Transform the results into the desired JSON structure
             const formattedResult = {
                 guilds: []
             };
-    
+
             // Group results by guildId
             const guildMap = new Map();
             for (const row of results) {
@@ -566,14 +566,14 @@ class sqlFunctions {
                     guildEntry.needChangeRole.push(...row.needChangeRole.split(',').filter(id => id));
                 }
             }
-    
+
             // Remove duplicates and convert to array
             for (const entry of guildMap.values()) {
                 entry.needChangeStatus = [...new Set(entry.needChangeStatus)];
                 entry.needChangeRole = [...new Set(entry.needChangeRole)];
                 formattedResult.guilds.push(entry);
             }
-    
+
             return formattedResult;
         } catch (err) {
             console.error('Error fetching unlinked kingdoms and roles:', err);
@@ -613,6 +613,26 @@ class sqlFunctions {
         const query = "SELECT guild_id, continent FROM guild_continent_link WHERE (continent, id) IN (SELECT continent, MAX(id) FROM guild_continent_link GROUP BY continent);";
         return this.query(query);
     }
+
+    // Get all the continents' guilds and pledging channel IDs
+    async getAllContinentPledgeChannels() {
+        const query = `
+        SELECT 
+            gs.guild_id,
+            gcl.continent,
+            gs.pledgers_channel
+        FROM 
+            guild_settings gs
+        LEFT JOIN 
+            guild_continent_link gcl
+        ON 
+            gs.guild_id = gcl.guild_id
+        WHERE 
+            gcl.continent IS NOT NULL AND LENGTH(gs.pledgers_channel) > 2;
+    `;
+        return this.query(query);
+    }
+
 
     // Get guild logchannels of a specific alliance
     async getGuildLogChannelsByAlliance(allianceId) {
@@ -810,6 +830,48 @@ class sqlFunctions {
         INSERT INTO info (allianceId, allianceTag, kingdomId, name, level, lord, power, kills, death, victory, defeat, gathering, continent, x, y)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
         return this.query(query, values);
+    }
+
+    // Staking transactions functions
+
+    // Insert a new staking transaction
+    async insertStakingTransaction(hash, fromAddress, continent, amount, timestamp, comment, isStaking) {
+        const query = `
+        INSERT INTO staking_transactions (hash, from_address, continent, amount, timestamp, comment, is_staking)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        ON DUPLICATE KEY UPDATE timestamp = ?;
+    `;
+        return this.query(query, [hash, fromAddress, continent, amount, timestamp, comment, isStaking, timestamp]);
+    }
+
+    // Get the latest transaction timestamp
+    async getLatestStakingTimestamp() {
+        const query = `SELECT timestamp FROM staking_transactions ORDER BY timestamp DESC LIMIT 1;`;
+        const results = await this.query(query);
+        return results.length > 0 ? results[0].timestamp : 0;
+    }
+
+    // Get the net staking amount per continent
+    async getNetStakingByContinent() {
+        const query = `
+        SELECT continent, SUM(amount) as total_amount
+        FROM staking_transactions
+        GROUP BY continent
+        ORDER BY total_amount DESC;
+    `;
+        return this.query(query);
+    }
+
+    // Update the comment for a specific address
+    async updateStakingComment(fromAddress, comment) {
+        const query = `UPDATE staking_transactions SET comment = ? WHERE from_address = ?;`;
+        return this.query(query, [comment, fromAddress]);
+    }
+
+    // Get distinct addresses for comment updates
+    async getDistinctStakingAddresses() {
+        const query = `SELECT DISTINCT from_address FROM staking_transactions;`;
+        return this.query(query);
     }
 
     // System tables functions
