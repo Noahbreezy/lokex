@@ -78,7 +78,7 @@ class UpdateStakers {
             );
             const millisTillNextUpdate = nextUpdate - now;
 
-            console.log(`Comments Update: Waiting ${millisTillNextUpdate} ms until next update at 2 AM UTC...`);
+            // console.log(`Comments Update: Waiting ${millisTillNextUpdate} ms until next update at 2 AM UTC...`);
             await new Promise(resolve => setTimeout(resolve, millisTillNextUpdate));
         }
     }
