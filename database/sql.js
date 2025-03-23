@@ -79,6 +79,11 @@ class sqlFunctions {
         return this.query(`SELECT token, kingdomId, allianceId, allianceTag FROM botAccounts WHERE role = 'MANAGER' AND LENGTH(allianceId) > 1;`);
     }
 
+    // Get all information of all bot accounts of a guild
+    async getAllGuildAccounts(guild) {
+        return this.query(`SELECT name, email, kingdomId, role, allianceId, allianceTag, owner FROM botAccounts WHERE guild = ?;`, [guild]);
+    }
+
     // Get all bot accounts except IDLE
     async getActiveBots() {
         return this.query(`SELECT token, kingdomId, allianceId, allianceTag FROM botAccounts;`);

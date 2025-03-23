@@ -1,4 +1,4 @@
-const { SlashCommandBuilder, PermissionFlagsBits } = require("discord.js");
+const { SlashCommandBuilder, PermissionFlagsBits, EmbedBuilder } = require("discord.js");
 const AccountInfo = require("../../../general/accountInfo.js");
 const R4Check = require("../../../alliancemanager/r4check.js");
 
@@ -32,6 +32,21 @@ async function addAlliance(kingdomId, sql, r4Check) {
     if (r4Flag && !allianceExistsFlag) {
         await sql.addAllianceSettings(allianceId, allianceTag, guildId);
     }
+}
+
+// Helper function to create an embed for each account
+function createAccountEmbed(accountInfo) {
+    const embed = new EmbedBuilder()
+        .setTitle(`Account Info: ${accountInfo.name}`)
+        .setColor('#0099ff');
+
+    embed.addFields({ name: 'Email', value: accountInfo.email || 'N/A', inline: true });
+    embed.addFields({ name: 'Kingdom ID', value: accountInfo.kingdomId || 'N/A', inline: true });
+    embed.addFields({ name: 'Role', value: accountInfo.role || 'N/A', inline: true });
+    embed.addFields({ name: 'Alliance', value: accountInfo.allianceTag || 'N/A', inline: true });
+    embed.addFields({ name: 'Owner', value: accountInfo.owner || 'N/A', inline: true });
+
+    return embed;
 }
 
 module.exports = {
@@ -86,6 +101,11 @@ module.exports = {
                         .setRequired(true)
                         .setAutocomplete(true)
                 )
+        )
+        .addSubcommand((subcommand) =>
+            subcommand
+                .setName("list")
+                .setDescription("List all accounts and their information")
         ),
     async execute(interaction) {
         const sql = module.exports.sql;
@@ -139,6 +159,51 @@ module.exports = {
                         await interaction.editReply({ content: `Role of ${name} edited to ${role}!`, ...ephemeral });
                         if (role === "MANAGER") {
                             addAlliance(kingdomId, sql, r4Check);
+                        }
+                    }
+                    break;
+                case "list":
+                    {
+                        // Fetch all accounts for the guild
+                        const rows = await sql.getAllGuildAccounts(guildId);
+                        // console.log(rows);
+
+                        if (rows.length === 0) {
+                            await interaction.editReply({ content: "No accounts found for this guild.", flags: 64 });
+                            break;
+                        }
+
+                        const embeds = [];
+                        // Process the rows to create embeds for each account
+                        rows.forEach(row => {
+                            const accountInfo = {
+                                name: row.name,
+                                email: row.email,
+                                kingdomId: row.kingdomId,
+                                role: row.role,
+                                allianceId: row.allianceId,
+                                allianceTag: row.allianceTag,
+                                owner: row.owner
+                            };
+
+                            const embed = createAccountEmbed(accountInfo);
+                            embeds.push(embed);
+                        });
+
+                        // Handle pagination (Discord limits to 10 embeds per message)
+                        if (embeds.length > 10) {
+                            const chunks = [];
+                            for (let i = 0; i < embeds.length; i += 10) {
+                                chunks.push(embeds.slice(i, i + 10));
+                            }
+                            await interaction.editReply({ embeds: chunks[0], ...ephemeral });
+                            // Send each chunk of embeds as a separate message
+                            chunks.slice(1).forEach(async chunk => {
+                                await interaction.followUp({ embeds: chunk, ...ephemeral });
+                            });
+                        } else {
+                            // Send all embeds in a single message
+                            await interaction.editReply({ embeds: embeds, ...ephemeral });
                         }
                     }
                     break;
