@@ -102,9 +102,9 @@ class sqlFunctions {
     }
 
     // Get a queen token of a guild
-    async getQueenToken(guild) {
+    async getQueenToken(guildId) {
         const query = `SELECT token FROM botAccounts WHERE guild = ? AND role = 'QUEEN';`;
-        return this.query(query, [guild]);
+        return this.query(query, [guildId]);
     }
 
     // Get the manager's role status
@@ -633,6 +633,24 @@ class sqlFunctions {
         return this.query(query);
     }
 
+    // Get all the continents' guilds and buff channel IDs
+    async getAllContinentBuffChannels() {
+        const query = `
+        SELECT 
+            gs.guild_id,
+            gcl.continent,
+            gs.buff_channel
+        FROM 
+            guild_settings gs
+        LEFT JOIN 
+            guild_continent_link gcl
+        ON 
+            gs.guild_id = gcl.guild_id
+        WHERE 
+            gcl.continent IS NOT NULL AND LENGTH(gs.buff_channel) > 2;
+    `;
+        return this.query(query);
+    }
 
     // Get guild logchannels of a specific alliance
     async getGuildLogChannelsByAlliance(allianceId) {
@@ -872,6 +890,33 @@ class sqlFunctions {
     async getDistinctStakingAddresses() {
         const query = `SELECT DISTINCT from_address FROM staking_transactions;`;
         return this.query(query);
+    }
+
+    // Buffs functions
+
+    // Insert the newest buff message of a guild in the database.
+    insertBuffMessage(messageid, bufftype, guildId) {
+        return this.query('INSERT INTO buffs (message_id, buff_type, guild_id) VALUES (?, ?, ?);', [messageid, bufftype, guildId]);
+    }
+
+    // Get the latest message of a buff type in a guild.
+    getLatestBuffMessage(bufftype, guildId) {
+        return this.query('SELECT message_id FROM buffs WHERE buff_type = ? AND guild_id = ? ORDER BY id DESC LIMIT 1;', [bufftype, guildId]);
+    }
+
+    // get a random gif from the database.
+    getRandomGif(bufftype, guildId) {
+        return this.query('SELECT gif_link FROM buff_gifs WHERE buff_type = ? AND guild_id = ? ORDER BY RAND() LIMIT 1;', [bufftype, guildId]);
+    }
+    
+    // Insert a new gif into the database.
+    insertNewGif(bufftype, giflink, guildId) {
+        return this.query('INSERT INTO buff_gifs (buff_type, gif_link, guild_id) VALUES (?, ?, ?);', [bufftype, giflink, guildId]);
+    }
+
+    // Delete a gif from the database.
+    deleteGif(giflink, guildId) {
+        return this.query('DELETE FROM buff_gifs WHERE gif_link = ? AND guild_id = ?;', [giflink, guildId]);
     }
 
     // System tables functions

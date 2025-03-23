@@ -4,6 +4,7 @@ const sqlFunctions = require('./sql.js');
 const Api = require('../general/api.js');
 const UpdateVerified = require('./updaters/updateVerified.js');
 const UpdateStakers = require('./updaters/updateStakers.js');
+const UpdateBuffs = require('./updaters/updateBuffs.js');
 
 const sql = new sqlFunctions();
 const api = new Api(sql);
@@ -11,6 +12,7 @@ const updatePlayers = new UpdatePlayers(sql, api);
 const updateBots = new UpdateBots(sql, api);
 const updateVerified = new UpdateVerified(sql);
 const updateStakers = new UpdateStakers(sql, api);
+const updateBuffs = new UpdateBuffs(sql, api);
 
 async function startUpdaters() {
     updateBots.updateBotsToken(); // Midnight utc
@@ -20,6 +22,7 @@ async function startUpdaters() {
     updateVerified.updateVerified(); // Midnight utc
     updateStakers.runStakeUpdate(); // Every 5 minutes
     updateStakers.runCommentsUpdate(); // Every 2 days at 2am utc
+    updateBuffs.runBuffCheck(); // Every 1 minutes
 }
 
 startUpdaters();
