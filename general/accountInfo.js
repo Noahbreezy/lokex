@@ -86,10 +86,12 @@ class AccountInfo {
   }
 
   async collectInfo(email, password) {
-    const token = await this.login(email, password);
+    console.log(email, password);
+    const token = (await this.login(email, password)).token;
     if (!token) return false;
 
     const profile = await this.getProfile(token);
+    console.log(profile);
     if (!profile) return false;
 
     const accountInfo = {

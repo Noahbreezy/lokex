@@ -6,6 +6,7 @@ class R4Check {
 
     async checkR4(token, kingdomId, allianceId) {
         let allianceMembers;
+        let allianceRequestStatus;
         try {
             allianceMembers = (await this.api.request(
                 "https://api-lok-live.leagueofkingdoms.com/api/alliance/members/list",
@@ -14,7 +15,9 @@ class R4Check {
                     "x-access-token": token,
                     "Content-Type": "application/json",
                 }
-            )).data;
+            ));
+            allianceRequestStatus = allianceMembers.status;
+            allianceMembers = allianceMembers.data;
 
             // console.log("Alliance members:", allianceMembers);
             const filteredMembers = allianceMembers.members.filter(member => member._id === 99 || member._id === 4);
@@ -27,8 +30,9 @@ class R4Check {
                 return false;
             }
         } catch (error) {
-            if(allianceMembers.status !== 200) {
-                token = await this.api.getManagerToken(allianceId);
+            console.log(allianceMembers);
+            if(allianceRequestStatus !== 200 || allianceMembers?.result === "false") {
+                token = await this.sql.getManagerToken(allianceId);
                 console.error("Error checking R4, need to check again:", error);
                 setTimeout(() => {
                     this.checkR4(token, kingdomId, allianceId);
