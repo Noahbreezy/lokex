@@ -263,9 +263,12 @@ class AllianceManager {
 
       const tokenResponse = (await this.sql.getManagerToken(this.allianceId));
       const roleFlag = await this.sql.checkManagerRole(this.managerId);
-      // console.log("role: ", roleFlag);
-      // console.log("token: ", tokenResponse);
+      // if (this.allianceTag === "exp3" || this.allianceTag === "Exp1") {
+      //   console.log("logging")
+      //   console.log(!roleFlag, tokenResponse === undefined , tokenResponse.length === 0 , !(await this.r4Check.checkR4(tokenResponse[0].token, this.managerId, this.allianceId)));
+      // }
       if (!roleFlag || tokenResponse === undefined || tokenResponse.length === 0 || !(await this.r4Check.checkR4(tokenResponse[0].token, this.managerId, this.allianceId))) {
+        console.log("sending error message");
         let errorMessage = `Closing AllianceManager instance for ${this.allianceTag}. Reason: `;
 
         if (!roleFlag) {

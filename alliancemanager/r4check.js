@@ -19,12 +19,12 @@ class R4Check {
             allianceRequestStatus = allianceMembers.status;
             allianceMembers = allianceMembers.data;
 
-            // Ensure allianceMembers.members exists and is an array
-            if (!allianceMembers?.members || !Array.isArray(allianceMembers.members)) {
-                console.error("Invalid alliance members structure:", allianceMembers);
+            if (allianceMembers?.result === false) {
+                console.log("No alliance members found!");
                 return false;
             }
 
+            // console.log("Alliance members:", allianceMembers);
             const filteredMembers = allianceMembers.members.filter(member => member._id === 99 || member._id === 4);
             const allianceR4s = filteredMembers.flatMap(member => member.members);
             const allianceR4sIds = allianceR4s.map(member => member.kingdomId);
@@ -36,7 +36,7 @@ class R4Check {
             }
         } catch (error) {
             console.log(allianceMembers);
-            if (allianceRequestStatus !== 200 || allianceMembers?.result === "false") {
+            if(allianceRequestStatus !== 200 || allianceMembers?.err) {
                 token = await this.sql.getManagerToken(allianceId);
                 console.error("Error checking R4, need to check again:", error);
                 setTimeout(() => {
