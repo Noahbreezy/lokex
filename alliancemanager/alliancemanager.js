@@ -263,11 +263,12 @@ class AllianceManager {
 
       const tokenResponse = (await this.sql.getManagerToken(this.allianceId));
       const roleFlag = await this.sql.checkManagerRole(this.managerId);
+      const r4Flag = (await this.r4Check.checkR4(tokenResponse[0].token, this.managerId, this.allianceId));
       // if (this.allianceTag === "exp3" || this.allianceTag === "Exp1") {
       //   console.log("logging")
       //   console.log(!roleFlag, tokenResponse === undefined , tokenResponse.length === 0 , !(await this.r4Check.checkR4(tokenResponse[0].token, this.managerId, this.allianceId)));
       // }
-      if (!roleFlag || tokenResponse === undefined || tokenResponse.length === 0 || !(await this.r4Check.checkR4(tokenResponse[0].token, this.managerId, this.allianceId))) {
+      if (!roleFlag || tokenResponse === undefined || tokenResponse.length === 0 || !r4Flag) {
         console.log("sending error message");
         let errorMessage = `Closing AllianceManager instance for ${this.allianceTag}. Reason: `;
 
@@ -278,7 +279,7 @@ class AllianceManager {
         } else if (tokenResponse.length === 0) {
           errorMessage += "Token response is empty";
         } else {
-          errorMessage += "R4 check failed for manager token";
+          errorMessage += "R4 check failed";
         }
 
         console.error(errorMessage);
