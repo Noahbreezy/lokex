@@ -47,6 +47,19 @@ class sqlFunctions {
         }, delay);
     }
 
+    // Check if the connection pool is healthy
+    // checkConnection() {
+    //     this.pool.getConnection((err, connection) => {
+    //         if (err) {
+    //             console.error('Error getting connection:', err);
+    //             this.retryConnection();
+    //         } else {
+    //             console.log('Database connection is healthy.');
+    //             connection.release();
+    //         }
+    //     });
+    // }
+
     closeConnection() {
         if (this.pool && this.pool._closed !== true) {
             this.pool.end((err) => {
@@ -895,6 +908,24 @@ class sqlFunctions {
     async getDistinctStakingAddresses() {
         const query = `SELECT DISTINCT from_address FROM staking_transactions;`;
         return this.query(query);
+    }
+
+    // Get the addresses, comments and sum stake of each address for a specific continent
+    async getIndividualPledgeTotal(guildId) {
+        const query = `
+                        SELECT st.from_address, st.comment, SUM(st.amount) AS sum
+                        FROM staking_transactions st
+                        WHERE st.continent = (
+                            SELECT continent 
+                            FROM guild_continent_link 
+                            WHERE guild_id = ?
+                            LIMIT 1
+                        )
+                        GROUP BY st.from_address
+                        HAVING SUM(st.amount) > 0.1
+                        ORDER BY SUM(st.amount) DESC;
+                    `;
+        return this.query(query, [guildId]);
     }
 
     // Buffs functions

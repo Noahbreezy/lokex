@@ -95,20 +95,7 @@ module.exports = {
                     const continent = guildContinents[0].continent;
 
                     // Step 2: Query the staking_transactions table
-                    const query = `
-                        SELECT st.from_address, st.comment, SUM(st.amount) AS sum
-                        FROM staking_transactions st
-                        WHERE st.continent = (
-                            SELECT continent 
-                            FROM guild_continent_link 
-                            WHERE guild_id = ?
-                            LIMIT 1
-                        )
-                        GROUP BY st.from_address
-                        HAVING SUM(st.amount) > 0.1
-                        ORDER BY SUM(st.amount) DESC;
-                    `;
-                    const individualPledgers = await sql.query(query, [guildId]);
+                    const individualPledgers = await sql.getIndividualPledgeTotal(guildId);
 
                     if (individualPledgers.length === 0) {
                         await interaction.editReply({
