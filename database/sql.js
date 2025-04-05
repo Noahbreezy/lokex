@@ -931,27 +931,27 @@ class sqlFunctions {
     // Buffs functions
 
     // Insert the newest buff message of a guild in the database.
-    insertBuffMessage(messageid, bufftype, guildId) {
+    async insertBuffMessage(messageid, bufftype, guildId) {
         return this.query('INSERT INTO buffs (message_id, buff_type, guild_id) VALUES (?, ?, ?);', [messageid, bufftype, guildId]);
     }
 
     // Get the latest message of a buff type in a guild.
-    getLatestBuffMessage(bufftype, guildId) {
+    async getLatestBuffMessage(bufftype, guildId) {
         return this.query('SELECT message_id FROM buffs WHERE buff_type = ? AND guild_id = ? ORDER BY id DESC LIMIT 1;', [bufftype, guildId]);
     }
 
     // get a random gif from the database.
-    getRandomGif(bufftype, guildId) {
+    async getRandomGif(bufftype, guildId) {
         return this.query('SELECT gif_link FROM buff_gifs WHERE buff_type = ? AND guild_id = ? ORDER BY RAND() LIMIT 1;', [bufftype, guildId]);
     }
     
     // Insert a new gif into the database.
-    insertNewGif(bufftype, giflink, guildId) {
+    async insertNewGif(bufftype, giflink, guildId) {
         return this.query('INSERT INTO buff_gifs (buff_type, gif_link, guild_id) VALUES (?, ?, ?);', [bufftype, giflink, guildId]);
     }
 
     // Delete a gif from the database.
-    deleteGif(giflink, guildId) {
+    async deleteGif(giflink, guildId) {
         return this.query('DELETE FROM buff_gifs WHERE gif_link = ? AND guild_id = ?;', [giflink, guildId]);
     }
 

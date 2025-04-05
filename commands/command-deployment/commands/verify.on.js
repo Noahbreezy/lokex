@@ -271,7 +271,7 @@ module.exports = {
 
                         const linkExistsFlag = await sql.isContinentLinked(worldId);
 
-                        if(!linkExistsFlag && congressTitle === 101 || congressTitle === 102) {
+                        if(!linkExistsFlag && (congressTitle === 101 || congressTitle === 102)) {
                             await sql.addGuildContinent(guildId, worldId);
                         }
 
