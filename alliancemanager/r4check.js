@@ -8,6 +8,10 @@ class R4Check {
         let allianceMembers;
         let allianceRequestStatus;
         let reloadedToken;
+        if (!token) {
+            console.error("No token provided for r4Check in:", allianceId);
+            return false;
+        }
         try {
             allianceMembers = (await this.api.request(
                 "https://api-lok-live.leagueofkingdoms.com/api/alliance/members/list",

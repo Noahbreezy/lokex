@@ -260,15 +260,21 @@ class AllianceManager {
     try {
       //mauro v2.1
       console.log("manager: ", this.allianceTag);
+      let tokenResponseFlag = false;
 
       const tokenResponse = (await this.sql.getManagerToken(this.allianceId));
+      if (tokenResponse.length === 0) {
+        console.log("token: ", tokenResponse.length === 0, this.allianceTag);
+        tokenResponseFlag = true;
+        tokenResponse.push({ token: null });
+      }
+
       const roleFlag = await this.sql.checkManagerRole(this.managerId);
       const r4Flag = (await this.r4Check.checkR4(tokenResponse[0].token, this.managerId, this.allianceId));
-      // if (this.allianceTag === "exp3" || this.allianceTag === "Exp1") {
-      //   console.log("logging")
-      //   console.log(!roleFlag, tokenResponse === undefined , tokenResponse.length === 0 , !(await this.r4Check.checkR4(tokenResponse[0].token, this.managerId, this.allianceId)));
-      // }
-      if (!roleFlag || tokenResponse === undefined || tokenResponse.length === 0 || !r4Flag) {
+      
+      
+      if (tokenResponseFlag || !roleFlag || tokenResponse === undefined || !r4Flag) {
+        console.log(tokenResponseFlag || !roleFlag || tokenResponse === undefined || !r4Flag);
         console.log("sending error message");
         let errorMessage = `Closing AllianceManager instance for ${this.allianceTag}. Reason: `;
 
@@ -289,7 +295,6 @@ class AllianceManager {
       }
 
       const token = tokenResponse[0].token;
-      // console.log("token: ", token);
 
       const allianceSettings = (await this.sql.getAllianceSettings(this.allianceId))[0];
       //console.log("alliance settings: ", allianceSettings);
