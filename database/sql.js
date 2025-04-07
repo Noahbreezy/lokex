@@ -431,6 +431,13 @@ class sqlFunctions {
         return this.query(query, [code, discordId, guildId]);
     }
 
+    // Get the latest guildId in which a discord user requested a verification code
+    async getLatestVerificationRequestForUser(discordId) {
+        const query = 'SELECT code, guild_id FROM verification_codes WHERE discord_id = ? ORDER BY id DESC LIMIT 1';
+        const results = await this.query(query, [discordId]);
+        return results.length > 0 ? results[0] : null;
+    }
+
     // Check if a verification code is valid
     async checkVerificationCode(code, guildId) {
         const query = 'SELECT discord_id FROM verification_codes WHERE code = ? AND guild_id = ? AND used = 0 AND expired = 0';
@@ -456,9 +463,16 @@ class sqlFunctions {
         return results.length === 0;
     }
 
-    // Check if a discord user has more than one verified kingdom
+    // Check if a discord user has one or more verified kingdoms
     async checkVerifiedKingdoms(discordId, guild) {
         const query = 'SELECT kingdomId, kingdomName FROM verified WHERE discordId = ? AND guild = ?';
+        const results = await this.query(query, [discordId, guild]);
+        return results.length > 0 ? results : false;
+    }
+
+    // Check if a discord user has verified account with a wallet
+    async checkVerifiedWallet(discordId, guild) {
+        const query = 'SELECT kingdomId, kingdomName, wallet FROM verified WHERE discordId = ? AND guild = ? AND wallet IS NOT NULL';
         const results = await this.query(query, [discordId, guild]);
         return results.length > 0 ? results : false;
     }

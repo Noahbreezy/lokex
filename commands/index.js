@@ -5,7 +5,15 @@ const { token } = require("./config.json");
 const sqlFunctions = require("../database/sql.js");
 const Api = require("../general/api.js");
 
-const client = new Client({ intents: [GatewayIntentBits.Guilds] });
+const client = new Client({
+  intents: [
+      GatewayIntentBits.Guilds,
+      GatewayIntentBits.GuildMembers,
+      GatewayIntentBits.DirectMessages,
+      GatewayIntentBits.GuildMessages,
+      GatewayIntentBits.MessageContent,
+  ],
+});
 const sql = new sqlFunctions();
 const api = new Api(sql);
 
@@ -109,6 +117,20 @@ client.on(Events.InteractionCreate, async (interaction) => {
     }
   }
   else if (interaction.isModalSubmit()) {
+    if (interaction.customId === 'wallet_modal') {
+      const command = client.commands.get('verify');
+      if (!command) return;
+
+      try {
+        await command.handleModalSubmit(interaction, sql); // New method in verify.on.js
+      } catch (error) {
+        console.error(error);
+        await interaction.reply({
+          content: 'There was an error processing your modal submission!',
+          flags: 64,
+        });
+      }
+    }
     if (interaction.customId.startsWith("playerinfo_")) {
       const command = client.commands.get("playerinfo");
       if (!command) return;
