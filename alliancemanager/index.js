@@ -4,16 +4,20 @@ const AsyncLock = require('async-lock');
 
 // Create a MySQL connection
 const sql = new sqlFunctions();
-const runningAlliances = new Set();
 const acceptRequestLock = new AsyncLock();
 
 // function to start all the alliance manager instances
 async function manageAlliances() {
+    await sql.resetAlliancesStatus();
     while (true) {
         // Query to get bot info
         const botManagerInfo = await sql.getManagerAccounts();
         // console.log(botManagerInfo);
         // console.log("Retrieved bots info. Checking for new alliance manager instances...");
+        const activeAlliances = await sql.getActiveAlliances();
+        // console.log(activeAlliances);
+        const runningAlliances = new Set(activeAlliances.map(alliance => alliance.allianceId));
+        // console.log("Running alliances: ", runningAlliances);
 
         for (const botInfo of botManagerInfo) {
             if (!runningAlliances.has(botInfo.allianceId)) {
@@ -52,9 +56,9 @@ async function manageAlliances() {
 
                 // console.log(options);
 
-                new AllianceManager(options, sql, runningAlliances, acceptRequestLock);
+                new AllianceManager(options, sql, acceptRequestLock);
                 // console.log("before: ",runningAlliances);
-                runningAlliances.add(botInfo.allianceId);
+                await sql.setAllianceStatusToActive(botInfo.allianceId);
                 console.log("Started alliance manager instance for " + botInfo.allianceTag);
             }
             // console.log("after: ",runningAlliances);

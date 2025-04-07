@@ -11,11 +11,10 @@ const R4Check = require("./r4check.js");
 // const LocationCheck = require("./locationCheck.js");
 
 class AllianceManager {
-  constructor(options, sql, runningAlliances, acceptRequestLock) {
+  constructor(options, sql, acceptRequestLock) {
 
     // Credentials
     this.token = options.token;
-    this.runningAlliances = runningAlliances;
     this.acceptRequestLock = acceptRequestLock;
     this.discordClient = new Client({
       intents: [GatewayIntentBits.Guilds],
@@ -274,7 +273,6 @@ class AllianceManager {
       
       
       if (tokenResponseFlag || !roleFlag || tokenResponse === undefined || !r4Flag) {
-        console.log(tokenResponseFlag || !roleFlag || tokenResponse === undefined || !r4Flag);
         console.log("sending error message");
         let errorMessage = `Closing AllianceManager instance for ${this.allianceTag}. Reason: `;
 
@@ -289,7 +287,7 @@ class AllianceManager {
         }
 
         console.error(errorMessage);
-        this.runningAlliances.delete(this.allianceId);
+        await this.sql.setAllianceStatusToInactive(this.allianceId);
         await this.sql.setManagerIdle(this.managerId);
         return;
       }

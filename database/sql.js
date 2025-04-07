@@ -306,6 +306,31 @@ class sqlFunctions {
         return this.query(query, [allianceId]);
     }
 
+    // Set the status column back to default for all entries
+    async resetAlliancesStatus() {
+        const query = `UPDATE allianceinf SET status = DEFAULT;`;
+        return this.query(query);
+    }
+
+    // Set the status of a specific alliance to 1
+    async setAllianceStatusToActive(allianceId) {
+        const query = `UPDATE allianceinf SET status = 1 WHERE allianceId = ?;`;
+        return this.query(query, [allianceId]);
+    }
+
+    // Set the status of a specific alliance to 0
+    async setAllianceStatusToInactive(allianceId) {
+        const query = `UPDATE allianceinf SET status = 0 WHERE allianceId = ?;`;
+        return this.query(query, [allianceId]);
+    }
+
+    // Get a list of all the alliances that are active
+    async getActiveAlliances() {
+        const query = `SELECT allianceId, tag FROM allianceinf WHERE status = 1;`;
+        return this.query(query);
+    }
+        
+
     // check if the alliance exists in the settings already
     async allianceExists(allianceId) {
         const query = `SELECT allianceId FROM allianceinf WHERE allianceId = ?;`;
