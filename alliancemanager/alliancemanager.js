@@ -325,7 +325,7 @@ class AllianceManager {
       this.acceptLogChannel = logChannels.accept_log_channel;
       this.rejectLogChannel = logChannels.reject_log_channel;
 
-      const mailAccountToken = await this.sql.getRandomManagerTokenFromGuild(this.guild);
+      const mailAccountToken = (await this.sql.getRandomManagerTokenFromGuild(this.guild))[0].token;
       // console.log("mail token: ", mailAccountToken);
 
       // console.log("token: ", token);
@@ -349,7 +349,7 @@ class AllianceManager {
         - Combat: ${this.mastery.combat}
         - Monster: ${this.mastery.monster}
         - Governor: ${this.mastery.governor}
-      - Discord verification: ${this.verification ? "Verified" : "Not verified"}
+      - Discord verification: ${this.verification ? "Required" : "Not required"}
       `
 
       if (!this.accepting) {
@@ -505,7 +505,7 @@ class AllianceManager {
                   }
                 );
 
-                await this.api.request(
+                const powerResponse = await this.api.request(
                   "https://api-lok-live.leagueofkingdoms.com/api/mail/send",
                   new URLSearchParams({
                     json: JSON.stringify({
@@ -517,6 +517,8 @@ class AllianceManager {
                   }),
                   { "x-access-token": mailAccountToken }
                 );
+
+                console.log("powerResponse: ", powerResponse.data);
 
                 this.discordClient.channels.cache
                   .get(this.rejectLogChannel)
@@ -690,13 +692,7 @@ class AllianceManager {
                       json: JSON.stringify({
                         toName: name,
                         subject: `Rejected from ${this.allianceTag}`,
-                        content: `${Math.floor(Date.now())} \n You have been rejected because you don't have the correct mastery. The minimum mastery is:
-                            - Infantry: ${this.mastery.infantry}
-                            - Ranged: ${this.mastery.ranged}
-                            - Cavalry: ${this.mastery.cavalry}
-                            - Combat: ${this.mastery.combat}
-                            - Monster: ${this.mastery.monster}
-                            - Governor: ${this.mastery.governor}
+                        content: `You have been rejected because you don't have the correct mastery. The minimum mastery is:
                       \n${requirementMessage}`
                       }),
                     }),
