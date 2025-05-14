@@ -1,11 +1,11 @@
-const { 
-    SlashCommandBuilder, 
-    PermissionFlagsBits, 
-    EmbedBuilder, 
+const {
+    SlashCommandBuilder,
+    PermissionFlagsBits,
+    EmbedBuilder,
     StringSelectMenuBuilder,
-    ActionRowBuilder, 
-    ButtonBuilder, 
-    ButtonStyle 
+    ActionRowBuilder,
+    ButtonBuilder,
+    ButtonStyle
 } = require('discord.js');
 const qs = require('qs');
 
@@ -24,6 +24,12 @@ module.exports = {
 
         try {
             await interaction.deferReply({ ...ephemeral });
+
+            const subscriptionFlagInfo = await sql.checkSubscriptionValid(guildId, "2");
+            if (!subscriptionFlagInfo) {
+                await interaction.editReply({ content: "Your continent needs to have a valid subscription to use this command.", flags: 64 });
+                return;
+            }
 
             // Create or update the titles panel
             const guildSettings = await sql.getGuildLogChannels(guildId);
@@ -121,13 +127,19 @@ module.exports = {
             return;
         }
 
+        const subscriptionFlagInfo = await sql.checkSubscriptionValid(interaction.guild.id, "2");
+        if (!subscriptionFlagInfo) {
+            await interaction.reply({ content: "Your continent needs to have a valid subscription to use this command.", flags: 64 });
+            return;
+        }
+
         try {
             switch (action) {
                 case 'alchemist':
-                    await this.handleTitleRequest(interaction, 108, 'Alchemist', sql, api);
+                    await this.handleTitleRequest(interaction, 109, 'Alchemist', sql, api);
                     break;
                 case 'architect':
-                    await this.handleTitleRequest(interaction, 109, 'Architect', sql, api);
+                    await this.handleTitleRequest(interaction, 108, 'Architect', sql, api);
                     break;
                 case 'freetitle':
                     await this.freeTitle(interaction, sql);
@@ -194,7 +206,7 @@ module.exports = {
                 }
             });
 
-            }
+        }
     },
 
     async applyTitle(interaction, titleId, kingdomId, kingdomName, titleName, sql, api) {
@@ -247,21 +259,21 @@ module.exports = {
         const guildSettings = await sql.getGuildLogChannels(guildId);
         const titlesChannelId = guildSettings[0]?.titles_channel;
         if (!titlesChannelId) return;
-    
+
         const titlesChannel = await interaction.guild.channels.fetch(titlesChannelId);
         if (!titlesChannel) return;
-    
+
         // Fetch the latest message in the channel (assuming it's the embed)
         const messages = await titlesChannel.messages.fetch({ limit: 1 });
         const message = messages.first();
         if (!message || !message.embeds.length) return;
-    
+
         // Get current title statuses and counters
         const alchemistStatus = await this.getTitleStatus(108, sql); // 108 = Alchemist
         const architectStatus = await this.getTitleStatus(109, sql); // 109 = Architect
         const titlesAppliedToday = await this.getTitlesAppliedToday(guildId, sql);
         const titlesAppliedTotal = await this.getTitlesAppliedTotal(guildId, sql);
-    
+
         // Update the embed
         const updatedEmbed = new EmbedBuilder()
             .setColor(0x5865F2)
@@ -279,7 +291,7 @@ module.exports = {
                 { name: "Titles applied today:", value: titlesAppliedToday.toString(), inline: false },
                 { name: "Titles applied from start:", value: titlesAppliedTotal.toString(), inline: false }
             );
-    
+
         // Edit the existing message
         await message.edit({ embeds: [updatedEmbed] });
     }

@@ -69,13 +69,19 @@ module.exports = {
         const { commandName, options } = interaction;
         const guild = interaction.guild.id;
         const ephemeralFlag = await sql.getEphemeral(guild);
-        const ephemeral = ephemeralFlag ? {flags:64} : {};
+        const ephemeral = ephemeralFlag ? { flags: 64 } : {};
 
         let logChannel;
         try {
             logChannel = (await sql.getGuildLogChannels(guild))[0].accept_log_channel;
         } catch (error) {
             logChannel = "1064289954739523654";
+        }
+
+        const subscriptionFlagInfo = await sql.checkSubscriptionValid(guild, "1");
+        if (!subscriptionFlagInfo) {
+            await interaction.reply({ content: "Your continent needs to have a valid subscription to use this command.", flags: 64 });
+            return;
         }
 
         switch (options.getSubcommand()) {
@@ -87,7 +93,7 @@ module.exports = {
                 // console.log(alreadybs);
 
                 if (!alreadybs) {
-                    return await interaction.followUp({
+                    return await interaction.reply({
                         content: "This kingdom is not blacklisted",
                         flags: 64,
                     });
@@ -255,7 +261,7 @@ module.exports = {
         const api = module.exports.api;
         const guild = interaction.guild.id;
         const ephemeralFlag = await sql.getEphemeral(guild);
-        const ephemeral = ephemeralFlag ? {flags:64} : {};
+        const ephemeral = ephemeralFlag ? { flags: 64 } : {};
         await handleBlacklistModal(interaction, sql, api, ephemeral);
     },
     async autocomplete(interaction) {

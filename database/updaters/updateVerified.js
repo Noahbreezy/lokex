@@ -40,6 +40,12 @@ class UpdateVerified {
                 for (const guildChanges of changesNeeded) {
                     const { guildId, needChangeStatus, needChangeRole } = guildChanges;
 
+                    const subscriptionFlagInfo = await sql.checkSubscriptionValid(guildId, "2");
+                    if (!subscriptionFlagInfo) {
+                        console.log(`Subscription flag not valid for guild ${guildId}`);
+                        continue;
+                    }
+
                     // Step 1: Update the status of kingdoms in needChangeStatus
                     if (needChangeStatus?.length > 0) {
                         console.log(`Updating status for kingdoms in guild ${guildId}:`, needChangeStatus);
@@ -56,7 +62,8 @@ class UpdateVerified {
                     }
 
                     // Step 2: Remove roles for Discord users in needChangeRole
-                    if (needChangeRole?.length > 0) {
+                    const unverifyFlag = await this.sql.getUnverifyFlag(guildId);
+                    if (needChangeRole?.length > 0 && unverifyFlag) {
                         console.log(`Removing roles for users in guild ${guildId}:`, needChangeRole);
 
                         // Fetch the verified role for the guild

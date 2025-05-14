@@ -38,6 +38,11 @@ class UpdateBuffs {
                 const guilds = await this.sql.getAllContinentBuffChannels(); // Fetch all guilds
                 // console.log(guilds);
                 for (const guild of guilds) {
+                    const subscriptionFlagInfo = await this.sql.checkSubscriptionValid(guild.guild_id, "2");
+                    if (!subscriptionFlagInfo) {
+                        console.log(`Skipping buff check for guild ${guild.guild_id} due to subscription flag`);
+                        continue; // Skip this guild if subscription flag is not valid
+                    }
                     await this.checkActiveBuffs(guild.guild_id); // Check buffs for each guild
                 }
             } catch (err) {
@@ -69,7 +74,7 @@ class UpdateBuffs {
     // Get the latest queen token from the database for a specific guild
     async getLatestToken(guildId) {
         try {
-            const tokens = await this.sql.getQueenToken(guildId); 
+            const tokens = await this.sql.getQueenToken(guildId);
             if (!tokens || !tokens[0]?.token) {
                 throw new Error(`No queen token found for guild ${guildId}`);
             }
@@ -175,7 +180,7 @@ class UpdateBuffs {
 
             const role = (await this.sql.getGuildVerificationRole(guildId))[0]?.verified_role;
             const gif = (await this.sql.getRandomGif(skillCode, guildId))[0]?.gif_link;
-            
+
             // Send the message with role ping and gif
             const roleMention = `<@&${role}>`; // Adjust to continent-specific role if available
             const fullMessage = `${message}\n${roleMention} ${this.padding} ${gif}`;

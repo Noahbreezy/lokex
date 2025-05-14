@@ -23,7 +23,13 @@ module.exports = {
         const ephemeral = ephemeralFlag ? { flags: 64 } : {};
 
         try {
-            await interaction.deferReply({ flags: 64 });
+            await interaction.deferReply({ ...ephemeral });
+
+            const subscriptionFlagInfo = await sql.checkSubscriptionValid(guildId, "2");
+            if (!subscriptionFlagInfo) {
+                await interaction.editReply({ content: "Your continent needs to have a valid subscription to use this command.", flags: 64 });
+                return;
+            }
 
             switch (options.getSubcommand()) {
                 case "continents": {
@@ -118,7 +124,7 @@ module.exports = {
                     }
                     break;
                 }
-                
+
 
                 default: {
                     await interaction.editReply({
@@ -159,8 +165,8 @@ function createEmbeds(rows, continent) {
         // Clean the comment by removing all newline characters (\n)
         const cleanComment = row.comment ? row.comment.replace(/\n/g, '') : null;
         // Use cleaned comment if available, otherwise truncate from_address, or use "Unknown" as fallback
-        const name = cleanComment || 
-                     (row.from_address ? `${row.from_address.slice(0, 4)}...${row.from_address.slice(-6)}` : "Unknown");
+        const name = cleanComment ||
+            (row.from_address ? `${row.from_address.slice(0, 4)}...${row.from_address.slice(-6)}` : "Unknown");
         const amount = row.sum; // Use 'sum' from the query result
 
         const rankDisplay = fieldCount + 1;

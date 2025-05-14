@@ -43,6 +43,7 @@ class UpdatePlayers {
     async updatePlayers() {
         while (true) {
             try {
+                console.log('Updating players...');
                 const botAccounts = await this.sql.getManagerAccounts();
                 const botAccountsFiltered = botAccounts.filter((account, index, self) =>
                     index === self.findIndex((t) => t.allianceId === account.allianceId)

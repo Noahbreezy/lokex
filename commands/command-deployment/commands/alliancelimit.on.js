@@ -116,6 +116,12 @@ module.exports = {
         const ephemeralFlag = await sql.getEphemeral(guildId);
         const ephemeral = ephemeralFlag ? {flags:64} : {};
 
+        const subscriptionFlagInfo = await sql.checkSubscriptionValid(guildId, "1");
+        if (!subscriptionFlagInfo) {
+            await interaction.reply({ content: "Your continent needs to have a valid subscription to use this command.", flags: 64 });
+            return;
+        }
+
         switch (options.getSubcommand()) {
             case "setlimit":
                 {

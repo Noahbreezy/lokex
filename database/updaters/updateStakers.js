@@ -227,11 +227,17 @@ class UpdateStakers {
                 // console.log(continent, guildContinent, isStaking);
                 // console.log(typeof continent, typeof guildContinent, typeof isStaking);
 
+                const subscriptionFlagInfo = await this.sql.checkSubscriptionValid(guildId, "2");
+                if (!subscriptionFlagInfo) {
+                    await channel.send("A pledge was made to a continent, but you have no valid subscription for this service.");
+                    continue;
+                }
+
                 // Format the message
                 let emoji = (continent === guildContinent && isStaking) || (continent !== guildContinent && !isStaking)
                     ? '<a:8697pepehyped:1352775694287110185>'
                     : '<a:1314kekwholup:1352775612389003396>';
-                
+
                 const action = isStaking ? 'New staking' : 'New unstaking';
                 const formattedAmount = this.formatNumberWithSuffix(Math.abs(amount));
                 const message = comment
@@ -249,27 +255,27 @@ class UpdateStakers {
     async updateChannelName() {
         const netStaking = await this.sql.getNetStakingByContinent();
         const guilds = await this.sql.getAllContinentPledgeChannels();
-    
+
         for (const guild of guilds) {
             const guildId = guild.guild_id;
             const channelId = guild.pledgers_channel;
             const guildContinent = Number(guild.continent); // Ensure it's a number
-    
+
             try {
                 const channel = await this.discordClient.channels.fetch(channelId);
                 if (!channel) continue;
-    
+
                 // Find continentStake ensuring type consistency
                 const continentStake = netStaking.find(row => Number(row.continent) === guildContinent);
                 const difference = continentStake ? Number(continentStake.total_amount) : 0;
-                
+
                 // console.log(`NetStaking:`, netStaking);
                 // console.log(`Matching ContinentStake:`, continentStake);
                 // console.log(`Computed Difference:`, difference);
-    
+
                 // Determine new channel name
                 let channelName = `📈 ┃ pledging ${this.formatNumberWithSuffix2(Math.abs(difference))}`;
-    
+
                 await channel.setName(channelName);
                 // console.log(`Updated channel name for ${channelId} to ${channelName}`);
             } catch (err) {
@@ -277,7 +283,7 @@ class UpdateStakers {
             }
         }
     }
-    
+
 
     // Utility to format numbers with suffixes (e.g., 1.57K, 2.00M)
     formatNumberWithSuffix(number) {

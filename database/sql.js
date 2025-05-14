@@ -329,7 +329,7 @@ class sqlFunctions {
         const query = `SELECT allianceId, tag FROM allianceinf WHERE status = 1;`;
         return this.query(query);
     }
-        
+
 
     // check if the alliance exists in the settings already
     async allianceExists(allianceId) {
@@ -671,6 +671,54 @@ class sqlFunctions {
         return this.query(query);
     }
 
+    // set the tx_hash of a guild link
+    async setGuildContinentTxHash(guildId, continent, txHash) {
+        const query = "UPDATE guild_continent_link SET tx_hash = ? WHERE guild_id = ? AND continent = ?;";
+        return this.query(query, [txHash, guildId, continent]);
+    }
+
+    // Add subscription to a guild
+    async addSubscription(guildId, continent, subscription) {
+        const query = `
+            UPDATE guild_continent_link 
+            SET 
+                subscription_type = ?, 
+                valid_until = CASE 
+                    WHEN valid_until > NOW() THEN DATE_ADD(valid_until, INTERVAL 30 DAY)
+                    ELSE DATE_ADD(NOW(), INTERVAL 30 DAY)
+                END
+            WHERE guild_id = ? AND continent = ?;
+        `;
+        return this.query(query, [subscription, guildId, continent]);
+    }
+
+    // Get the valid_until date of a subscription
+    async getSubscriptionValidUntil(guildId) {
+        const query = "SELECT continent, valid_until FROM guild_continent_link WHERE guild_id = ? AND continent IS NOT NULL;";
+        const results = await this.query(query, [guildId]);
+        return results.length > 0 ? results : null;
+    }
+
+    // Check if a continent's subscription is still valid and the correct type
+    async checkSubscriptionValid(guild, subscription) {
+        const query = "SELECT continent, subscription_type FROM guild_continent_link WHERE guild_id = ? AND subscription_type LIKE ? AND valid_until > NOW();";
+        const results = await this.query(query, [guild, `%${subscription}%`]);
+        return results.length > 0 ? results : null;
+    }
+
+    // Check if a txHash already exists for another continent
+    async checkTxHashExists(txHash) {
+        const query = "SELECT continent FROM guild_continent_link WHERE tx_hash = ?;";
+        const results = await this.query(query, [txHash]);
+        return results.length > 0 ? results[0].continent : null;
+    }
+
+    // Get all the continents linked to a single guild
+    async getGuildContinents(guildId) {
+        const query = "SELECT continent FROM guild_continent_link WHERE guild_id = ?;";
+        return this.query(query, [guildId]);
+    }
+
     // Get all the continents' guilds and pledging channel IDs
     async getAllContinentPledgeChannels() {
         const query = `
@@ -791,6 +839,19 @@ class sqlFunctions {
     async setGuildVerificationRole(role, guild) {
         const query = "UPDATE guild_settings SET verified_role=? WHERE guild_id=?;";
         return this.query(query, [role, guild]);
+    }
+
+    // Check if a guild wants to remove roles from unverified discords
+    async getUnverifyFlag(guild) {
+        const query = "SELECT unverify FROM guild_settings WHERE guild_id=?;";
+        const results = await this.query(query, [guild]);
+        return results.length > 0 ? results[0].unverify === 1 : false;
+    }
+
+    // Set unverify setting for a specific guild
+    async setUnverifyFlag(flag, guild) {
+        const query = "UPDATE guild_settings SET unverify=? WHERE guild_id=?;";
+        return this.query(query, [flag, guild]);
     }
 
     // Check if a channel exists in the settings already for a specific guild
@@ -983,7 +1044,7 @@ class sqlFunctions {
     async getRandomGif(bufftype, guildId) {
         return this.query('SELECT gif_link FROM buff_gifs WHERE buff_type = ? AND guild_id = ? ORDER BY RAND() LIMIT 1;', [bufftype, guildId]);
     }
-    
+
     // Insert a new gif into the database.
     async insertNewGif(bufftype, giflink, guildId) {
         return this.query('INSERT INTO buff_gifs (buff_type, gif_link, guild_id) VALUES (?, ?, ?);', [bufftype, giflink, guildId]);
@@ -992,6 +1053,42 @@ class sqlFunctions {
     // Delete a gif from the database.
     async deleteGif(giflink, guildId) {
         return this.query('DELETE FROM buff_gifs WHERE gif_link = ? AND guild_id = ?;', [giflink, guildId]);
+    }
+
+    // Subscription functions
+
+    // Get subscription costs
+    async getSubscriptionCosts() {
+        return this.query("SELECT subscription, cost FROM subscriptions");
+    }
+
+    // Store a new pending payment
+    async storePendingPayment(userId, guildId, continent, selected, totalCost, timestamp) {
+        const query = `
+            INSERT INTO pending_payments (user_id, guild_id, continent, selected_subscriptions, total_cost, timestamp)
+            VALUES (?, ?, ?, ?, ?, ?);
+        `;
+        return this.query(query, [userId, guildId, continent, selected, totalCost, timestamp]);
+    }
+
+    // Delete the most recent pending payment
+    async deletePendingPayment(userId, guildId) {
+        const query = `
+            DELETE FROM pending_payments 
+            WHERE user_id = ? AND guild_id = ? 
+            ORDER BY timestamp DESC LIMIT 1;
+        `;
+        return this.query(query, [userId, guildId]);
+    }
+
+    // Get the most recent pending payment
+    async getPendingPayment(userId, guildId) {
+        const query = `
+            SELECT * FROM pending_payments 
+            WHERE user_id = ? AND guild_id = ? 
+            ORDER BY timestamp DESC LIMIT 1;
+        `;
+        return this.query(query, [userId, guildId]);
     }
 
     // System tables functions

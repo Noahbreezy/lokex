@@ -41,11 +41,10 @@ client.on(Events.InteractionCreate, async (interaction) => {
   const userName = user.username;
   const subcommand = options?.getSubcommand(false);
   console.log(`Command: ${commandName ? commandName : customId}, Subcommand: ${subcommand ? subcommand : 'None'}, Guild: ${guildName}, User: ${userName}`);
+  
   if (interaction.isChatInputCommand()) {
     const command = client.commands.get(interaction.commandName);
-
     if (!command) return;
-
     try {
       await command.execute(interaction);
     } catch (error) {
@@ -56,26 +55,20 @@ client.on(Events.InteractionCreate, async (interaction) => {
       });
     }
   } else if (interaction.isAutocomplete()) {
-    const command = interaction.client.commands.get(interaction.commandName);
-
+    const command = client.commands.get(interaction.commandName);
     if (!command) {
-      console.error(
-        `No command matching ${interaction.commandName} was found.`
-      );
+      console.error(`No command matching ${interaction.commandName} was found.`);
       return;
     }
-
     try {
       await command.autocomplete(interaction);
     } catch (error) {
       console.error(error);
     }
-  }
-  else if (interaction.isButton()) {
+  } else if (interaction.isButton()) {
     if (interaction.customId === 'verify' || interaction.customId === 'add_kingdom') {
       const command = client.commands.get('verify');
       if (!command) return;
-
       try {
         await command.execute(interaction);
       } catch (error) {
@@ -86,11 +79,10 @@ client.on(Events.InteractionCreate, async (interaction) => {
         });
       }
     } else if (interaction.customId.startsWith('alchemist_') ||
-      interaction.customId.startsWith('architect_') ||
-      interaction.customId.startsWith('freetitle_')) {
+               interaction.customId.startsWith('architect_') ||
+               interaction.customId.startsWith('freetitle_')) {
       const command = client.commands.get('title');
       if (!command) return;
-
       try {
         await command.handleButtonInteraction(interaction);
       } catch (error) {
@@ -100,11 +92,9 @@ client.on(Events.InteractionCreate, async (interaction) => {
           flags: 64,
         });
       }
-    }
-    if (interaction.customId.startsWith("playerinfo_")) {
+    } else if (interaction.customId.startsWith("playerinfo_")) {
       const command = client.commands.get("playerinfo");
       if (!command) return;
-
       try {
         await command.buttons(interaction);
       } catch (error) {
@@ -114,15 +104,25 @@ client.on(Events.InteractionCreate, async (interaction) => {
           flags: 64,
         });
       }
+    } else if (interaction.customId.startsWith("pay_")) {
+      const command = client.commands.get("subscription");
+      if (!command) return;
+      try {
+        await command.button(interaction);
+      } catch (error) {
+        console.error(error);
+        await interaction.reply({
+          content: "There was an error while processing your payment request!",
+          flags: 64,
+        });
+      }
     }
-  }
-  else if (interaction.isModalSubmit()) {
+  } else if (interaction.isModalSubmit()) {
     if (interaction.customId === 'wallet_modal') {
       const command = client.commands.get('verify');
       if (!command) return;
-
       try {
-        await command.handleModalSubmit(interaction, sql); // New method in verify.on.js
+        await command.handleModalSubmit(interaction, sql);
       } catch (error) {
         console.error(error);
         await interaction.reply({
@@ -130,11 +130,9 @@ client.on(Events.InteractionCreate, async (interaction) => {
           flags: 64,
         });
       }
-    }
-    if (interaction.customId.startsWith("playerinfo_")) {
+    } else if (interaction.customId.startsWith("playerinfo_")) {
       const command = client.commands.get("playerinfo");
       if (!command) return;
-
       try {
         await command.modals(interaction);
       } catch (error) {
@@ -144,11 +142,9 @@ client.on(Events.InteractionCreate, async (interaction) => {
           flags: 64,
         });
       }
-    }
-    if (interaction.customId.startsWith("blacklist_")) {
+    } else if (interaction.customId.startsWith("blacklist_")) {
       const command = client.commands.get("blacklist");
       if (!command) return;
-
       try {
         await command.modals(interaction);
       } catch (error) {
@@ -158,21 +154,41 @@ client.on(Events.InteractionCreate, async (interaction) => {
           flags: 64,
         });
       }
-
-
+    } else if (interaction.customId === "payment_submission") {
+      const command = client.commands.get("subscription");
+      if (!command) return;
+      try {
+        await command.modal(interaction);
+      } catch (error) {
+        console.error(error);
+        await interaction.reply({
+          content: "There was an error while processing your payment submission!",
+          flags: 64,
+        });
+      }
     }
-  }
-  else if (interaction.isStringSelectMenu()) {
+  } else if (interaction.isStringSelectMenu()) {
     if (interaction.customId.startsWith("playerinfo_")) {
       const command = client.commands.get("playerinfo");
       if (!command) return;
-
       try {
         await command.stringselect(interaction);
       } catch (error) {
         console.error(error);
         await interaction.reply({
           content: "There was an error while executing this command!",
+          flags: 64,
+        });
+      }
+    } else if (interaction.customId.startsWith("subscription_select")) {
+      const command = client.commands.get("subscription");
+      if (!command) return;
+      try {
+        await command.stringselect(interaction);
+      } catch (error) {
+        console.error(error);
+        await interaction.reply({
+          content: "There was an error while handling your subscription selection.",
           flags: 64,
         });
       }

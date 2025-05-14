@@ -268,11 +268,13 @@ class AllianceManager {
         tokenResponse.push({ token: null });
       }
 
+      const subscriptionFlagInfo = await sql.checkSubscriptionValid(guildId, "1");
+
       const roleFlag = await this.sql.checkManagerRole(this.managerId);
       const r4Flag = (await this.r4Check.checkR4(tokenResponse[0].token, this.managerId, this.allianceId));
-      
-      
-      if (tokenResponseFlag || !roleFlag || tokenResponse === undefined || !r4Flag) {
+
+
+      if (tokenResponseFlag || !roleFlag || tokenResponse === undefined || !r4Flag || !s) {
         console.log("sending error message");
         let errorMessage = `Closing AllianceManager instance for ${this.allianceTag}. Reason: `;
 
@@ -282,6 +284,8 @@ class AllianceManager {
           errorMessage += "Token response is undefined";
         } else if (tokenResponse.length === 0) {
           errorMessage += "Token response is empty";
+        } else if (!subscriptionFlagInfo) {
+          errorMessage += "No valid subscription found";
         } else {
           errorMessage += "R4 check failed";
         }
@@ -518,7 +522,7 @@ class AllianceManager {
                   { "x-access-token": mailAccountToken }
                 );
 
-                console.log("powerResponse: ", powerResponse.data);
+                // console.log("powerResponse: ", powerResponse.data);
 
                 this.discordClient.channels.cache
                   .get(this.rejectLogChannel)
@@ -577,8 +581,9 @@ class AllianceManager {
               }
 
               const verified = await this.sql.isKingdomVerified(kid);
+              const subscriptionFlagInfoVerified = await sql.checkSubscriptionValid(guildId, "2");
 
-              if (this.verification && !verified) {
+              if (this.verification && !verified && subscriptionFlagInfoVerified) {
                 await this.api.request(
                   "https://api-lok-live.leagueofkingdoms.com/api/alliance/request/deny",
                   { kingdomId: kid },

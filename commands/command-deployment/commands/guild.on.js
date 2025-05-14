@@ -19,6 +19,17 @@ module.exports = {
         )
         .addSubcommand((subcommand) =>
             subcommand
+                .setName("unverify")
+                .setDescription("Set whether to unverify members or not")
+                .addBooleanOption((option) =>
+                    option
+                        .setName("unverify")
+                        .setDescription("True = unverify members after 7D with no verified account in the continent")
+                        .setRequired(true)
+                )
+        )
+        .addSubcommand((subcommand) =>
+            subcommand
                 .setName("create-channels")
                 .setDescription("Create verification channel and more")
         )
@@ -73,6 +84,11 @@ module.exports = {
             switch (options.getSubcommand()) {
                 case "verified-role":
                     {
+                        const subscriptionFlagInfo = await sql.checkSubscriptionValid(guildId, "2");
+                        if (!subscriptionFlagInfo) {
+                            await interaction.reply({ content: "Your continent needs to have a valid subscription to use this command.", flags: 64 });
+                            return;
+                        }
                         const role = options.getRole("role");
                         const roleId = role.id;
                         const roleName = role.name;
@@ -113,6 +129,18 @@ module.exports = {
                         }
                         else {
                             await interaction.reply({ content: `Bot answers are now visible.` });
+                        }
+                        break;
+                    }
+                case "unverify":
+                    {
+                        const unverifyFlag = options.getBoolean("unverify");
+                        await sql.setUnverifyFlag(unverifyFlag, guildId);
+                        if (unverifyFlag) {
+                            await interaction.reply({ content: `Players will now get their verification role removed if they do not have a verified account on your continent.`, ...ephemeral });
+                        }
+                        else {
+                            await interaction.reply({ content: `No roles will be removed regardless of affiliation or location.`, ...ephemeral });
                         }
                         break;
                     }
