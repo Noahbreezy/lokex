@@ -39,6 +39,7 @@ async function manageAlliances() {
                         power: allianceSettings.power,
                         kills: allianceSettings.kills,
                         speed: allianceSettings.speed,
+                        guild: allianceSettings.guild,
                         mastery: {
                             combat: allianceSettings.combat,
                             monster: allianceSettings.monster,

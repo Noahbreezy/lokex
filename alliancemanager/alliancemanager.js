@@ -8,6 +8,7 @@ const UpdateInfo = require("./updateinfo.js");
 const HelpCheck = require("./helpCheck.js");
 const AcceptCheck = require("./acceptCheck.js");
 const R4Check = require("./r4check.js");
+require("dotenv").config();
 // const LocationCheck = require("./locationCheck.js");
 
 class AllianceManager {
@@ -19,7 +20,7 @@ class AllianceManager {
     this.discordClient = new Client({
       intents: [GatewayIntentBits.Guilds],
     });
-    this.discordToken = "MTI5ODk2ODI5MzI2NDMzMDgxMg.GDcLFk.aJTF1L1xQnV5unkUx2jYddUdmNLwmjjKHsebCE";
+    this.discordToken = process.env.DISCORD_TOKEN;
     this.discordClient.login(this.discordToken);
     this.discordClient.once(Events.ClientReady, () => {
       console.log("Discord client ready");
@@ -58,7 +59,7 @@ class AllianceManager {
     this.maxkick = null;
     this.cvcmode = null;
     this.titleGrace = 0;
-    this.guild = null;
+    this.guild = options.settings.guild;
     this.acceptLogChannel = "945404350229000252";
     this.rejectLogChannel = "945404350229000252";
     // setInterval(() => this.accept(), (this.interval || 60) * 1000); //mauro v2.1
@@ -267,14 +268,15 @@ class AllianceManager {
         tokenResponseFlag = true;
         tokenResponse.push({ token: null });
       }
-
-      const subscriptionFlagInfo = await sql.checkSubscriptionValid(guildId, "1");
+      // console.log('test sub', this.guild);
+      const subscriptionFlagInfo = await this.sql.checkSubscriptionValid(this.guild, "1");
+      // console.log('test sub2', subscriptionFlagInfo);
 
       const roleFlag = await this.sql.checkManagerRole(this.managerId);
       const r4Flag = (await this.r4Check.checkR4(tokenResponse[0].token, this.managerId, this.allianceId));
 
 
-      if (tokenResponseFlag || !roleFlag || tokenResponse === undefined || !r4Flag || !s) {
+      if (tokenResponseFlag || !roleFlag || tokenResponse === undefined || !r4Flag || !subscriptionFlagInfo) {
         console.log("sending error message");
         let errorMessage = `Closing AllianceManager instance for ${this.allianceTag}. Reason: `;
 
@@ -581,7 +583,7 @@ class AllianceManager {
               }
 
               const verified = await this.sql.isKingdomVerified(kid);
-              const subscriptionFlagInfoVerified = await sql.checkSubscriptionValid(guildId, "2");
+              const subscriptionFlagInfoVerified = await this.sql.checkSubscriptionValid(this.guild, "2");
 
               if (this.verification && !verified && subscriptionFlagInfoVerified) {
                 await this.api.request(

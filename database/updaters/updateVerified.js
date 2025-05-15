@@ -1,5 +1,6 @@
 const sqlFunctions = require('../sql.js');
 const { Client, GatewayIntentBits } = require('discord.js');
+require('dotenv').config();
 
 class UpdateVerified {
     constructor(sqlInstance) {
@@ -10,7 +11,7 @@ class UpdateVerified {
                 GatewayIntentBits.GuildMembers, // Needed to manage roles
             ],
         });
-        this.discordToken = "MTI5ODk2ODI5MzI2NDMzMDgxMg.GDcLFk.aJTF1L1xQnV5unkUx2jYddUdmNLwmjjKHsebCE";
+        this.discordToken = process.env.DISCORD_TOKEN;
         this.discordClient.login(this.discordToken);
 
         // Ensure the client is ready before proceeding

@@ -2,6 +2,7 @@ const sqlFunctions = require('../sql.js');
 const Api = require('../../general/api.js');
 const { Client, GatewayIntentBits } = require('discord.js');
 const axios = require('axios');
+require('dotenv').config();
 
 class UpdateStakers {
     constructor(sqlInstance, api) {
@@ -14,7 +15,7 @@ class UpdateStakers {
                 GatewayIntentBits.GuildMessages,
             ],
         });
-        this.discordToken = "MTI5ODk2ODI5MzI2NDMzMDgxMg.GDcLFk.aJTF1L1xQnV5unkUx2jYddUdmNLwmjjKHsebCE"; // Replace with your bot token
+        this.discordToken = process.env.DISCORD_TOKEN; // Discord bot token
         this.discordClient.login(this.discordToken);
 
         // Ensure the client is ready before proceeding
