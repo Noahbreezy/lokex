@@ -1,5 +1,6 @@
 const Api = require("../general/api.js");
 const mysql = require("mysql2");
+const zlib = require('zlib');
 require('dotenv').config();
 
 class Encryption {
@@ -63,6 +64,18 @@ class Encryption {
         const xorDecrypted = await this.decryptXor(base64Decrypted, password);
     
         return xorDecrypted;
+    }
+
+    async decodeGunzip(payload) {
+        return new Promise((resolve, reject) => {
+            zlib.gunzip(Buffer.from(payload, 'base64'), (err, buffer) => {
+                if (err) {
+                    reject(err);
+                } else {
+                    resolve(buffer.toString());
+                }
+            });
+        });
     }
 }
 

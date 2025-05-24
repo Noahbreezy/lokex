@@ -1055,6 +1055,17 @@ class sqlFunctions {
         return this.query('DELETE FROM buff_gifs WHERE gif_link = ? AND guild_id = ?;', [giflink, guildId]);
     }
 
+    // Rallies functions
+
+    // Add a rally to the database
+    async addRally(rallyId, kingdomId, rallyType, guildId) {
+        const query = `
+            INSERT IGNORE INTO rallies (rally_id, by_kingdom_id, type, guild_id)
+            VALUES (?, ?, ?, ?);
+        `;
+        return this.query(query, [rallyId, kingdomId, rallyType, guildId]);
+    }
+
     // Subscription functions
 
     // Get subscription costs
@@ -1110,6 +1121,12 @@ class sqlFunctions {
     // Get proxies
     async getProxies() {
         return this.query("SELECT ip FROM proxies");
+    }
+
+    // Get proxy except specific IP
+    async getProxyExcept(ip) {
+        const query = "SELECT ip FROM proxies WHERE ip != ?";
+        return this.query(query, [ip]);
     }
 }
 

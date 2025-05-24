@@ -126,8 +126,11 @@ module.exports = {
             await interaction.reply({ content: 'This button is not for you!', ...ephemeral });
             return;
         }
+        
+        // console.log('interaction', interaction.guild.id);
 
         const subscriptionFlagInfo = await sql.checkSubscriptionValid(interaction.guild.id, "2");
+        // console.log('Subscription flag info:', subscriptionFlagInfo);
         if (!subscriptionFlagInfo) {
             await interaction.reply({ content: "Your continent needs to have a valid subscription to use this command.", flags: 64 });
             return;

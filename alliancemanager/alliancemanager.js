@@ -1,7 +1,6 @@
 const axios = require("axios");
 const { Client, Events, GatewayIntentBits } = require("discord.js");
 const SpeedCheck = require("./speedcheck.js");
-const Api = require("../general/api.js");
 const MasteryCheck = require("./masterycheck.js");
 const ShrineCheck = require("./shrineCheck.js");
 const UpdateInfo = require("./updateinfo.js");
@@ -12,7 +11,7 @@ require("dotenv").config();
 // const LocationCheck = require("./locationCheck.js");
 
 class AllianceManager {
-  constructor(options, sql, acceptRequestLock) {
+  constructor(options, sql, acceptRequestLock, api) {
 
     // Credentials
     this.token = options.token;
@@ -30,7 +29,7 @@ class AllianceManager {
     // Initialize classes
     this.sql = sql; // zkM38hcy4ANj
 
-    this.api = new Api(this.sql);
+    this.api = api;
 
     this.helpCheck = new HelpCheck(this.sql);
     this.acceptCheck = new AcceptCheck(this.sql);

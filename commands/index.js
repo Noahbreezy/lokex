@@ -1,9 +1,10 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const { Client, Collection, Events, GatewayIntentBits, Options } = require("discord.js");
-const { token } = require("./config.json");
 const sqlFunctions = require("../database/sql.js");
 const Api = require("../general/api.js");
+require("dotenv").config();
+const token = process.env.DISCORD_TOKEN;
 
 const client = new Client({
   intents: [

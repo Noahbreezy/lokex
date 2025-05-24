@@ -56,15 +56,15 @@ module.exports = {
 
             let userDMChannel;
             try {
+                await interaction.reply({
+                    content: 'Verification instructions are being sent to your DMs!',
+                    flags: 64
+                });
                 userDMChannel = await interaction.user.createDM();
                 await userDMChannel.send({ embeds: [embed] });
                 await userDMChannel.send(`\`\`\`\n${code}\n\`\`\``);
-                await interaction.reply({
-                    content: 'Verification instructions have been sent to your DMs!',
-                    flags: 64
-                });
             } catch (dmError) {
-                await interaction.reply({
+                await interaction.followUp({
                     content: 'Unable to send DM. Please enable DMs from server members and try again.',
                     flags: 64
                 });
@@ -196,6 +196,8 @@ module.exports = {
 
             const response = await api.request('https://api-lok-live.leagueofkingdoms.com/api/mail/list', data, headers);
             const mails = response.data.mails;
+
+            // console.log('Mails response:', response.data);
 
             for (const mail of mails) {
                 if (mail.content.toUpperCase().includes(code)) {

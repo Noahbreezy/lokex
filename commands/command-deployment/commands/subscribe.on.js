@@ -171,11 +171,11 @@ module.exports = {
             }
 
             if (selected.includes("5")) {
-                const required = ["1", "2", "3", "4"];
+                const required = ["2"];
                 const missing = required.filter((r) => !selected.includes(r));
                 if (missing.length > 0) {
                     return interaction.followUp({
-                        content: "Subscription 5 requires all other subscriptions (1-4). 50$ total.",
+                        content: "Subscription 5 requires subscriptions 2.",
                         flags: 64,
                     });
                 }

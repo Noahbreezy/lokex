@@ -416,7 +416,7 @@ async function handleBlacklistModal(interaction, sql, api, ephemeral) {
             }
             console.log("alliance ID: ", allianceId);
             const managerToken = (await sql.getManagerToken(allianceId));
-            console.log("token: ", managerToken);
+            console.log("token: ", managerToken[0].token);
             if (!managerToken.length > 0) {
                 return await interaction.followUp({
                     content: "Can't kick from alliance " + (allianceTag ? allianceTag : "") + " (no manager bot) or user is not in an alliance.",
