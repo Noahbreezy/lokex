@@ -1,6 +1,6 @@
 const fs = require("node:fs");
 const path = require("node:path");
-const { Client, Collection, Events, GatewayIntentBits, Options } = require("discord.js");
+const { Client, Collection, Events, GatewayIntentBits } = require("discord.js");
 const sqlFunctions = require("../database/sql.js");
 const Api = require("../general/api.js");
 require("dotenv").config();
@@ -42,7 +42,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
   const userName = user.username;
   const subcommand = options?.getSubcommand(false);
   console.log(`Command: ${commandName ? commandName : customId}, Subcommand: ${subcommand ? subcommand : 'None'}, Guild: ${guildName}, User: ${userName}`);
-  
+
   if (interaction.isChatInputCommand()) {
     const command = client.commands.get(interaction.commandName);
     if (!command) return;
@@ -117,6 +117,18 @@ client.on(Events.InteractionCreate, async (interaction) => {
           flags: 64,
         });
       }
+    } else if (interaction.customId === "drago_list") {
+      const command = client.commands.get("dragolookup");
+      if (!command) return;
+      try {
+        await command.handleButtonInteraction(interaction);
+      } catch (error) {
+        console.error(error);
+        await interaction.reply({
+          content: "There was an error while processing the Drago lookup button!",
+          flags: 64,
+        });
+      }
     }
   } else if (interaction.isModalSubmit()) {
     if (interaction.customId === 'wallet_modal') {
@@ -164,6 +176,18 @@ client.on(Events.InteractionCreate, async (interaction) => {
         console.error(error);
         await interaction.reply({
           content: "There was an error while processing your payment submission!",
+          flags: 64,
+        });
+      }
+    } else if (interaction.customId === "dragolist") {
+      const command = client.commands.get("dragolookup");
+      if (!command) return;
+      try {
+        await command.handleModalSubmit(interaction);
+      } catch (error) {
+        console.error(error);
+        await interaction.reply({
+          content: "There was an error while processing the Drago lookup modal!",
           flags: 64,
         });
       }

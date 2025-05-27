@@ -157,51 +157,32 @@ module.exports = {
 
 async function createGuildChannels(interaction, guild, guildName, guildId, ephemeral, sql) {
     try {
-
         const existingChannels = await guild.channels.fetch();
         const existingChannelIds = existingChannels.map(channel => channel.id);
-        // console.log(existingChannelIds);
-        // console.log(existingChannels);
-        const managedChannelsDB = (await sql.getManagedChannels(guildId))[0];
-        console.log(managedChannelsDB);
+        const managedChannelsDB = (await sql.getManagedChannels(guildId))[0] || {};
 
-        for (const [key, value] of Object.entries(managedChannelsDB)) {
-            if (!existingChannelIds.includes(value)) {
-                switch (key) {
-                    case "verification_channel":
-                        await createVerificationChannel(interaction, guild, guildName, guildId, ephemeral, sql);
-                        break;
-                    case "titles_channel":
-                        await createTitlesChannel(interaction, guild, guildName, guildId, ephemeral, sql);
-                        break;
-                    case "pledgers_channel":
-                        await createPledgersChannel(interaction, guild, guildName, guildId, ephemeral, sql);
-                        break;
-                    case "buff_channel":
-                        await createBuffChannel(interaction, guild, guildName, guildId, ephemeral, sql);
-                        break;
-                    case "ranking_channel":
-                        break;
-                    case "cmine_whitelist_channel":
-                        break;
-                    case "dsa_whitelist_channel":
-                        break;
-                    case "open_chat_channel":
-                        break;
-                    default:
-                        break;
-                }
-            }
+        // Only create channels that are not already in the database and Discord
+        if (!managedChannelsDB.verification_channel || !existingChannelIds.includes(managedChannelsDB.verification_channel)) {
+            await createVerificationChannel(interaction, guild, guildName, guildId, ephemeral, sql);
+        }
+        if (!managedChannelsDB.titles_channel || !existingChannelIds.includes(managedChannelsDB.titles_channel)) {
+            await createTitlesChannel(interaction, guild, guildName, guildId, ephemeral, sql);
+        }
+        if (!managedChannelsDB.pledgers_channel || !existingChannelIds.includes(managedChannelsDB.pledgers_channel)) {
+            await createPledgersChannel(interaction, guild, guildName, guildId, ephemeral, sql);
+        }
+        if (!managedChannelsDB.buff_channel || !existingChannelIds.includes(managedChannelsDB.buff_channel)) {
+            await createBuffChannel(interaction, guild, guildName, guildId, ephemeral, sql);
+        }
+        if (!managedChannelsDB.drago_lookup_channel || !existingChannelIds.includes(managedChannelsDB.drago_lookup_channel)) {
+            await createDragoLookupChannel(interaction, guild, guildName, guildId, ephemeral, sql);
         }
 
-
-        // Respond to the interaction
-        await interaction.followUp({ content: `✅ Channels created for ${guildName}`, ...ephemeral });
+        await interaction.followUp({ content: `✅ Channels created or verified for ${guildName}`, ...ephemeral });
     } catch (error) {
         console.error(error);
         await interaction.followUp({ content: "There was an error while creating the channels.", flags: 64 });
     }
-
 }
 
 async function createVerificationChannel(interaction, guild, guildName, guildId, ephemeral, sql) {
@@ -378,5 +359,51 @@ async function createBuffChannel(interaction, guild, guildName, guildId, ephemer
     } catch (error) {
         console.error(error);
         await interaction.followUp({ content: "There was an error while creating the buff channel.", flags: 64 });
+    }
+}
+
+async function createDragoLookupChannel(interaction, guild, guildName, guildId, ephemeral, sql) {
+    try {
+        let dragoInfoChannel = await guild.channels.create({
+            name: "drago-info",
+            type: ChannelType.GuildText,
+            permissionOverwrites: [
+                {
+                    id: guildId, // @everyone role
+                    allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages], // Allow sending messages for slash command
+                }
+            ]
+        });
+
+        await sql.setGuildDragoLookupChannel(dragoInfoChannel.id, guildId);
+
+        // Create embed message explaining the /dragolookup command and button
+        const embed = new EmbedBuilder()
+            .setColor(0x00FF00)
+            .setTitle("🟢 Drago Info Lookup")
+            .setDescription(
+                "Use the `/dragolookup` command or click the **Find Drago** button below to look up stats for up to 5 Dragos by ID or link.\n\n" +
+                "**Slash Command Example:** `/dragolookup drago1:12345 drago2:23456`\n\n" +
+                "**Button:** Click 'Find Drago' to open a modal and enter up to 5 Drago IDs.\n\n" +
+                "You will get a detailed embed for each Drago, including level, fusion, legendary parts, and all abilities."
+            )
+            .setFooter({ text: "Powered by Lokex" });
+
+        // Create the "Find Drago" button
+        const row = new ActionRowBuilder().addComponents(
+            new ButtonBuilder()
+                .setCustomId("drago_list")
+                .setLabel("Find Drago")
+                .setStyle(ButtonStyle.Primary)
+                .setEmoji("🐉")
+        );
+
+        // Send message to the new channel
+        await dragoInfoChannel.send({ embeds: [embed], components: [row] });
+
+        await interaction.followUp({ content: `✅ Drago Info channel created: ${dragoInfoChannel}`, ...ephemeral });
+    } catch (error) {
+        console.error(error);
+        await interaction.followUp({ content: "There was an error while creating the Drago Info channel.", flags: 64 });
     }
 }

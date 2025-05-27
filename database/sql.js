@@ -784,7 +784,7 @@ class sqlFunctions {
 
     // get channels managed by the bot
     async getManagedChannels(guild) {
-        const query = "SELECT verification_channel, titles_channel, pledgers_channel, buff_channel, ranking_channel, cmine_whitelist_channel, dsa_whitelist_channel FROM guild_settings WHERE guild_id=?;";
+        const query = "SELECT verification_channel, titles_channel, pledgers_channel, buff_channel, drago_lookup_channel, ranking_channel, cmine_whitelist_channel, dsa_whitelist_channel FROM guild_settings WHERE guild_id=?;";
         return this.query(query, [guild]);
     }
 
@@ -821,6 +821,12 @@ class sqlFunctions {
     // Set guild buff channel
     async setGuildBuffChannel(channel, guild) {
         const query = "UPDATE guild_settings SET buff_channel=? WHERE guild_id=?;";
+        return this.query(query, [channel, guild]);
+    }
+
+    // Set guild drago lookup channel
+    async setGuildDragoLookupChannel(channel, guild) {
+        const query = "UPDATE guild_settings SET drago_lookup_channel=? WHERE guild_id=?;";
         return this.query(query, [channel, guild]);
     }
 
