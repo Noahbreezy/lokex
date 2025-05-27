@@ -1,6 +1,9 @@
 const { REST, Routes } = require('discord.js');
-const { clientId, token } = require('./config.json');
+const { clientId } = require('./config.json');
 const fs = require('node:fs');
+require('dotenv').config();
+
+token = process.env.DISCORD_TOKEN;
 
 const commands = [];
 // Grab all the command files from the commands directory you created earlier

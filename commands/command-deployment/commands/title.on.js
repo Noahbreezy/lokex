@@ -18,7 +18,11 @@ module.exports = {
     async execute(interaction) {
         const sql = module.exports.sql;
         const api = module.exports.api;
-        const guildId = interaction.guild.id;
+        const guildId = interaction.guild?.id ?? null;
+        if (!guildId) {
+            await interaction.reply({ content: 'This command can only be used in a server.', flags: 64 });
+            return;
+        }
         const ephemeralFlag = await sql.getEphemeral(guildId);
         const ephemeral = ephemeralFlag ? { flags: 64 } : {};
 

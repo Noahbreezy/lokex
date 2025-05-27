@@ -396,7 +396,7 @@ class sqlFunctions {
 
     // Check if a kingdom is blacklisted
     async isKingdomBlacklisted(kingdomId, guild) {
-        const query = "SELECT kingdomId, expiration, description FROM blacklist WHERE kingdomId=? AND valid=1 AND expiration>NOW() AND guild=?";
+        const query = "SELECT discordId, kingdomId, date, expiration, description FROM blacklist WHERE kingdomId=? AND valid=1 AND expiration>NOW() AND guild=?";
         const results = await this.query(query, [kingdomId, guild]);
         return results.length > 0 ? results : false;
     }
@@ -436,6 +436,19 @@ class sqlFunctions {
         const query = "SELECT kingdomId FROM verified WHERE kingdomId=? AND guild=? AND status=1";
         const results = await this.query(query, [kingdomId, guild]);
         return results.length > 0;
+    }
+
+    // Check if a kingdom is verified in any guild, and return discordId and the continent linked to the guild
+    async isKingdomVerifiedAnyGuild(kingdomId) {
+        const query = `
+            SELECT v.discordId, gcl.continent, v.guild
+            FROM verified v
+            INNER JOIN guild_continent_link gcl ON v.guild = gcl.guild_id
+            WHERE v.kingdomId = ? AND v.status = 1
+            LIMIT 1;
+        `;
+        const results = await this.query(query, [kingdomId]);
+        return results.length > 0 ? results[0] : null;
     }
 
     // Get verified kingdom discordId
@@ -916,6 +929,18 @@ class sqlFunctions {
         return this.query(query, [kingdomId]);
     }
 
+    // Get a list of past kingdom names by Id
+    async getPastKingdomNames(kingdomId) {
+        const query = `
+            SELECT date, name, MIN(id) as first_seen_id
+            FROM info
+            WHERE kingdomId = ?
+            GROUP BY name
+            ORDER BY first_seen_id ASC
+        `;
+        return this.query(query, [kingdomId]);
+    }
+
     // Get a kingdom's name and alliance
     async getKingdomNameAndAlliance(kingdomId) {
         const query = "SELECT name, allianceId, allianceTag FROM info WHERE kingdomId=? ORDER BY id DESC";
@@ -966,6 +991,17 @@ class sqlFunctions {
         INSERT INTO info (allianceId, allianceTag, kingdomId, name, level, lord, power, kills, death, victory, defeat, gathering, continent, x, y)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
         return this.query(query, values);
+    }
+
+    // Get the latest info entry for a kingdom
+    async getLatestKingdomInfo(kingdomId) {
+        const query = `
+        SELECT * FROM info 
+        WHERE kingdomId = ? 
+        AND id IN (SELECT MAX(id) FROM info WHERE kingdomId = ?)
+        ORDER BY id DESC LIMIT 1;
+    `;
+        return this.query(query, [kingdomId, kingdomId]);
     }
 
     // Staking transactions functions
@@ -1064,6 +1100,17 @@ class sqlFunctions {
             VALUES (?, ?, ?, ?);
         `;
         return this.query(query, [rallyId, kingdomId, rallyType, guildId]);
+    }
+
+    // Get the amount of rallies done by a kingdom in the last month
+    async getRalliesCount(kingdomId, guildId) {
+        const query = `
+            SELECT COUNT(*) as count 
+            FROM rallies 
+            WHERE by_kingdom_id = ? AND guild_id = ? AND timestamp >= NOW() - INTERVAL 30 DAY;
+        `;
+        const results = await this.query(query, [kingdomId, guildId]);
+        return results.length > 0 ? results[0].count : 0;
     }
 
     // Subscription functions

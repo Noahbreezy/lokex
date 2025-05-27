@@ -34,6 +34,33 @@ class Api {
         return response;
     }
 
+    async getStream(url, header) {
+        // Fetch proxies from the database
+        const proxies = await this.sql.getProxies();
+        proxies.push({ ip: null }); // Add a null option to possibly make a request without a proxy
+
+        // Randomly select a proxy from the list
+        const randomIndex = Math.floor(Math.random() * proxies.length);
+        const proxyUrl = proxies[randomIndex].ip;
+        // console.log(`Using proxy: ${proxyUrl} for stream`);
+
+        // Set up the HTTPS proxy agent if a proxy URL is selected
+        const httpsAgent = proxyUrl ? new HttpsProxyAgent(`http://${proxyUrl}:3128`) : null;
+
+        // Configure the request for a GET stream
+        const config = {
+            method: 'get',
+            url: url,
+            headers: header,
+            responseType: 'stream', // Ensure the response is a stream
+            ...(httpsAgent && { httpsAgent }) // Conditionally add the httpsAgent if it exists
+        };
+
+        // Make the Axios GET request with stream response
+        const response = await axios(config);
+
+        return response;
+    }
 }
 
 module.exports = Api;

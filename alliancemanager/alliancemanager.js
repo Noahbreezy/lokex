@@ -776,6 +776,10 @@ class AllianceManager {
                 ) {
 
                   await this.sql.addAcceptLog(kid, name);
+                  console.log(`accepted: ${name}`);
+                  numtkn++;
+
+                  // console.log(this.discordClient.channels.cache.get(this.acceptLogChannel));
 
                   this.discordClient.channels.cache
                     .get(this.acceptLogChannel)
@@ -785,8 +789,6 @@ class AllianceManager {
                         power
                       )}\n`
                     );
-                  console.log(`accepted: ${name}`);
-                  numtkn++;
                 } else {
                   console.log("error accepting");
                   console.log(acceptResponse.data);
