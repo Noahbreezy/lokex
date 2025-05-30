@@ -199,6 +199,7 @@ module.exports = {
         );
         if (!detailResponse.data.drago || !detailResponse.data.drago._id) throw new Error("Drago not found");
         const dragoid = detailResponse.data.drago._id;
+        console.log("Drago ID found:", dragoid);
 
         // Step 2: Get drago info (requires token)
         const data = qs.stringify({
@@ -214,18 +215,11 @@ module.exports = {
             headers
         );
         const jsontot = infoResponse.data;
+        console.log("Drago info response:", jsontot);
         if (!jsontot.drago) throw new Error("Drago info not found");
 
         // Build embed
-        const { level, fusion, tokenId: tid, grade: lege, parts, bonus } = jsontot.drago;
-        let embed = new EmbedBuilder()
-            .setTitle(`Drago #${tid}`)
-            .setDescription(`Level: ${level}, Fusion: ${fusion}, Legendary parts: ${lege}`)
-            .setColor('#00FF00')
-            .setImage(`https://lok-nft.leagueofkingdoms.com/api/card/drago/${tid}`)
-            .setThumbnail(`https://lok-nft.leagueofkingdoms.com/api/card/drago/${tid}`)
-            .setTimestamp();
-
+        const { level, fusion, tokenId: tid, grade: lege, parts, bonus, xp, breed, owner } = jsontot.drago;
         // Aggregate buffs by ability code
         const buffTotals = new Map();
 
@@ -246,15 +240,25 @@ module.exports = {
             buffTotals.set(abilityCode, total);
         }
 
-        // Add fields to embed with total values
+        // Build the stats list as a string
+        let statsList = '';
         for (const [code, total] of buffTotals.entries()) {
             const abilityn = abilityName[code] || `Ability ${code}`;
-            embed.addFields({
-                name: abilityn,
-                value: `${total.toFixed(2)}%`,
-                inline: true
-            });
+            statsList += `${abilityn}: ${total.toFixed(2)}%\n`;
         }
+
+        let embed = new EmbedBuilder()
+            .setTitle(`Drago #${tid}`)
+            .setDescription(
+                `Level: ${level}, Fusion: ${fusion}, Legendary parts: ${lege}\n` +
+                `XP: ${xp}, Breed: ${breed}\n` +
+                `Owner: ${owner || "Unknown"}\n\n` +
+                `**Current drago stats:**\n${statsList}`
+            )
+            .setColor('#00FF00')
+            .setImage(`https://lok-nft.leagueofkingdoms.com/api/card/drago/${tid}`)
+            .setThumbnail(`https://lok-nft.leagueofkingdoms.com/api/card/drago/${tid}`)
+            .setTimestamp();
 
         return embed;
     },
