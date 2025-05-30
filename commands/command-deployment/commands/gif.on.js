@@ -40,12 +40,14 @@ module.exports = {
     async execute(interaction) {
         const sql = module.exports.sql;
         const { commandName, options } = interaction;
+        const ephemeralFlag = await sql.getEphemeral(interaction.guild.id);
+        const ephemeral = ephemeralFlag ? { flags: 64 } : {};
 
         switch (options.getSubcommand()) {
             case "add":
                 try {
-                    await sql.insertNewGif(options.getString("gif"), options.getString("message"), interaction.guild.id);
-                    await interaction.reply({ content: 'Gif added to the pool!', ephemeral: true });
+                    await sql.insertNewGif(options.getString("message"), options.getString("gif"), interaction.guild.id);
+                    await interaction.reply({ content: 'Gif added to the pool!', ...ephemeral });
                 } catch (error) {
                     console.error('Error while adding gif to the pool:', error);
                     await interaction.reply('Error while adding gif to the pool!');
