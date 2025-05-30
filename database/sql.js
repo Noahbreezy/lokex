@@ -1119,6 +1119,62 @@ class sqlFunctions {
         return results.length > 0 ? results[0].count : 0;
     }
 
+    // Get player's rallies rank based on both startDate and endDate
+    async getRalliesRankByStartAndEndDate(guildId, startDate, endDate) {
+        const query = `
+            SELECT r.by_kingdom_id, i.name, COUNT(*) as rally_count
+            FROM rallies r
+            LEFT JOIN info i ON r.by_kingdom_id = i.kingdomId
+            WHERE r.guild_id = ? AND r.timestamp >= ? AND r.timestamp <= ?
+            GROUP BY r.by_kingdom_id, i.name
+            ORDER BY rally_count DESC
+            LIMIT 100
+        `;
+        return this.query(query, [guildId, startDate, endDate]);
+    }
+
+    // Get the player's rallies rank based on the startDate alone
+    async getRalliesRankByStartDate(guildId, startDate) {
+        const query = `
+            SELECT r.by_kingdom_id, i.name, COUNT(*) as rally_count
+            FROM rallies r
+            LEFT JOIN info i ON r.by_kingdom_id = i.kingdomId
+            WHERE r.guild_id = ? AND r.timestamp >= ?
+            GROUP BY r.by_kingdom_id, i.name
+            ORDER BY rally_count DESC
+            LIMIT 100
+        `;
+        return this.query(query, [guildId, startDate]);
+    }
+
+    // Get the player's rallies rank based on the endDate alone
+    async getRalliesRankByEndDate(guildId, endDate) {
+        const query = `
+            SELECT r.by_kingdom_id, i.name, COUNT(*) as rally_count
+            FROM rallies r
+            LEFT JOIN info i ON r.by_kingdom_id = i.kingdomId
+            WHERE r.guild_id = ? AND r.timestamp <= ?
+            GROUP BY r.by_kingdom_id, i.name
+            ORDER BY rally_count DESC
+            LIMIT 100
+        `;
+        return this.query(query, [guildId, endDate]);
+    }
+
+    // Get the player's rallies rank based on all time
+    async getRalliesRankAllTime(guildId) {
+        const query = `
+            SELECT r.by_kingdom_id, i.name, COUNT(*) as rally_count
+            FROM rallies r
+            LEFT JOIN info i ON r.by_kingdom_id = i.kingdomId
+            WHERE r.guild_id = ?
+            GROUP BY r.by_kingdom_id, i.name
+            ORDER BY rally_count DESC
+            LIMIT 100
+        `;
+        return this.query(query, [guildId]);
+    }
+
     // Subscription functions
 
     // Get subscription costs
