@@ -24,7 +24,7 @@ module.exports = {
                 .addBooleanOption((option) =>
                     option
                         .setName("unverify")
-                        .setDescription("True = unverify members after 7D with no verified account in the continent")
+                        .setDescription("True = unverify members after X days with no verified account. Use /guild unverified-period.")
                         .setRequired(true)
                 )
         )
@@ -70,6 +70,17 @@ module.exports = {
             subcommand
                 .setName("show-settings")
                 .setDescription("Display all current guild settings")
+        ).addSubcommand((subcommand) =>
+            subcommand
+                .setName("unverified-period")
+                .setDescription("Set the period after which users lose their verified role")
+                .addIntegerOption((option) =>
+                    option
+                        .setName("days")
+                        .setDescription("Number of days before unverification")
+                        .setRequired(true)
+                        .setMinValue(1)
+                )
         ),
     async execute(interaction) {
         const sql = module.exports.sql;
@@ -144,6 +155,17 @@ module.exports = {
                         }
                         else {
                             await interaction.reply({ content: `No roles will be removed regardless of affiliation or location.`, ...ephemeral });
+                        }
+                        break;
+                    }
+                case "unverified-period":
+                    {
+                        const period = options.getInteger("days");
+                        await sql.setUnverifiedPeriod(period, guildId);
+                        if (period === 0) {
+                            await interaction.reply({ content: `Unverification period has been disabled.`, ...ephemeral });
+                        } else {
+                            await interaction.reply({ content: `Unverification period set to ${period} day${period === 1 ? '' : 's'}.`, ...ephemeral });
                         }
                         break;
                     }

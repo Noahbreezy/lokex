@@ -516,7 +516,7 @@ class sqlFunctions {
     }
 
     // Get kingdoms and Discord users that need status/role changes
-    async getUnlinkedKingdomsAndRoles(days = 7) {
+    async getUnlinkedKingdomsAndRoles(days) {
         // Increase GROUP_CONCAT limit to handle large lists
         await this.query("SET SESSION group_concat_max_len = 1000000;");
 
@@ -877,6 +877,19 @@ class sqlFunctions {
     async setUnverifyFlag(flag, guild) {
         const query = "UPDATE guild_settings SET unverify=? WHERE guild_id=?;";
         return this.query(query, [flag, guild]);
+    }
+
+    // Set unverified_period setting for a specific guild
+    async setUnverifiedPeriod(period, guild) {
+        const query = "UPDATE guild_settings SET unverified_period=? WHERE guild_id=?;";
+        return this.query(query, [period, guild]);
+    }
+
+    // Get unverified_period setting for a specific guild
+    async getUnverifiedPeriod(guild) {
+        const query = "SELECT unverified_period FROM guild_settings WHERE guild_id=?;";
+        const results = await this.query(query, [guild]);
+        return results.length > 0 ? results[0].unverified_period : null;
     }
 
     // Check if a channel exists in the settings already for a specific guild
