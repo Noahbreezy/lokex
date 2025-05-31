@@ -106,6 +106,18 @@ module.exports = {
             subcommand
                 .setName("list")
                 .setDescription("List all accounts and their information")
+        )
+        .addSubcommand((subcommand) =>
+            subcommand
+                .setName("reloadtoken")
+                .setDescription("Reload token for an account")
+                .addStringOption((option) =>
+                    option
+                        .setName("name")
+                        .setDescription("Account name")
+                        .setRequired(true)
+                        .setAutocomplete(true)
+                )
         ),
     async execute(interaction) {
         const sql = module.exports.sql;
@@ -117,7 +129,7 @@ module.exports = {
         const guildName = interaction.guild.name;
         const userName = user.username;
         const ephemeralFlag = await sql.getEphemeral(guildId);
-        const ephemeral = ephemeralFlag ? {flags:64} : {};
+        const ephemeral = ephemeralFlag ? { flags: 64 } : {};
         console.log(ephemeral);
 
         try {
@@ -207,6 +219,15 @@ module.exports = {
                         }
                     }
                     break;
+                case "reloadtoken":
+                    {
+                        const kingdomId = options.getString("name");
+                        const name = (await sql.getBotNameByKingdomId(kingdomId))[0].name;
+                        console.log("reloadtokenresponse: ", kingdomId, name);
+                        await accountInfo.updateSingleBotToken(kingdomId);
+                        await interaction.editReply({ content: `Token reloaded for account ${name}!`, ...ephemeral });
+                    }
+                    break;
                 default:
                     await interaction.editReply({ content: "Unknown subcommand", flags: 64 });
                     break;
@@ -221,6 +242,7 @@ module.exports = {
         try {
             switch (interaction.options.getSubcommand()) {
                 case "remove":
+                case "reloadtoken":
                     {
                         if (interaction.options.getFocused(true).name === "name") {
                             await handleNameAutocomplete(interaction, sql);
