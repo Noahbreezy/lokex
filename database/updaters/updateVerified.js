@@ -24,7 +24,7 @@ class UpdateVerified {
     }
 
     async getChangesData() {
-        const unverifiedPeriod = this.sql.getUnverifiedPeriod();
+        const unverifiedPeriod = await this.sql.getUnverifiedPeriod();
         const changesNeeded = await this.sql.getUnlinkedKingdomsAndRoles(unverifiedPeriod);
         console.log(changesNeeded.guilds);
         return changesNeeded.guilds;
