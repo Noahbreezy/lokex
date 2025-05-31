@@ -65,14 +65,17 @@ module.exports = {
                         .setDescription("True = hides bot answers")
                         .setRequired(true)
                 )
+        )
+        .addSubcommand((subcommand) =>
+            subcommand
+                .setName("show-settings")
+                .setDescription("Display all current guild settings")
         ),
     async execute(interaction) {
         const sql = module.exports.sql;
         const { commandName, options, guildId, user } = interaction;
-        const userId = user.id;
         const guild = interaction.guild;
         const guildName = interaction.guild.name;
-        const userName = user.username;
         const ephemeralFlag = await sql.getEphemeral(guildId);
         const ephemeral = ephemeralFlag ? { flags: 64 } : {};
 
@@ -144,13 +147,76 @@ module.exports = {
                         }
                         break;
                     }
+                case "show-settings":
+                    {
+                        // Define channel-related fields
+                        const channelFields = [
+                            'accept_log_channel',
+                            'reject_log_channel',
+                            'verification_channel',
+                            'titles_channel',
+                            'pledgers_channel',
+                            'buff_channel',
+                            'drago_lookup_channel',
+                            'ranking_channel',
+                            'cmine_whitelist_channel',
+                            'dsa_whitelist_channel'
+                        ];
+
+                        const settings = await sql.getGuildSettings(guildId);
+                        if (!settings || !settings[0]) {
+                            await interaction.reply({ content: "No settings found for this guild.", ...ephemeral });
+                            return;
+                        }
+
+                        // Filter out guild_id and id, and prepare the settings entries
+                        const settingsEntries = Object.entries(settings[0])
+                            .filter(([key]) => key !== 'guild_id' && key !== 'id')
+                            .map(([key, value]) => {
+                                const displayKey = key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+                                let displayValue;
+                                if (channelFields.includes(key)) {
+                                    // Handle channel fields by converting to a channel mention
+                                    displayValue = (value && value !== '0') ? `<#${value}>` : 'Not set';
+                                } else {
+                                    // Handle non-channel fields as before
+                                    displayValue = value !== null && value !== undefined ? String(value) : 'Not set';
+                                }
+                                return { name: displayKey, value: displayValue, inline: false };
+                            });
+
+                        if (settingsEntries.length === 0) {
+                            await interaction.reply({ content: "No settings to display for this guild.", ...ephemeral });
+                            return;
+                        }
+
+                        // Split settings into chunks of 25 fields (Discord limit)
+                        const chunkSize = 25;
+                        const embeds = [];
+                        for (let i = 0; i < settingsEntries.length; i += chunkSize) {
+                            const chunk = settingsEntries.slice(i, i + chunkSize);
+                            const embed = new EmbedBuilder()
+                                .setColor(0x00FF00)
+                                .setTitle(`${guildName} Guild Settings`)
+                                .setDescription(`Current settings for this guild (Part ${Math.floor(i / chunkSize) + 1} of ${Math.ceil(settingsEntries.length / chunkSize)}):`)
+                                .addFields(chunk);
+                            embeds.push(embed);
+                        }
+
+                        // Send all embeds
+                        await interaction.reply({ embeds: [embeds[0]], ...ephemeral });
+                        for (let i = 1; i < embeds.length; i++) {
+                            await interaction.followUp({ embeds: [embeds[i]], ...ephemeral });
+                        }
+                        break;
+                    }
                 default:
                     await interaction.editReply({ content: "Unknown subcommand", ...ephemeral });
                     break;
             }
         } catch (error) {
             console.error(error);
-            await interaction.reply({ content: "There was an error while changing guild settings! If this is the first time using the /guild command it's normal. It should work if you try again.", flags: 64 });
+            await interaction.reply({ content: "There was an error while changing guild settings! If this is the first time using the /guild command it's normal. It should work if you try again. If it doesn't work several times, please contact support.", flags: 64 });
         }
     },
 };

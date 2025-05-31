@@ -659,6 +659,12 @@ class sqlFunctions {
 
     // Guild settings functions
 
+    // Get all guild settings of a guild
+    async getGuildSettings(guildId) {
+        const query = "SELECT * FROM guild_settings WHERE guild_id = ?;";
+        return this.query(query, [guildId]);
+    }
+
     // Set guild to continent link
     async addGuildContinent(guildId, continent) {
         const query = "INSERT INTO guild_continent_link (guild_id, continent) VALUES (?, ?);";
@@ -1119,12 +1125,18 @@ class sqlFunctions {
         return results.length > 0 ? results[0].count : 0;
     }
 
-    // Get player's rallies rank based on both startDate and endDate
+    // Get player's rallies rank based on both startDate and endDate, using the most recent name from info
     async getRalliesRankByStartAndEndDate(guildId, startDate, endDate) {
         const query = `
             SELECT r.by_kingdom_id, i.name, COUNT(*) as rally_count
             FROM rallies r
-            LEFT JOIN info i ON r.by_kingdom_id = i.kingdomId
+            LEFT JOIN (
+                SELECT kingdomId, name
+                FROM info
+                WHERE id IN (
+                    SELECT MAX(id) FROM info GROUP BY kingdomId
+                )
+            ) i ON r.by_kingdom_id = i.kingdomId
             WHERE r.guild_id = ? AND r.timestamp >= ? AND r.timestamp <= ?
             GROUP BY r.by_kingdom_id, i.name
             ORDER BY rally_count DESC
@@ -1133,12 +1145,18 @@ class sqlFunctions {
         return this.query(query, [guildId, startDate, endDate]);
     }
 
-    // Get the player's rallies rank based on the startDate alone
+    // Get the player's rallies rank based on the startDate alone, using the most recent name from info
     async getRalliesRankByStartDate(guildId, startDate) {
         const query = `
             SELECT r.by_kingdom_id, i.name, COUNT(*) as rally_count
             FROM rallies r
-            LEFT JOIN info i ON r.by_kingdom_id = i.kingdomId
+            LEFT JOIN (
+                SELECT kingdomId, name
+                FROM info
+                WHERE id IN (
+                    SELECT MAX(id) FROM info GROUP BY kingdomId
+                )
+            ) i ON r.by_kingdom_id = i.kingdomId
             WHERE r.guild_id = ? AND r.timestamp >= ?
             GROUP BY r.by_kingdom_id, i.name
             ORDER BY rally_count DESC
@@ -1147,12 +1165,18 @@ class sqlFunctions {
         return this.query(query, [guildId, startDate]);
     }
 
-    // Get the player's rallies rank based on the endDate alone
+    // Get the player's rallies rank based on the endDate alone, using the most recent name from info
     async getRalliesRankByEndDate(guildId, endDate) {
         const query = `
             SELECT r.by_kingdom_id, i.name, COUNT(*) as rally_count
             FROM rallies r
-            LEFT JOIN info i ON r.by_kingdom_id = i.kingdomId
+            LEFT JOIN (
+                SELECT kingdomId, name
+                FROM info
+                WHERE id IN (
+                    SELECT MAX(id) FROM info GROUP BY kingdomId
+                )
+            ) i ON r.by_kingdom_id = i.kingdomId
             WHERE r.guild_id = ? AND r.timestamp <= ?
             GROUP BY r.by_kingdom_id, i.name
             ORDER BY rally_count DESC
@@ -1161,12 +1185,18 @@ class sqlFunctions {
         return this.query(query, [guildId, endDate]);
     }
 
-    // Get the player's rallies rank based on all time
+    // Get the player's rallies rank based on all time, using the most recent name from info
     async getRalliesRankAllTime(guildId) {
         const query = `
             SELECT r.by_kingdom_id, i.name, COUNT(*) as rally_count
             FROM rallies r
-            LEFT JOIN info i ON r.by_kingdom_id = i.kingdomId
+            LEFT JOIN (
+                SELECT kingdomId, name
+                FROM info
+                WHERE id IN (
+                    SELECT MAX(id) FROM info GROUP BY kingdomId
+                )
+            ) i ON r.by_kingdom_id = i.kingdomId
             WHERE r.guild_id = ?
             GROUP BY r.by_kingdom_id, i.name
             ORDER BY rally_count DESC

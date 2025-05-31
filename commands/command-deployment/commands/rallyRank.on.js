@@ -157,6 +157,7 @@ module.exports = {
                 return;
             }
 
+            // console.log(`Rally rank data for guild ${guildId} between ${startDate} and ${endDate} :`, rallyData);
             // Create embeds for the rankings
             const embeds = createEmbeds(rallyData, description);
 
