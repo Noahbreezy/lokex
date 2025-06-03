@@ -581,10 +581,12 @@ class AllianceManager {
                 }
               }
 
-              const verified = await this.sql.isKingdomVerified(kid);
+              const verified = await this.sql.isKingdomVerified(kid, this.guild);
               const subscriptionFlagInfoVerified = await this.sql.checkSubscriptionValid(this.guild, "2");
 
-              if (this.verification && !verified && !subscriptionFlagInfoVerified) {
+              // console.log("verification:", this.verification, !verified, subscriptionFlagInfoVerified);
+
+              if (this.verification && !verified && subscriptionFlagInfoVerified) {
                 await this.api.request(
                   "https://api-lok-live.leagueofkingdoms.com/api/alliance/request/deny",
                   { kingdomId: kid },
