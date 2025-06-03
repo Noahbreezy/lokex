@@ -49,7 +49,7 @@ module.exports = {
 
     async execute(interaction) {
         const subcommand = interaction.options.getSubcommand();
-        
+
         if (subcommand === "renew") {
             const continent = interaction.options.getString("continent");
             const selectMenu = new StringSelectMenuBuilder()
@@ -307,7 +307,7 @@ module.exports = {
 
                 if (txTimestamp < twoHoursAgo) {
                     return interaction.reply({
-                        content: "Transaction is older than 2 hours. Please make a new payment.",
+                        content: "Transaction is older than 2 hours. Please make a new payment or contact support.",
                         flags: 64,
                     });
                 }
@@ -357,7 +357,7 @@ module.exports = {
                 // Verify amount
                 if (parseFloat(amount) < parseFloat(totalCost)) {
                     return interaction.reply({
-                        content: `Insufficient payment. Sent ${amount} USDT, required ${totalCost} USDT.`,
+                        content: `Insufficient payment. Sent ${amount} USDT, required ${totalCost} USDT. Contact support.`,
                         flags: 64,
                     });
                 }
@@ -393,13 +393,11 @@ module.exports = {
                 console.log(`Subscription type: ${subscriptionType}`);
 
                 // Add subscriptions to guild_continent_link
-                await Promise.all(selected.map(async (sub) => {
-                    await sql.addSubscription(
-                        interaction.guild.id,
-                        continent,
-                        subscriptionType
-                    );
-                }));
+                await sql.addSubscription(
+                    interaction.guild.id,
+                    continent,
+                    subscriptionType
+                );
 
                 // Store transaction hash
                 await sql.setGuildContinentTxHash(
