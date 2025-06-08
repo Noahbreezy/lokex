@@ -1,6 +1,7 @@
 const mysql = require("mysql2");
 const { HttpsProxyAgent } = require('https-proxy-agent');
 const axios = require('axios');
+const { client: WebSocketClient } = require('websocket');
 
 class Api {
 
@@ -61,25 +62,58 @@ class Api {
 
         return response;
     }
-}
 
-module.exports = Api;
+    async connectWebSocket(url, options = {}) {
+        const {
+            headers = {},
+            onConnect = () => {},
+            onMessage = () => {},
+            onError = () => {},
+            onClose = () => {},
+            useProxy = true
+        } = options;
 
-async function runExample() {
-    try {
-        const test = await new Api().request(
-            "https://api-lok-live.leagueofkingdoms.com/api/kingdom/treasure/list",
-            {
-                "x-access-token": `eeyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJfaWQiOiI2MWUwM2RkYzM2YmY1NTIzMGJlYzQ0MjMiLCJraW5nZG9tSWQiOiI2MWUwM2RkYzM2YmY1NTIzMGJlYzQ0MjQiLCJ3b3JsZElkIjoyNCwidmVyc2lvbiI6MTc3NSwiYXV0aFR5cGUiOiJnb29nbGUiLCJwbGF0Zm9ybSI6IndlYiIsInRpbWUiOjE3MTk2OTIyMzg3OTcsImNsaWVudFhvciI6IjAiLCJpcCI6Ijk0LjIyNS42Ny4zIiwiaWF0IjoxNzE5NjkyMjM4LCJleHAiOjE3MjAyOTcwMzgsImlzcyI6Im5vZGdhbWVzLmNvbSIsInN1YiI6InVzZXJJbmZvIn0.1zYPyP5UiChJT1eJA6MiQMw2PWKNzPFM7Cfsdqk7N6U`,
-                "Content-Type": "application/json",
-            },
-            { kingdomId: "617d60127e6b940dd780aa95" }
-        );
-        console.log(test.data);
-    } catch (error) {
-        console.error(error);
+        // Fetch proxies from the database if using proxy
+        let proxyUrl = null;
+        if (useProxy) {
+            const proxies = await this.sql.getProxies();
+            // proxies.push({ ip: null }); // Add a null option to possibly make a request without a proxy
+            const randomIndex = Math.floor(Math.random() * proxies.length);
+            proxyUrl = proxies[randomIndex].ip;
+            // console.log(`Using proxy for WebSocket: ${proxyUrl}`);
+        }
+
+        // Set up the HTTPS proxy agent if a proxy URL is selected
+        const agent = proxyUrl ? new HttpsProxyAgent(`http://${proxyUrl}:3128`) : null;
+
+        // Create WebSocket client
+        const wsClient = new WebSocketClient({
+            ...(agent && { webSocketAgent: agent }) // Conditionally add the agent
+        });
+
+        return new Promise((resolve, reject) => {
+            // Handle connection failure
+            wsClient.on('connectFailed', (error) => {
+                onError(error);
+                reject(error);
+            });
+
+            // Handle successful connection
+            wsClient.on('connect', (connection) => {
+                onConnect(connection);
+
+                // Set up event handlers
+                connection.on('message', (message) => onMessage(message, connection));
+                connection.on('error', (error) => onError(error, connection));
+                connection.on('close', () => onClose(connection));
+
+                resolve(connection);
+            });
+
+            // Initiate WebSocket connection
+            wsClient.connect(url, null, null, headers);
+        });
     }
 }
 
-// Call the async function
-//runExample();
+module.exports = Api;

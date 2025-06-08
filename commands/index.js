@@ -191,6 +191,18 @@ client.on(Events.InteractionCreate, async (interaction) => {
           flags: 64,
         });
       }
+    } else if (interaction.customId === "whitelist_bulkadd_modal") {
+      const command = client.commands.get("whitelist");
+      if (!command) return;
+      try {
+        await command.modalSubmit(interaction);
+      } catch (error) {
+        console.error(error);
+        await interaction.reply({
+          content: "There was an error while processing your whitelist bulk add.",
+          flags: 64,
+        });
+      }
     }
   } else if (interaction.isStringSelectMenu()) {
     if (interaction.customId.startsWith("playerinfo_")) {

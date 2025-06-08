@@ -14,8 +14,8 @@ class sqlFunctions {
             password: process.env.DB_PASSWORD,
             database: process.env.DB_NAME,
             waitForConnections: true,
-            connectionLimit: 20,
-            queueLimit: 10
+            connectionLimit: 30,
+            queueLimit: 50
         });
 
         this.pool.on('error', (err) => {
@@ -125,6 +125,12 @@ class sqlFunctions {
         return this.query(query, [guildId]);
     }
 
+    // Get the info of scanner bots of a guild
+    async getScannerTokens(guildId) {
+        const query = `SELECT * FROM botAccounts WHERE guild = ? AND role = 'SCANNER';`;
+        return this.query(query, [guildId]);
+    }
+
     // Get the manager's role status
     async getManagerRole(kingdomId) {
         const query = `SELECT role FROM botAccounts WHERE kingdomId = ?;`;
@@ -204,7 +210,7 @@ class sqlFunctions {
     }
 
     // Get possible roles from the botAccounts table
-    async getRoles(exclude = ["SCANNER"]) {
+    async getRoles(exclude = [""]) {
         return this.query(`
             SELECT COLUMN_TYPE 
             FROM INFORMATION_SCHEMA.COLUMNS 
@@ -723,6 +729,12 @@ class sqlFunctions {
         const query = "SELECT continent, subscription_type FROM guild_continent_link WHERE guild_id = ? AND subscription_type LIKE ? AND valid_until > NOW();";
         const results = await this.query(query, [guild, `%${subscription}%`]);
         return results.length > 0 ? results : null;
+    }
+
+    // Get all guild continent with a certain subscription_type
+    async getGuildContinentWithSubscription(subscription) {
+        const query = "SELECT guild_id, continent FROM guild_continent_link WHERE subscription_type LIKE ?;";
+        return this.query(query, [`%${subscription}%`]);
     }
 
     // Check if a txHash already exists for another continent
@@ -1252,6 +1264,183 @@ class sqlFunctions {
             ORDER BY timestamp DESC LIMIT 1;
         `;
         return this.query(query, [userId, guildId]);
+    }
+
+    // mines functions
+
+    // Inser a new mine into the mines table
+    async insertMineData(mine) {
+        return this.query(`
+            INSERT INTO mines (
+                fid, zone, code, continent, guild, x, y, level, value, expired,
+                location, allianceTag, kingdomId, name, targetValue, diff, started, ended
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `, [
+            mine.fid,
+            mine.zone,
+            mine.code,
+            mine.continent,
+            mine.guild,
+            mine.x,
+            mine.y,
+            mine.level,
+            mine.value,
+            mine.expired || null,
+            mine.location || null,
+            mine.allianceTag || null,
+            mine.kingdomId || null,
+            mine.name || null,
+            mine.targetValue || null,
+            mine.diff || null,
+            mine.started || null,
+            mine.ended || null,
+        ]);
+    }
+
+    // Bulk insert mines into the mines table
+    async insertMineDataBulk(mines) {
+        if (!mines.length) return;
+
+        const columns = [
+            "fid", "zone", "code", "continent", "guild", "x", "y", "level", "value", "expired",
+            "location", "allianceTag", "kingdomId", "name", "targetValue", "diff", "started", "ended"
+        ];
+
+        const placeholders = mines.map(() => `(${columns.map(() => '?').join(',')})`).join(',');
+        const values = [];
+
+        for (const mine of mines) {
+            values.push(
+                mine.fid,
+                mine.zone,
+                mine.code,
+                mine.continent,
+                mine.guild,
+                mine.x,
+                mine.y,
+                mine.level,
+                mine.value,
+                mine.expired || null,
+                mine.location || null,
+                mine.allianceTag || null,
+                mine.kingdomId || null,
+                mine.name || null,
+                mine.targetValue || null,
+                mine.diff || null,
+                mine.started || null,
+                mine.ended || null
+            );
+        }
+
+        const sql = `
+            INSERT INTO mines (
+                ${columns.join(', ')}
+            ) VALUES ${placeholders}
+        `;
+
+        return this.query(sql, values);
+    }
+
+    // illegal reports functuons
+
+    // Check if a mine is already reported
+    async checkIllegalMine(fid, kingdomId, guild) {
+        const results = await this.query(
+            "SELECT * FROM illegal WHERE fid = ? AND kingdomid = ? AND guild = ?",
+            [fid, kingdomId, guild]
+        );
+        return results.length > 0;
+    }
+
+    // Add a new illegal mine report
+    async insertIllegalMine(record) {
+        return this.query(
+            `INSERT INTO illegal (fid, code, name, x, y, allianceTag, started, kingdomid, level, value, cont, guild)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [
+                record.fid,
+                record.code,
+                record.name,
+                record.x,
+                record.y,
+                record.allianceTag,
+                record.started,
+                record.kingdomId,
+                record.level,
+                record.value,
+                record.continent,
+                record.guild,
+            ]
+        );
+    }
+
+    // Bulk check for already reported illegal mines
+    async checkIllegalMinesBulk(fids, guild) {
+        if (!fids.length) return [];
+        const placeholders = fids.map(() => '?').join(',');
+        const query = `SELECT fid FROM illegal WHERE fid IN (${placeholders}) AND guild = ?`;
+        const results = await this.query(query, [...fids, guild]);
+        return results.map(row => row.fid);
+    }
+
+    // Bulk insert illegal mines
+    async insertIllegalMinesBulk(records) {
+        if (!records.length) return;
+        const columns = [
+            "fid", "code", "name", "x", "y", "allianceTag", "started", "kingdomid", "level", "value", "cont", "guild"
+        ];
+        const placeholders = records.map(() => `(${columns.map(() => '?').join(',')})`).join(',');
+        const values = [];
+        for (const r of records) {
+            values.push(
+                r.fid, r.code, r.name, r.x, r.y, r.allianceTag, r.started, r.kingdomId, r.level, r.value, r.continent, r.guild
+            );
+        }
+        const sql = `INSERT INTO illegal (${columns.join(',')}) VALUES ${placeholders}`;
+        return this.query(sql, values);
+    }
+
+    // Whitelist functions
+
+    // Get all whitelisted kingdoms for a specific guild and continent
+    async getWhitelist(guild, continent) {
+        return this.query(
+            `SELECT w.kingdomid, i.name, w.dsa, w.cmine
+             FROM whitelist w
+             LEFT JOIN (
+                SELECT kingdomId, name
+                FROM info
+                WHERE id IN (SELECT MAX(id) FROM info GROUP BY kingdomId)
+             ) i ON w.kingdomid = i.kingdomId
+             WHERE w.continent = ? AND w.guild = ? AND (w.dsa > 1 OR w.cmine > 1)`,
+            [continent, guild]
+        );
+    }
+
+    // Add/edit a kingdom to the whitelist
+    async addToWhitelist(kingdomId, continent, guild, dsa, cmine) {
+        return this.query(
+            `INSERT INTO whitelist (kingdomid, continent, guild, dsa, cmine)
+             VALUES (?, ?, ?, ?, ?)
+             ON DUPLICATE KEY UPDATE dsa = ?, cmine = ?`,
+            [kingdomId, continent, guild, dsa, cmine, dsa, cmine]
+        );
+    }
+
+    // Remove a kingdom from the whitelist (set dsa and cmine to 0)
+    async removeFromWhitelist(kingdomId, continent, guild) {
+        return this.query(
+            `UPDATE whitelist SET dsa = '0', cmine = '0' WHERE kingdomid = ? AND continent = ? AND guild = ?`,
+            [kingdomId, continent, guild]
+        );
+    }
+
+    // Reset all whitelisted kingdoms for a specific guild and continent (set dsa and cmine to 0)
+    async resetWhitelist(guild, continent) {
+        return this.query(
+            `UPDATE whitelist SET dsa = '0', cmine = '0' WHERE guild = ? AND continent = ?`,
+            [guild, continent]
+        );
     }
 
     // System tables functions
