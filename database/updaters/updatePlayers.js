@@ -41,6 +41,7 @@ class UpdatePlayers {
 
     // updatePlayers logic
     async updatePlayers() {
+        const MAX_UPDATES_PER_MINUTE = 200;
         while (true) {
             try {
                 console.log('Updating players...');
@@ -48,20 +49,34 @@ class UpdatePlayers {
                 const botAccountsFiltered = botAccounts.filter((account, index, self) =>
                     index === self.findIndex((t) => t.allianceId === account.allianceId)
                 );
-    
+
+                let updatesThisMinute = 0;
+                let minuteStart = Date.now();
+
                 for (const account of botAccountsFiltered) {
                     let token = account.token;
                     let r4Flag = false;
                     try {
                         const kingdomIds = await this.getAllAllianceMemberId(token, account.allianceId);
                         r4Flag = await this.r4Check.checkR4(token, account.kingdomId, account.allianceId);
-                        
+
                         for (const kingdomId of kingdomIds) {
+                            if (updatesThisMinute >= MAX_UPDATES_PER_MINUTE) {
+                                const elapsed = Date.now() - minuteStart;
+                                const waitTime = Math.max(0, 60000 - elapsed);
+                                if (waitTime > 0) {
+                                    console.log(`Rate limit reached. Waiting ${waitTime} ms before continuing...`);
+                                    await new Promise(resolve => setTimeout(resolve, waitTime));
+                                }
+                                updatesThisMinute = 0;
+                                minuteStart = Date.now();
+                            }
                             try {
                                 const accountInfo = await this.AccountInfo.getMemberProfileInfo(token, account.allianceId, kingdomId, r4Flag);
                                 if (accountInfo) {
                                     await this.sql.updateFullKingdomInfo(accountInfo);
                                 }
+                                updatesThisMinute++;
                             } catch (error) {
                                 token = (await this.sql.getManagerTokenByKingdomId(kingdomId))[0].token;
                                 r4Flag = await this.r4Check.checkR4(token, kingdomId, account.allianceId);
@@ -77,7 +92,7 @@ class UpdatePlayers {
             } catch (error) {
                 console.error('Error updating players:', error);
             }
-    
+
             // Calculate milliseconds until the next 12:00 UTC
             const now = new Date();
             const nextNoonUTC = new Date(
@@ -86,15 +101,15 @@ class UpdatePlayers {
                 now.getUTCDate(),
                 12, 0, 0, 0 // Today at 12:00 UTC
             );
-    
+
             if (now >= nextNoonUTC) {
                 // If it's already past 12:00 UTC today, schedule for tomorrow
                 nextNoonUTC.setUTCDate(nextNoonUTC.getUTCDate() + 1);
             }
-    
+
             const millisTillNoon = nextNoonUTC - now;
             console.log(`Waiting ${millisTillNoon} ms until 12:00 UTC...`);
-    
+
             // Wait until 12:00 UTC
             await new Promise(resolve => setTimeout(resolve, millisTillNoon));
         }
