@@ -70,7 +70,12 @@ class Scanner {
   }
 
   async processWebSocketData(data) {
-    console.log(`Processing ${data.length} objects from WebSocket`);
+    // Calculate progress
+    const zonesProcessed = Math.min(this.zoneIndex, this.config.ZONE_COUNT);
+    const percent = ((zonesProcessed / this.config.ZONE_COUNT) * 100).toFixed(1);
+    console.log(
+        `Processing ${data.length} objects from ${this.currentContinent} websocket (${percent}% done)`
+    );
     this.objects.push(...data);
   }
 
