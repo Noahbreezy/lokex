@@ -428,12 +428,9 @@ async function handleBlacklistModal(interaction, sql, api, ephemeral) {
             try {
                 var response = await api.request(
                     "https://api-lok-live.leagueofkingdoms.com/api/alliance/member/disband",
-
                     { memberKingdomId: kingdomId },
-
                     {
-                        headers: { "x-access-token": token11 },
-
+                        "x-access-token": token11,
                         "Content-Type": "application/json",
                     }
                 );
@@ -454,7 +451,7 @@ async function handleBlacklistModal(interaction, sql, api, ephemeral) {
                             "> (blacklisted)"
                         );
                 } else {
-                    console.log(response);
+                    console.error(response);
                     return await interaction.followUp({
                         content: "Couldn't kick player, manual kick needed",
                         flags: 64,
