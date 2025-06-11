@@ -143,10 +143,10 @@ module.exports = {
         try {
             switch (action) {
                 case 'alchemist':
-                    await this.handleTitleRequest(interaction, 109, 'Alchemist', sql, api);
+                    await this.handleTitleRequest(interaction, 109, 'Architect', sql, api);
                     break;
                 case 'architect':
-                    await this.handleTitleRequest(interaction, 108, 'Architect', sql, api);
+                    await this.handleTitleRequest(interaction, 108, 'Alchemist', sql, api);
                     break;
                 case 'freetitle':
                     await this.freeTitle(interaction, sql);
