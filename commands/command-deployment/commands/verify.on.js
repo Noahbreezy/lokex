@@ -44,7 +44,7 @@ module.exports = {
                 .setDescription(
                     'To verify your kingdom account:\n' +
                     `1. **Verify your wallet below first !!**\n` +
-                    `2. Send the following code to the queen account "${queenInfo.name}" ${queenLocation}\n` +
+                    `2. Send the following code to the queen account in **mail** "${queenInfo.name}" ${queenLocation}\n` +
                     `**Code:**\n\`\`\`${code}\`\`\`\n` +
                     '   - *Desktop*: Copy the code above or from the message below.\n' +
                     '   - *Mobile*: Tap and hold the message below to copy the code.\n\n' +
