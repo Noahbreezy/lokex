@@ -41,7 +41,7 @@ class UpdateBuffs {
                 for (const guild of guilds) {
                     const subscriptionFlagInfo = await this.sql.checkSubscriptionValid(guild.guild_id, "2");
                     if (!subscriptionFlagInfo) {
-                        console.log(`Skipping buff check for guild ${guild.guild_id} due to subscription flag`);
+                        // console.log(`Skipping buff check for guild ${guild.guild_id} due to subscription flag`);
                         continue; // Skip this guild if subscription flag is not valid
                     }
                     await this.checkActiveBuffs(guild.guild_id); // Check buffs for each guild
@@ -177,7 +177,8 @@ class UpdateBuffs {
 
             // Check if this guild has seen this buff activation (deduplication)
             const latestBuff = await this.sql.getLatestBuffMessage(skillCode, guildId);
-            if (latestBuff && latestBuff.timestamp >= activeUntil - 60) return; // Skip if already notified recently
+            console.log(`Latest buff for guild ${guildId}:`, latestBuff);
+            if (latestBuff && latestBuff.timestamp === activeUntil) return; // Skip if already notified recently
 
             const role = (await this.sql.getGuildVerificationRole(guildId))[0]?.verified_role;
             const gif = (await this.sql.getRandomGif(skillCode, guildId))[0]?.gif_link;
