@@ -143,10 +143,10 @@ module.exports = {
         try {
             switch (action) {
                 case 'alchemist':
-                    await this.handleTitleRequest(interaction, 109, 'Architect', sql, api);
+                    await this.handleTitleRequest(interaction, 109, 'Alchemist', sql, api);
                     break;
                 case 'architect':
-                    await this.handleTitleRequest(interaction, 108, 'Alchemist', sql, api);
+                    await this.handleTitleRequest(interaction, 108, 'Architect', sql, api);
                     break;
                 case 'freetitle':
                     await this.freeTitle(interaction, sql);
@@ -276,8 +276,8 @@ module.exports = {
         if (!message || !message.embeds.length) return;
 
         // Get current title statuses and counters
-        const alchemistStatus = await this.getTitleStatus(108, sql); // 108 = Alchemist
-        const architectStatus = await this.getTitleStatus(109, sql); // 109 = Architect
+        const alchemistStatus = await this.getTitleStatus(109, sql); // 109 = Alchemist
+        const architectStatus = await this.getTitleStatus(108, sql); // 108 = Architect
         const titlesAppliedToday = await this.getTitlesAppliedToday(guildId, sql);
         const titlesAppliedTotal = await this.getTitlesAppliedTotal(guildId, sql);
 
