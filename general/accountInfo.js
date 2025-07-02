@@ -45,7 +45,8 @@ class AccountInfo {
       return false;
     }
 
-    if (loginResponse.status === 200) {
+    if (loginResponse.status === 200 && loginResponse.data?.regionHash) {
+      console.log(loginResponse.data.regionHash);
       const xorPass = (await this.encryption.decryptBase64(loginResponse.data.regionHash)).split('-')[1];
       return {token: loginResponse.data.token, xorPass: xorPass};
     } else {
