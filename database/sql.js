@@ -162,6 +162,12 @@ class sqlFunctions {
         return this.query(query, [guild]);
     }
 
+    // Get a random non-idle token from a specific guild
+    async getRandomNonIdleTokenFromGuild(guild) {
+        const query = `SELECT token FROM botAccounts WHERE guild = ? AND role != 'IDLE' ORDER BY RAND() LIMIT 1;`;
+        return this.query(query, [guild]);
+    }
+
     // Get the information of the queen account in a guild
     async getQueenInfo(guild) {
         const query = `SELECT name, token, kingdomId, allianceId, allianceTag FROM botAccounts WHERE guild = ? AND role = 'QUEEN';`;
