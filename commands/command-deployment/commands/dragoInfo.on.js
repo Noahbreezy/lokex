@@ -57,7 +57,7 @@ module.exports = {
         const logChannel = (await sql.getGuildLogChannels(guildId))[0]?.accept_log_channel;
 
         // Get a token from a random bot account
-        const token = (await sql.getRandomManagerTokenFromGuild(guildId))[0]?.token;
+        const token = (await sql.getQueenToken(guildId))[0]?.token;
 
         if (!token) {
             return interaction.editReply({ content: "No bot token found. There must be at least one bot account set as manager.", ...ephemeral });
