@@ -547,12 +547,17 @@ class Scanner {
     nextRun.setSeconds(0);
     nextRun.setMilliseconds(0);
 
-    // If nextRun is before now, add 1 hour (should not happen, but just in case)
-    if (nextRun <= now) {
-      nextRun.setTime(nextRun.getTime() + 30 * 60 * 1000); // add 30 minutes
+    let delay = nextRun.getTime() - now.getTime();
+    // If delay is negative or zero, add 30 minutes (should not happen, but just in case)
+    if (delay <= 0) {
+      // If we're at 23:59 and next run is 00:15, this will fix the negative delay
+      delay += 30 * 60 * 1000;
+      // If still negative (shouldn't happen), add 24 hours
+      if (delay <= 0) {
+        delay += 24 * 60 * 60 * 1000;
+      }
     }
-
-    return nextRun.getTime() - now.getTime();
+    return delay;
   }
 
   scheduleNextRun() {
