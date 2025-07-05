@@ -212,9 +212,10 @@ class Scanner {
       const illegalCandidates = records.filter(record => {
         if (
           record.occupied?.name &&
-          ((record.code === 20100105 && record.level >= minCmine) ||
-           (record.code === 20100106 && record.level >= minDsa))
+          ((record.code === 20100105 && record.level > minCmine) ||
+           (record.code === 20100106 && record.level > minDsa))
         ) {
+          // console.log(`levels: ${record.code} - ${record.level}, minCmine: ${minCmine}, minDsa: ${minDsa}`);
           const whitelistEntry = whitelist[record.occupied?.id];
           if (whitelistEntry) {
             const cmine = Number(whitelistEntry.cmine);
@@ -253,6 +254,7 @@ class Scanner {
         console.log(`Inserted ${illegalRecords.length} new illegal mines.`);
         // Send Discord notifications for each new illegal mine
         for (const record of newIllegals) {
+
           await this.sendDiscordNotification({
             code: record.code,
             name: record.occupied?.name,
