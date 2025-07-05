@@ -205,7 +205,19 @@ client.on(Events.InteractionCreate, async (interaction) => {
       }
     }
   } else if (interaction.isStringSelectMenu()) {
-    if (interaction.customId.startsWith("playerinfo_")) {
+    if (interaction.customId === "scanner_freedays_select") {
+      const command = client.commands.get("scanner");
+      if (!command) return;
+      try {
+        await command.stringselect(interaction);
+      } catch (error) {
+        console.error(error);
+        await interaction.reply({
+          content: "There was an error while executing this command!",
+          flags: 64,
+        });
+      }
+    } else if (interaction.customId.startsWith("playerinfo_")) {
       const command = client.commands.get("playerinfo");
       if (!command) return;
       try {
