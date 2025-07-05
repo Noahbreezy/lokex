@@ -158,6 +158,30 @@ class Scanner {
 
   async elaborateAndCompare(records) {
     try {
+      // Check free_days setting for this guild
+      let skipReporting = false;
+      if (this.sql && typeof this.sql.getFreeDays === 'function') {
+        const freeDays = await this.sql.getFreeDays(this.currentGuild);
+        if (freeDays && typeof freeDays === 'string' && freeDays.length > 0) {
+          // freeDays is a string like '137' (Monday, Wednesday, Sunday)
+          const today = new Date();
+          // getDay(): 0=Sunday, 1=Monday, ..., 6=Saturday
+          // Our mapping: 1=Monday, ..., 7=Sunday
+          let dayNum = today.getDay();
+          dayNum = dayNum === 0 ? 7 : dayNum; // convert Sunday from 0 to 7
+          if (freeDays.includes(dayNum.toString())) {
+            skipReporting = true;
+          }
+        } else if (freeDays === 0 || freeDays === '0') {
+          skipReporting = false; // 0 means all days should produce reports
+        }
+      }
+
+      if (skipReporting) {
+        console.log(`Reporting is skipped today for guild ${this.currentGuild} due to free_days setting.`);
+        return;
+      }
+
       const whitelistRows = await this.sql.getWhitelist(this.currentGuild, this.currentContinent);
       console.log(`Found ${whitelistRows.length} whitelist entries for guild ${this.currentGuild}, continent ${this.currentContinent}`);
       const whitelist = whitelistRows.reduce((acc, row) => {
@@ -174,11 +198,22 @@ class Scanner {
 
       // Filter records that are not allowed
       console.log(`Filtering illegal mines for guild ${this.currentGuild}, continent ${this.currentContinent}`);
+
+      // Fetch min level settings for this guild (outside filter, since filter can't be async)
+      let minCmine = 2, minDsa = 2;
+      if (this.sql && typeof this.sql.getCmineAndDsaLevels === 'function') {
+        const levels = await this.sql.getCmineAndDsaLevels(this.currentGuild);
+        if (levels) {
+          minCmine = Number(levels.cmine_lvl) || 1;
+          minDsa = Number(levels.dsa_lvl) || 2;
+        }
+      }
+
       const illegalCandidates = records.filter(record => {
         if (
           record.occupied?.name &&
-          record.level > 1 &&
-          (record.code === 20100105 || record.level > 2)
+          ((record.code === 20100105 && record.level >= minCmine) ||
+           (record.code === 20100106 && record.level >= minDsa))
         ) {
           const whitelistEntry = whitelist[record.occupied?.id];
           if (whitelistEntry) {
@@ -218,7 +253,6 @@ class Scanner {
         console.log(`Inserted ${illegalRecords.length} new illegal mines.`);
         // Send Discord notifications for each new illegal mine
         for (const record of newIllegals) {
-          // console.log("record: ", record);
           await this.sendDiscordNotification({
             code: record.code,
             name: record.occupied?.name,
@@ -490,6 +524,7 @@ class Scanner {
       const concurrencyLimit = 3;
       const queue = guildContinents.slice();
       const activePromises = new Set();
+      let restartRequired = false;
 
       while (queue.length > 0 || activePromises.size > 0) {
         while (queue.length > 0 && activePromises.size < concurrencyLimit) {
@@ -497,8 +532,18 @@ class Scanner {
           console.log(`Starting scan for guild ${guild_id}, continent ${continent}`);
 
           const promise = this.scanContinent(guild_id, continent)
-            .catch(error => {
+            .catch(async error => {
               console.error(`Scan failed for guild ${guild_id}, continent ${continent}:`, error);
+              // Set scanner status to 0 so the process can be restarted
+              if (this.sql && typeof this.sql.setScannerStatus === 'function') {
+                try {
+                  await this.sql.setScannerStatus(guild_id, 0);
+                  console.log(`Set scanner status to 0 for guild ${guild_id} after failure.`);
+                } catch (e) {
+                  console.error(`Failed to set scanner status to 0 for guild ${guild_id}:`, e);
+                  restartRequired = true;
+                }
+              }
             })
             .finally(() => {
               activePromises.delete(promise);
@@ -511,8 +556,41 @@ class Scanner {
           await Promise.race(activePromises);
         }
       }
+
+      if (restartRequired) {
+        console.error('Critical: Could not set scanner status to 0 for one or more guilds. Waiting 5 minutes and restarting the scanner process.');
+        await new Promise(resolve => setTimeout(resolve, 5 * 60 * 1000));
+        // Restart the process by re-executing startScanner.js
+        const { spawn } = require('child_process');
+        spawn('node', [require('path').resolve(__dirname, 'startScanner.js')], {
+          stdio: 'inherit',
+          detached: true
+        });
+        process.exit(1);
+      }
     } catch (error) {
       console.error("Bot startup error:", error);
+      // Set scanner status to 0 for the current guild if possible
+      let restartRequired = false;
+      if (this.sql && typeof this.sql.setScannerStatus === 'function' && this.currentGuild) {
+        try {
+          await this.sql.setScannerStatus(this.currentGuild, 0);
+          console.log(`Set scanner status to 0 for guild ${this.currentGuild} after startup error.`);
+        } catch (e) {
+          console.error(`Failed to set scanner status to 0 for guild ${this.currentGuild}:`, e);
+          restartRequired = true;
+        }
+      }
+      if (restartRequired) {
+        console.error('Critical: Could not set scanner status to 0 for one or more guilds. Waiting 5 minutes and restarting the scanner process.');
+        await new Promise(resolve => setTimeout(resolve, 5 * 60 * 1000));
+        const { spawn } = require('child_process');
+        spawn('node', [require('path').resolve(__dirname, 'startScanner.js')], {
+          stdio: 'inherit',
+          detached: true
+        });
+        process.exit(1);
+      }
       throw error;
     } finally {
       if (this.wsConnection) {

@@ -6,36 +6,61 @@ const Api = require("../general/api.js");
 const sql = new sqlFunctions();
 const api = new Api(sql);
 
-// function to start all the alliance manager instances
+
+
+// function to start all the scanner instances based on subscription and status, and keep checking every 5 seconds
 async function manageScanners() {
-
-    const scannerContinents = await sql.getGuildContinentWithSubscription("5");
     const xorPassword = (await sql.getXORPass())[0].value;
-    console.log(xorPassword);
+    await sql.resetAllScannerStatuses(); // Reset all scanners status to 0
+    while (true) {
+        try {
+            const scannerContinents = await sql.getGuildContinentWithSubscription("5");
 
-    for (const continent of scannerContinents) {
+            for (const continent of scannerContinents) {
+                const guildId = continent.guild_id;
+                const continentName = continent.continent;
 
-        console.log("continent: ", continent)
-        const scannerBotInfo = await sql.getScannerTokens(continent.guild_id);
-        console.log("scannerBotInfo: ", scannerBotInfo);
+                // Get scanner settings for this guild
+                let scannerSettings = await sql.getScannerSettings(guildId);
 
-        if (scannerBotInfo.length === 0) {
-            console.error("No scanner bot token found for guild: " + continent.guild_id);
-            continue;
+                // If no settings entry exists, create one
+                if (!scannerSettings) {
+                    await sql.addScannerSettings(guildId);
+                    scannerSettings = await sql.getScannerSettings(guildId);
+                    console.log(`Created scanner_settings entry for guild: ${guildId}`);
+                }
+
+                // If status is 0, try to start scanner
+                if (scannerSettings.status === 0) {
+                    const scannerBotInfo = await sql.getScannerTokens(guildId);
+                    if (!scannerBotInfo || scannerBotInfo.length === 0) {
+                        console.error(`No scanner bot token found for guild: ${guildId}`);
+                        continue;
+                    }
+
+                    const options = {
+                        token: scannerBotInfo[0].token,
+                        xorPassword: xorPassword,
+                        guildId: guildId,
+                        continent: continentName,
+                    };
+
+                    new Scanner(options, sql, api);
+                    // Set scanner status to 1 after starting
+                    await sql.setScannerStatus(guildId, 1);
+                    console.log(`Started scanner instance for ${continentName} guild: ${guildId} and set status to 1`);
+                } else {
+                    // Optionally log only if you want to see repeated logs
+                    // console.log(`Scanner already running for ${continentName} guild: ${guildId}`);
+                }
+            }
+        } catch (err) {
+            console.error('Error in manageScanners loop:', err);
         }
-
-        const options = {
-            token: scannerBotInfo[0].token,
-            xorPassword: xorPassword,
-            guildId: continent.guild_id,
-            continent: continent.continent,
-        };
-
-        // console.log(options);
-
-        new Scanner(options, sql, api);
-
-        console.log("Started scanner instance for " + continent.continent + " guild: " + continent.guild_id);
+        // Wait 30 minutes before next check
+        // await new Promise(resolve => setTimeout(resolve, 30 * 60 * 1000)); // 30 minutes
+        await new Promise(resolve => setTimeout(resolve, 5000));
+    
     }
 }
 

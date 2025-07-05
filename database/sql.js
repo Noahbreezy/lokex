@@ -942,6 +942,71 @@ class sqlFunctions {
         return results.length > 0 ? results[0].ephemeral === 1 : false;
     }
 
+    // Scanner settings functions
+
+    // Get all scanner settings
+    async getAllScannerInfo() {
+        const query = `SELECT * FROM scanner_settings;`;
+        return this.query(query);
+    }
+
+    // Get scanner settings for a specific guild
+    async getScannerSettings(guildId) {
+        const query = `SELECT * FROM scanner_settings WHERE guild_id = ?;`;
+        const results = await this.query(query, [guildId]);
+        return results.length > 0 ? results[0] : null;
+    }
+
+    // Get all scanner statuses
+    async getAllScannerStatuses() {
+        const query = `SELECT guild_id, status FROM scanner_settings;`;
+        return this.query(query);
+    }
+
+    // Set all scanner statuses to 0
+    async resetAllScannerStatuses() {
+        const query = `UPDATE scanner_settings SET status = 0;`;
+        return this.query(query);
+    }
+
+    // Add a new scanner settings entry for a guild
+    async addScannerSettings(guildId) {
+        const query = `INSERT INTO scanner_settings (guild_id) VALUES (?);`;
+        return this.query(query, [guildId]);
+    }
+
+    // Set a scanner status for a specific guild
+    async setScannerStatus(guildId, status) {
+        const query = `UPDATE scanner_settings SET status = ? WHERE guild_id = ?;`;
+        return this.query(query, [status, guildId]);
+    }
+
+    // Get the free_days setting 
+    async getFreeDays(guildId) {
+        const query = `SELECT free_days FROM scanner_settings WHERE guild_id = ?;`;
+        const results = await this.query(query, [guildId]);
+        return results.length > 0 ? results[0].free_days : null;
+    }
+
+    // Set the free_days setting for a specific guild
+    async setFreeDays(guildId, freeDays) {
+        const query = `UPDATE scanner_settings SET free_days = ? WHERE guild_id = ?;`;
+        return this.query(query, [freeDays, guildId]);
+    }
+
+    // Get the cmine_lvl and dsa_lvl settings
+    async getCmineAndDsaLevels(guildId) {
+        const query = `SELECT cmine_lvl, dsa_lvl FROM scanner_settings WHERE guild_id = ?;`;
+        const results = await this.query(query, [guildId]);
+        return results.length > 0 ? results[0] : null;
+    }
+
+    // Set the cmine_lvl and dsa_lvl settings for a specific guild
+    async setCmineAndDsaLevels(guildId, cmineLvl, dsaLvl) {
+        const query = `UPDATE scanner_settings SET cmine_lvl = ?, dsa_lvl = ? WHERE guild_id = ?;`;
+        return this.query(query, [cmineLvl, dsaLvl, guildId]);
+    }
+
     // Accept log functions
 
     // Check if an accept log exists
