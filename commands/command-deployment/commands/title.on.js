@@ -251,7 +251,6 @@ module.exports = {
         const userId = interaction.user.id;
         const guildId = interaction.guild.id;
         const result = await sql.freeTitle(userId, guildId);
-        console.log(result);
         if (result.affectedRows > 0) {
             await interaction.reply({ content: 'You freed the title! Thank you!', flags: 64 });
             await this.updateTitlesEmbed(interaction, sql);
