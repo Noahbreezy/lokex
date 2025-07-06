@@ -38,6 +38,13 @@ module.exports = {
         const ephemeralFlag = await sql.getEphemeral(guildId);
         const ephemeral = ephemeralFlag ? { flags: 64 } : {};
 
+        // Check subscription
+        const subscriptionFlagInfo = await sql.checkSubscriptionValid(guildId, "3");
+        if (!subscriptionFlagInfo) {
+            await interaction.reply({ content: "Your continent needs to have a valid subscription to use this command. Use `/subscribe` to get a new subscription. ", ...ephemeral });
+            return;
+        }
+
         await interaction.deferReply({ flags: 64 });
 
         // Get up to 5 IDs from options
@@ -58,9 +65,10 @@ module.exports = {
 
         // Get a token from a random bot account
         const token = (await sql.getRandomNonIdleTokenFromGuild(guildId))[0]?.token;
+        console.log("Using token:", token);
 
         if (!token) {
-            return interaction.editReply({ content: "No bot token found. There must be at least one bot account set as manager.", ...ephemeral });
+            return interaction.editReply({ content: "No bot token found. There must be at least one bot account set as manager or queen.", ...ephemeral });
         }
 
         const embeds = [];
@@ -138,6 +146,13 @@ module.exports = {
         const ephemeralFlag = await sql.getEphemeral(guildId);
         const ephemeral = ephemeralFlag ? { flags: 64 } : {};
 
+        // Check subscription
+        const subscriptionFlagInfo = await sql.checkSubscriptionValid(guildId, "3");
+        if (!subscriptionFlagInfo) {
+            await interaction.reply({ content: "Your continent needs to have a valid subscription to use this command. Use `/subscribe` to get a new subscription. ", ...ephemeral });
+            return;
+        }
+
         await interaction.deferReply({ flags: 64 });
 
         const ids = [];
@@ -153,9 +168,9 @@ module.exports = {
             return interaction.editReply({ content: "No valid Drago IDs provided.", ...ephemeral });
         }
 
-        const token = (await sql.getRandomManagerTokenFromGuild(guildId))[0]?.token;
+        const token = (await sql.getRandomNonIdleTokenFromGuild(guildId))[0]?.token;
         if (!token) {
-            return interaction.editReply({ content: "No bot token found. There must be at least one bot account set as manager.", ...ephemeral });
+            return interaction.editReply({ content: "No bot token found. There must be at least one bot account set as manager or queen.", ...ephemeral });
         }
 
         const logChannel = (await sql.getGuildLogChannels(guildId))[0]?.accept_log_channel;
