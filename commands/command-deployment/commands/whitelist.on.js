@@ -18,6 +18,49 @@ async function handleNameAutocomplete(interaction, sql) {
     await interaction.respond(choices);
 }
 
+// Helper to parse expiry date
+function parseExpiryDate(expiryString) {
+    if (!expiryString) return null;
+    
+    try {
+        // Handle YYYY-MM-DD format (set time to 23:59:59)
+        if (/^\d{4}-\d{2}-\d{2}$/.test(expiryString)) {
+            const date = new Date(expiryString + ' 23:59:59');
+            return date.toISOString().slice(0, 19).replace('T', ' ');
+        }
+        
+        // Handle YYYY-MM-DD HH:MM format
+        if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/.test(expiryString)) {
+            const date = new Date(expiryString + ':00');
+            return date.toISOString().slice(0, 19).replace('T', ' ');
+        }
+        
+        // Handle YYYY-MM-DD HH:MM:SS format
+        if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(expiryString)) {
+            const date = new Date(expiryString);
+            return date.toISOString().slice(0, 19).replace('T', ' ');
+        }
+        
+        return null;
+    } catch (error) {
+        return null;
+    }
+}
+
+// Helper to format expiry date for display
+function formatExpiryForDisplay(expiry) {
+    if (!expiry) return "No expiry";
+    const date = new Date(expiry);
+    return date.toLocaleString('en-US', {
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false
+    });
+}
+
 module.exports = {
     data: new SlashCommandBuilder()
         .setName("whitelist")
@@ -50,6 +93,11 @@ module.exports = {
                         .setRequired(true)
                         .setMinValue(0)
                         .setMaxValue(5)
+                )
+                .addStringOption(option =>
+                    option.setName("expiry")
+                        .setDescription("Expiry date (YYYY-MM-DD HH:MM or YYYY-MM-DD, leave empty for no expiry)")
+                        .setRequired(false)
                 )
         )
         .addSubcommand((subcommand) =>
@@ -118,6 +166,7 @@ module.exports = {
                 const kingdomId = options.getString("name");
                 let dsa = options.getInteger("dsa");
                 let cmine = options.getInteger("cmine");
+                const expiryString = options.getString("expiry");
 
                 // Ensure values are between 0 and 5
                 if (dsa < 0) dsa = 0;
@@ -125,13 +174,39 @@ module.exports = {
                 if (cmine < 0) cmine = 0;
                 if (cmine > 5) cmine = 5;
 
+                // Parse expiry date
+                const expiry = parseExpiryDate(expiryString);
+                if (expiryString && !expiry) {
+                    await interaction.reply({
+                        content: "Invalid expiry date format. Use YYYY-MM-DD or YYYY-MM-DD HH:MM",
+                        flags: 64
+                    });
+                    return;
+                }
+
+                // Check if expiry is in the future
+                if (expiry && new Date(expiry) <= new Date()) {
+                    await interaction.reply({
+                        content: "Expiry date must be in the future.",
+                        flags: 64
+                    });
+                    return;
+                }
+
                 // Get the latest name for display
                 const nameResult = await sql.getKingdomName(kingdomId);
                 const displayName = (nameResult && nameResult[0] && nameResult[0].name) ? nameResult[0].name : kingdomId;
 
-                await sql.addToWhitelist(kingdomId, continent, guild, dsa.toString(), cmine.toString());
+                await sql.addToWhitelist(kingdomId, continent, guild, dsa.toString(), cmine.toString(), expiry);
+                
+                let responseContent = `${displayName} has been whitelisted (DSA: ${dsa}, CMine: ${cmine})`;
+                if (expiry) {
+                    responseContent += ` until ${formatExpiryForDisplay(expiry)}`;
+                }
+                responseContent += ".";
+
                 await interaction.reply({
-                    content: `${displayName} has been whitelisted (DSA: ${dsa}, CMine: ${cmine}).`,
+                    content: responseContent,
                     ...ephemeral,
                 });
                 break;
@@ -142,9 +217,13 @@ module.exports = {
                     await interaction.reply({ content: "Whitelist is empty.", ...ephemeral });
                     return;
                 }
-                let msg = whitelist.map((w, i) =>
-                    `${i + 1}. ${w.name ? w.name : w.kingdomid} | DSA: ${w.dsa} | CMine: ${w.cmine}`
-                ).join("\n");
+                let msg = whitelist.map((w, i) => {
+                    let line = `${i + 1}. ${w.name ? w.name : w.kingdomid} | DSA: ${w.dsa} | CMine: ${w.cmine}`;
+                    if (w.expiry) {
+                        line += ` | Expires: ${formatExpiryForDisplay(w.expiry)}`;
+                    }
+                    return line;
+                }).join("\n");
 
                 const MAX_REPLY_LENGTH = 2000;
                 function splitMessage(text, maxLength = MAX_REPLY_LENGTH) {
@@ -179,7 +258,7 @@ module.exports = {
                         new ActionRowBuilder().addComponents(
                             new TextInputBuilder()
                                 .setCustomId('bulkadd_list')
-                                .setLabel('Paste kingdomId,dsa,cmine (one per line)')
+                                .setLabel('Paste kingdomId,dsa,cmine[,expiry] (one per line)')
                                 .setStyle(TextInputStyle.Paragraph)
                                 .setRequired(true)
                         )
@@ -244,6 +323,20 @@ module.exports = {
                 let dsa = 0, cmine = 0;
                 if (parts.length > 1) dsa = Math.max(0, Math.min(5, parseInt(parts[1]) || 0));
                 if (parts.length > 2) cmine = Math.max(0, Math.min(5, parseInt(parts[2]) || 0));
+                
+                // Parse expiry date if provided
+                let expiry = null;
+                if (parts.length > 3) {
+                    expiry = parseExpiryDate(parts[3]);
+                    if (parts[3] && !expiry) {
+                        incorrect.push(`${kingdomId} (invalid expiry: ${parts[3]})`);
+                        continue;
+                    }
+                    if (expiry && new Date(expiry) <= new Date()) {
+                        incorrect.push(`${kingdomId} (expiry in past: ${parts[3]})`);
+                        continue;
+                    }
+                }
 
                 // Check for correct kingdomId length (24 chars for MongoDB ObjectId style)
                 if (!kingdomId || kingdomId.length !== 24) {
@@ -252,10 +345,14 @@ module.exports = {
                 }
 
                 try {
-                    await sql.addToWhitelist(kingdomId, continent, guild, dsa.toString(), cmine.toString());
+                    await sql.addToWhitelist(kingdomId, continent, guild, dsa.toString(), cmine.toString(), expiry);
                     const nameResult = await sql.getKingdomName(kingdomId);
                     const displayName = (nameResult && nameResult[0] && nameResult[0].name) ? nameResult[0].name : kingdomId;
-                    added.push(`${displayName} (DSA: ${dsa}, CMine: ${cmine})`);
+                    let addedText = `${displayName} (DSA: ${dsa}, CMine: ${cmine})`;
+                    if (expiry) {
+                        addedText += ` until ${formatExpiryForDisplay(expiry)}`;
+                    }
+                    added.push(addedText);
                 } catch (err) {
                     failed.push(kingdomId);
                 }

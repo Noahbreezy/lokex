@@ -1485,26 +1485,38 @@ class sqlFunctions {
     // Get all whitelisted kingdoms for a specific guild and continent
     async getWhitelist(guild, continent) {
         return this.query(
-            `SELECT w.kingdomid, i.name, w.dsa, w.cmine
+            `SELECT w.kingdomid, i.name, w.dsa, w.cmine, w.expiry
              FROM whitelist w
              LEFT JOIN (
                 SELECT kingdomId, name
                 FROM info
                 WHERE id IN (SELECT MAX(id) FROM info GROUP BY kingdomId)
              ) i ON w.kingdomid = i.kingdomId
-             WHERE w.continent = ? AND w.guild = ? AND (w.dsa > 1 OR w.cmine > 1)`,
+             WHERE w.continent = ? AND w.guild = ? AND (w.dsa > 1 OR w.cmine > 1)
+             AND (w.expiry IS NULL OR w.expiry > NOW())`,
             [continent, guild]
         );
     }
 
     // Add/edit a kingdom to the whitelist
-    async addToWhitelist(kingdomId, continent, guild, dsa, cmine) {
+    async addToWhitelist(kingdomId, continent, guild, dsa, cmine, expiry = null) {
         return this.query(
-            `INSERT INTO whitelist (kingdomid, continent, guild, dsa, cmine)
-             VALUES (?, ?, ?, ?, ?)
-             ON DUPLICATE KEY UPDATE dsa = ?, cmine = ?`,
-            [kingdomId, continent, guild, dsa, cmine, dsa, cmine]
+            `INSERT INTO whitelist (kingdomid, continent, guild, dsa, cmine, expiry)
+             VALUES (?, ?, ?, ?, ?, ?)
+             ON DUPLICATE KEY UPDATE dsa = ?, cmine = ?, expiry = ?`,
+            [kingdomId, continent, guild, dsa, cmine, expiry, dsa, cmine, expiry]
         );
+    }
+
+    // Check if a kingdom is whitelisted and return whitelist levels
+    async checkWhitelistStatus(kingdomId, continent, guild) {
+        const results = await this.query(
+            `SELECT dsa, cmine, expiry FROM whitelist 
+             WHERE kingdomid = ? AND continent = ? AND guild = ?
+             AND (expiry IS NULL OR expiry > NOW())`,
+            [kingdomId, continent, guild]
+        );
+        return results.length > 0 ? results[0] : null;
     }
 
     // Remove a kingdom from the whitelist (set dsa and cmine to 0)
