@@ -71,6 +71,11 @@ module.exports = {
         )
         .addSubcommand((subcommand) =>
             subcommand
+                .setName("bulkremove")
+                .setDescription("Bulk remove kingdoms from the whitelist")
+        )
+        .addSubcommand((subcommand) =>
+            subcommand
                 .setName("reset")
                 .setDescription("Reset all whitelisted kingdoms for this guild (set DSA and CMine to 0)")
         ),
@@ -182,6 +187,23 @@ module.exports = {
                 await interaction.showModal(modal);
                 break;
             }
+            case "bulkremove": {
+                // Show modal for multi-line input
+                const modal = new ModalBuilder()
+                    .setCustomId('whitelist_bulkremove_modal')
+                    .setTitle('Bulk Remove from Whitelist')
+                    .addComponents(
+                        new ActionRowBuilder().addComponents(
+                            new TextInputBuilder()
+                                .setCustomId('bulkremove_list')
+                                .setLabel('Paste kingdomIds (one per line)')
+                                .setStyle(TextInputStyle.Paragraph)
+                                .setRequired(true)
+                        )
+                    );
+                await interaction.showModal(modal);
+                break;
+            }
             case "reset": {
                 await sql.resetWhitelist(guild, continent);
                 await interaction.reply({
@@ -241,6 +263,56 @@ module.exports = {
             let reply = "";
             if (added.length) reply += `✅ Added to whitelist:\n${added.join('\n')}\n`;
             if (failed.length) reply += `❌ Failed to add:\n${failed.join('\n')}\n`;
+            if (incorrect.length) reply += `⚠️ Incorrect ID:\n${incorrect.join('\n')}`;
+
+            // Discord reply limit is 2000 characters
+            const MAX_REPLY_LENGTH = 2000;
+            if (reply.length > MAX_REPLY_LENGTH) {
+                reply = reply.slice(0, MAX_REPLY_LENGTH - 20) + "\n...(truncated)";
+            }
+
+            await interaction.reply({ content: reply || "No valid entries.", ...ephemeral });
+        } else if (interaction.customId === 'whitelist_bulkremove_modal') {
+            const sql = module.exports.sql;
+            const guild = interaction.guild.id;
+            const ephemeralFlag = await sql.getEphemeral(guild);
+            const ephemeral = ephemeralFlag ? { flags: 64 } : {};
+
+            // Get continent for this guild
+            const continentArr = await sql.getGuildContinents(guild);
+            const continent = continentArr && continentArr.length > 0 ? continentArr[0].continent : null;
+            if (!continent) {
+                await interaction.reply({ content: "No continent linked to this guild.", flags: 64 });
+                return;
+            }
+
+            const input = interaction.fields.getTextInputValue('bulkremove_list');
+            const lines = input.split('\n').map(line => line.trim()).filter(Boolean);
+            let removed = [];
+            let failed = [];
+            let incorrect = [];
+            
+            for (const kingdomId of lines) {
+                // Check for correct kingdomId length (24 chars for MongoDB ObjectId style)
+                if (!kingdomId || kingdomId.length !== 24) {
+                    incorrect.push(kingdomId || "(empty)");
+                    continue;
+                }
+
+                try {
+                    // Get the latest name for display before removing
+                    const nameResult = await sql.getKingdomName(kingdomId);
+                    const displayName = (nameResult && nameResult[0] && nameResult[0].name) ? nameResult[0].name : kingdomId;
+                    await sql.removeFromWhitelist(kingdomId, continent, guild);
+                    removed.push(displayName);
+                } catch (err) {
+                    failed.push(kingdomId);
+                }
+            }
+            
+            let reply = "";
+            if (removed.length) reply += `✅ Removed from whitelist:\n${removed.join('\n')}\n`;
+            if (failed.length) reply += `❌ Failed to remove:\n${failed.join('\n')}\n`;
             if (incorrect.length) reply += `⚠️ Incorrect ID:\n${incorrect.join('\n')}`;
 
             // Discord reply limit is 2000 characters

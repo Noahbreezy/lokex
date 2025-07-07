@@ -203,6 +203,18 @@ client.on(Events.InteractionCreate, async (interaction) => {
           flags: 64,
         });
       }
+    } else if (interaction.customId === "whitelist_bulkremove_modal") {
+      const command = client.commands.get("whitelist");
+      if (!command) return;
+      try {
+        await command.modalSubmit(interaction);
+      } catch (error) {
+        console.error(error);
+        await interaction.reply({
+          content: "There was an error while processing your whitelist bulk remove.",
+          flags: 64,
+        });
+      }
     }
   } else if (interaction.isStringSelectMenu()) {
     if (interaction.customId === "scanner_freedays_select") {
