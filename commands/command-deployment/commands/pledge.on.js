@@ -13,11 +13,15 @@ module.exports = {
             subcommand
                 .setName("players")
                 .setDescription("Show the ranking of individual pledgers for the guild's continent")
+        )
+        .addSubcommand((subcommand) =>
+            subcommand
+                .setName("simulate-invasion")
+                .setDescription("Simulate a 64-continent tournament based on pledge wealth and battle strength")
         ),
 
     async execute(interaction) {
         const sql = module.exports.sql;
-        const api = module.exports.api;
         const { options, guildId } = interaction;
         const ephemeralFlag = await sql.getEphemeral(guildId);
         const ephemeral = ephemeralFlag ? { flags: 64 } : {};
@@ -33,31 +37,21 @@ module.exports = {
 
             switch (options.getSubcommand()) {
                 case "continents": {
-                    const url = "https://api-lok-beta.leagueofkingdoms.com/api/staking/dashboard";
-                    const headers = {
-                        "accept": "application/json, text/plain, */*",
-                        "content-type": "application/json;charset=UTF-8",
-                        "origin": "https://leagueofkingdoms.com",
-                        "referer": "https://leagueofkingdoms.com/",
-                    };
-                    const body = {};
+                    // Fetch continent totals from the local database
+                    const continentData = await sql.getNetStakingByContinent();
 
-                    const response = await api.request(url, body, headers);
-                    const data = response.data;
-
-                    if (!data.result || !data.dashboard || !data.dashboard.continent) {
+                    if (!continentData || continentData.length === 0) {
                         await interaction.editReply({
-                            content: "Failed to fetch pledge data from the API.",
+                            content: "No continent pledge data found in the database.",
                             ...ephemeral,
                         });
                         return;
                     }
 
-                    const filteredContinents = data.dashboard.continent.filter(
-                        (continent) => continent.value >= 40000
+                    // Filter continents with at least 40,000 LOKA and sort by total amount (already sorted DESC by SQL)
+                    const filteredContinents = continentData.filter(
+                        (continent) => continent.total_amount >= 0
                     );
-
-                    filteredContinents.sort((a, b) => b.value - a.value);
 
                     if (filteredContinents.length === 0) {
                         await interaction.editReply({
@@ -67,14 +61,14 @@ module.exports = {
                         return;
                     }
 
-                    let rankingMessage = "**Top Continents by Pledged LOKA**\n\n";
+                    let rankingMessage = "**Top Continents by Net Pledged LOKA**\n\n";
                     filteredContinents.forEach((continent, index) => {
                         const rank = index + 1;
-                        const formattedValue = continent.value.toLocaleString("en-US", {
+                        const formattedValue = continent.total_amount.toLocaleString("en-US", {
                             minimumFractionDigits: 2,
                             maximumFractionDigits: 2,
                         });
-                        rankingMessage += `#${rank} - ${continent.continent} pledged ${formattedValue} LOKA\n`;
+                        rankingMessage += `#${rank} - C${continent.continent} pledged ${formattedValue} LOKA\n`;
                     });
 
                     const embed = new EmbedBuilder()
@@ -125,6 +119,94 @@ module.exports = {
                     break;
                 }
 
+                case "simulate-invasion": {
+                    // Fetch continent totals from the local database
+                    const continentData = await sql.getNetStakingByContinent();
+
+                    if (!continentData || continentData.length === 0) {
+                        await interaction.editReply({
+                            content: "No continent pledge data found in the database.",
+                            ...ephemeral,
+                        });
+                        return;
+                    }
+
+                    // Define continent strength ranking (strongest to weakest)
+                    const strengthRanking = [
+                        'C24', 'C17', 'C60', 'C59', 'C20', 'C9', 'C2', 'C25', 'C50', 'C23', 
+                        'C11', 'C45', 'C69', 'C29', 'C19', 'C41', 'C40', 'C10', 'C28', 'C22', 
+                        'C3', 'C1', 'C51', 'C27', 'C48', 'C34', 'C31', 'C38', 'C67', 'C55', 'C26', 
+                        'C70', 'C63', 'C32', 'C65', 'C33', 'C16', 'C54', 'C66', 'C14', 'C4', 
+                        'C13', 'C47', 'C12', 'C57', 'C49', 'C64', 'C6', 'C15', 'C61', 
+                        'C7', 'C35', 'C58', 'C46', 'C43', 'C39', 'C18', 'C68', 'C5', 'C37', 
+                        'C53', 'C30', 'C36', 'C56', 'C8', 'C44', 'C62', 'C42', 'C21', 'C52'
+                    ];
+
+                    // Normalize continent names to ensure they have 'C' prefix
+                    const normalizedData = continentData.map(continent => ({
+                        ...continent,
+                        continent: continent.continent.toString().startsWith('C') ? 
+                            continent.continent : `C${continent.continent}`
+                    }));
+
+                    // Sort by pledge amount (descending) and take top 64
+                    normalizedData.sort((a, b) => b.total_amount - a.total_amount);
+                    const top64 = normalizedData.slice(0, 64);
+
+                    if (top64.length < 64) {
+                        await interaction.editReply({
+                            content: `Only ${top64.length} continents found with pledge data. Need at least 64 for tournament.`,
+                            ...ephemeral,
+                        });
+                        return;
+                    }
+
+                    // Create matchups: richest vs poorest, 2nd richest vs 2nd poorest, etc.
+                    const matchups = [];
+                    for (let i = 0; i < 32; i++) {
+                        const richContinent = top64[i];
+                        const poorContinent = top64[63 - i];
+                        matchups.push([richContinent, poorContinent]);
+                    }
+
+                    // Simulate tournament rounds
+                    const tournamentResults = simulateTournament(matchups, strengthRanking);
+
+                    // Create embed with results
+                    const embed = new EmbedBuilder()
+                        .setTitle("🏛️ Continental Invasion Tournament Simulation")
+                        .setDescription("*Based on pledge wealth matchups and continental battle strength*")
+                        .setColor("#ff6b35")
+                        .setTimestamp();
+
+                    // Add final 8 quarterfinalists
+                    embed.addFields(
+                        {
+                            name: "🏆 FINAL 8 QUARTERFINALISTS",
+                            value: tournamentResults.quarterfinalists.map((continent, index) => 
+                                `#${index + 1} - **${continent}**`
+                            ).join('\n'),
+                            inline: false
+                        }
+                    );
+
+                    // Add some round details
+                    embed.addFields({
+                        name: "📊 Tournament Format",
+                        value: `• **64 continents** (eliminated 6 poorest)\n• **Bracket seeding**: Richest vs Poorest pledge amounts\n• **Battle outcomes**: Based on continental strength rankings\n• **Tournament ends** at Final 8 quarterfinalists`,
+                        inline: false
+                    });
+
+                    // Send the final result first
+                    await interaction.editReply({ embeds: [embed], ...ephemeral });
+
+                    // Create and send round-by-round embeds
+                    const roundEmbeds = createRoundEmbeds(matchups, strengthRanking);
+                    for (let i = 0; i < roundEmbeds.length; i++) {
+                        await interaction.followUp({ embeds: [roundEmbeds[i]], ...ephemeral });
+                    }
+                    break;
+                }
 
                 default: {
                     await interaction.editReply({
@@ -143,6 +225,146 @@ module.exports = {
         }
     },
 };
+
+function createRoundEmbeds(matchups, strengthRanking) {
+    const embeds = [];
+    
+    // Helper function to determine winner based on strength ranking
+    function getWinner(continent1, continent2) {
+        const index1 = strengthRanking.indexOf(continent1.continent);
+        const index2 = strengthRanking.indexOf(continent2.continent);
+        
+        // Lower index = stronger (earlier in ranking list)
+        // If continent not in ranking, treat as weakest
+        if (index1 === -1 && index2 === -1) return continent1; // arbitrary
+        if (index1 === -1) return continent2;
+        if (index2 === -1) return continent1;
+        
+        return index1 < index2 ? continent1 : continent2;
+    }
+
+    // Round 1: 64 -> 32
+    let currentRound = matchups.map(matchup => getWinner(matchup[0], matchup[1]));
+    
+    const round1Embed = new EmbedBuilder()
+        .setTitle("⚔️ Round 1: 64 → 32 Continents")
+        .setDescription("*First elimination round results*")
+        .setColor("#e74c3c");
+    
+    let round1Results = "";
+    matchups.forEach((matchup, index) => {
+        const winner = getWinner(matchup[0], matchup[1]);
+        const loser = winner.continent === matchup[0].continent ? matchup[1] : matchup[0];
+        round1Results += `**${winner.continent}** defeats ${loser.continent}\n`;
+        if ((index + 1) % 16 === 0 && index < matchups.length - 1) {
+            round1Results += "\n";
+        }
+    });
+    
+    round1Embed.setDescription(round1Results);
+    embeds.push(round1Embed);
+    
+    // Round 2: 32 -> 16 (re-sort and match richest vs poorest)
+    currentRound.sort((a, b) => b.total_amount - a.total_amount);
+    const round2Matchups = [];
+    for (let i = 0; i < 16; i++) {
+        const richContinent = currentRound[i];
+        const poorContinent = currentRound[31 - i];
+        round2Matchups.push([richContinent, poorContinent]);
+    }
+    currentRound = round2Matchups.map(matchup => getWinner(matchup[0], matchup[1]));
+    
+    const round2Embed = new EmbedBuilder()
+        .setTitle("⚔️ Round 2: 32 → 16 Continents")
+        .setDescription("*Second elimination round results*")
+        .setColor("#f39c12");
+    
+    let round2Results = "";
+    round2Matchups.forEach((matchup, index) => {
+        const winner = getWinner(matchup[0], matchup[1]);
+        const loser = winner.continent === matchup[0].continent ? matchup[1] : matchup[0];
+        round2Results += `**${winner.continent}** defeats ${loser.continent}\n`;
+        if ((index + 1) % 8 === 0 && index < round2Matchups.length - 1) {
+            round2Results += "\n";
+        }
+    });
+    
+    round2Embed.setDescription(round2Results);
+    embeds.push(round2Embed);
+    
+    // Round 3: 16 -> 8 (re-sort and match richest vs poorest)
+    currentRound.sort((a, b) => b.total_amount - a.total_amount);
+    const round3Matchups = [];
+    for (let i = 0; i < 8; i++) {
+        const richContinent = currentRound[i];
+        const poorContinent = currentRound[15 - i];
+        round3Matchups.push([richContinent, poorContinent]);
+    }
+    const finalRound = round3Matchups.map(matchup => getWinner(matchup[0], matchup[1]));
+    
+    const round3Embed = new EmbedBuilder()
+        .setTitle("⚔️ Round 3: 16 → 8 Continents (FINAL)")
+        .setDescription("*Final elimination round - determining the elite 8*")
+        .setColor("#27ae60");
+    
+    let round3Results = "";
+    round3Matchups.forEach((matchup, index) => {
+        const winner = getWinner(matchup[0], matchup[1]);
+        const loser = winner.continent === matchup[0].continent ? matchup[1] : matchup[0];
+        round3Results += `**${winner.continent}** defeats ${loser.continent}\n`;
+    });
+    
+    round3Embed.setDescription(round3Results);
+    embeds.push(round3Embed);
+    
+    return embeds;
+}
+
+function simulateTournament(matchups, strengthRanking) {
+    // Helper function to determine winner based on strength ranking
+    function getWinner(continent1, continent2) {
+        const index1 = strengthRanking.indexOf(continent1.continent);
+        const index2 = strengthRanking.indexOf(continent2.continent);
+        
+        // Lower index = stronger (earlier in ranking list)
+        // If continent not in ranking, treat as weakest
+        if (index1 === -1 && index2 === -1) return continent1; // arbitrary
+        if (index1 === -1) return continent2;
+        if (index2 === -1) return continent1;
+        
+        return index1 < index2 ? continent1 : continent2;
+    }
+
+    // Round 1: 64 -> 32
+    let currentRound = matchups.map(matchup => getWinner(matchup[0], matchup[1]));
+    
+    // Round 2: 32 -> 16 (re-sort and match richest vs poorest)
+    currentRound.sort((a, b) => b.total_amount - a.total_amount);
+    const round2Matchups = [];
+    for (let i = 0; i < 16; i++) {
+        const richContinent = currentRound[i];
+        const poorContinent = currentRound[31 - i];
+        round2Matchups.push([richContinent, poorContinent]);
+    }
+    currentRound = round2Matchups.map(matchup => getWinner(matchup[0], matchup[1]));
+    
+    // Round 3: 16 -> 8 (re-sort and match richest vs poorest)
+    currentRound.sort((a, b) => b.total_amount - a.total_amount);
+    const round3Matchups = [];
+    for (let i = 0; i < 8; i++) {
+        const richContinent = currentRound[i];
+        const poorContinent = currentRound[15 - i];
+        round3Matchups.push([richContinent, poorContinent]);
+    }
+    currentRound = round3Matchups.map(matchup => getWinner(matchup[0], matchup[1]));
+    
+    // Don't simulate further - return the 8 quarterfinalists
+    const quarterfinalists = currentRound;
+    
+    return {
+        quarterfinalists: quarterfinalists.map(c => c.continent)
+    };
+}
 
 function createEmbeds(rows, continent) {
     const embeds = [];
