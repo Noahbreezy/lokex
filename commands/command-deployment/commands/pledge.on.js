@@ -149,6 +149,12 @@ module.exports = {
                             continent.continent : `C${continent.continent}`
                     }));
 
+                    // Apply special adjustment: Remove 1k LOKA from C26
+                    const c26Index = normalizedData.findIndex(continent => continent.continent === 'C26');
+                    if (c26Index !== -1) {
+                        normalizedData[c26Index].total_amount -= 0;
+                    }
+
                     // Sort by pledge amount (descending) and take top 64
                     normalizedData.sort((a, b) => b.total_amount - a.total_amount);
                     const top64 = normalizedData.slice(0, 64);
