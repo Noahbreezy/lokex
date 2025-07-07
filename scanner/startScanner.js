@@ -58,8 +58,9 @@ async function manageScanners() {
             console.error('Error in manageScanners loop:', err);
         }
         // Wait 30 minutes before next check
-        // await new Promise(resolve => setTimeout(resolve, 30 * 60 * 1000)); // 30 minutes
-        await new Promise(resolve => setTimeout(resolve, 5000));
+        await sql.clearOldMines(); // Clear old mines every 30 minutes
+        await new Promise(resolve => setTimeout(resolve, 30 * 60 * 1000)); // 30 minutes
+        // await new Promise(resolve => setTimeout(resolve, 5000));
     
     }
 }

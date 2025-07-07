@@ -1412,6 +1412,15 @@ class sqlFunctions {
         return this.query(sql, values);
     }
 
+    // Clear all entries older than 24h based on created_at timestamp
+    async clearOldMines() {
+        const query = `
+            DELETE FROM mines 
+            WHERE created_at < NOW() - INTERVAL 24 HOUR;
+        `;
+        return this.query(query);
+    }
+
     // illegal reports functuons
 
     // Check if a mine is already reported
