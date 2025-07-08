@@ -258,7 +258,7 @@ module.exports = {
                         new ActionRowBuilder().addComponents(
                             new TextInputBuilder()
                                 .setCustomId('bulkadd_list')
-                                .setLabel('Paste kingdomId,dsa,cmine[,expiry] (one per line)')
+                                .setLabel('kingdomId,dsa,cmine[,expiry] (one per line)')
                                 .setStyle(TextInputStyle.Paragraph)
                                 .setRequired(true)
                         )
