@@ -184,14 +184,18 @@ class Scanner {
 
       const whitelistRows = await this.sql.getWhitelist(this.currentGuild, this.currentContinent);
       console.log(`Found ${whitelistRows.length} whitelist entries for guild ${this.currentGuild}, continent ${this.currentContinent}`);
+      
+      // Build whitelist object with highest valid license levels per kingdom
       const whitelist = whitelistRows.reduce((acc, row) => {
-        acc[row.kingdomid] = acc[row.kingdomid]
-          ? {
-            ...acc[row.kingdomid],
-            cmine: Math.max(acc[row.kingdomid].cmine, row.cmine),
-            dsa: Math.max(acc[row.kingdomid].dsa, row.dsa),
-          }
-          : row;
+        acc[row.kingdomid] = {
+          kingdomid: row.kingdomid,
+          name: row.name,
+          // Convert string ENUM values to numbers for comparison
+          cmine: parseInt(row.cmine) || 0,
+          dsa: parseInt(row.dsa) || 0,
+          dsa_expiry: row.dsa_expiry,
+          cmine_expiry: row.cmine_expiry
+        };
         return acc;
       }, {});
       // console.log("Whitelist: ", whitelist);
@@ -218,8 +222,9 @@ class Scanner {
           // console.log(`levels: ${record.code} - ${record.level}, minCmine: ${minCmine}, minDsa: ${minDsa}`);
           const whitelistEntry = whitelist[record.occupied?.id];
           if (whitelistEntry) {
-            const cmine = Number(whitelistEntry.cmine);
-            const dsa = Number(whitelistEntry.dsa);
+            // Use the converted numeric values for comparison
+            const cmine = whitelistEntry.cmine;
+            const dsa = whitelistEntry.dsa;
             if (record.code === 20100105 && cmine >= record.level) return false;
             if (record.code === 20100106 && dsa >= record.level) return false;
           }
