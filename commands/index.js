@@ -129,6 +129,18 @@ client.on(Events.InteractionCreate, async (interaction) => {
           flags: 64,
         });
       }
+    } else if (interaction.customId.startsWith("shop_buy_")) {
+      const command = client.commands.get("shop");
+      if (!command) return;
+      try {
+        await command.handlePurchase(interaction);
+      } catch (error) {
+        console.error(error);
+        await interaction.reply({
+          content: "There was an error while processing your purchase!",
+          flags: 64,
+        });
+      }
     }
   } else if (interaction.isModalSubmit()) {
     if (interaction.customId === 'wallet_modal') {

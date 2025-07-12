@@ -808,7 +808,7 @@ class sqlFunctions {
 
     // get channels managed by the bot
     async getManagedChannels(guild) {
-        const query = "SELECT verification_channel, titles_channel, pledgers_channel, buff_channel, drago_lookup_channel, ranking_channel, cmine_whitelist_channel, dsa_whitelist_channel FROM guild_settings WHERE guild_id=?;";
+        const query = "SELECT verification_channel, titles_channel, pledgers_channel, buff_channel, drago_lookup_channel, shop_channel, ranking_channel, cmine_whitelist_channel, dsa_whitelist_channel FROM guild_settings WHERE guild_id=?;";
         return this.query(query, [guild]);
     }
 
@@ -860,6 +860,12 @@ class sqlFunctions {
         return this.query(query, [channel, guild]);
     }
 
+    // Set guild shop channel
+    async setGuildShopChannel(channel, guild) {
+        const query = "UPDATE guild_settings SET shop_channel=? WHERE guild_id=?;";
+        return this.query(query, [channel, guild]);
+    }
+
     // Set guild cmine whitelist channel
     async setGuildCmineWhitelistChannel(channel, guild) {
         const query = "UPDATE guild_settings SET cmine_whitelist_channel=? WHERE guild_id=?;";
@@ -882,6 +888,19 @@ class sqlFunctions {
     async setGuildVerificationRole(role, guild) {
         const query = "UPDATE guild_settings SET verified_role=? WHERE guild_id=?;";
         return this.query(query, [role, guild]);
+    }
+
+    // Set guild currency emoji
+    async setGuildCurrencyEmoji(emoji, guildId) {
+        const query = "UPDATE guild_settings SET emoji_id = ? WHERE guild_id = ?;";
+        return this.query(query, [emoji, guildId]);
+    }
+
+    // Get guild currency emoji
+    async getGuildCurrencyEmoji(guildId) {
+        const query = "SELECT emoji_id FROM guild_settings WHERE guild_id = ?;";
+        const results = await this.query(query, [guildId]);
+        return results.length > 0 ? results[0].emoji_id : null;
     }
 
     // Check if a guild wants to remove roles from unverified discords
@@ -1560,6 +1579,107 @@ class sqlFunctions {
     async getProxyExcept(ip) {
         const query = "SELECT ip FROM proxies WHERE ip != ?";
         return this.query(query, [ip]);
+    }
+
+    // Shop functions
+
+    // Get shop items for a guild
+    async getShopItems(guildId) {
+        const query = "SELECT * FROM shop_items WHERE guild_id = ? ORDER BY name ASC;";
+        return this.query(query, [guildId]);
+    }
+
+    // Get a specific shop item
+    async getShopItem(itemId, guildId) {
+        const query = "SELECT * FROM shop_items WHERE id = ? AND guild_id = ?;";
+        const results = await this.query(query, [itemId, guildId]);
+        return results.length > 0 ? results[0] : null;
+    }
+
+    // Add a new shop item
+    async addShopItem(guildId, name, price, stock, description = null, type = null, level = null, duration = null) {
+        const query = "INSERT INTO shop_items (guild_id, name, price, stock, description, type, level, duration) VALUES (?, ?, ?, ?, ?, ?, ?, ?);";
+        return this.query(query, [guildId, name, price, stock, description, type, level, duration]);
+    }
+
+    // Update shop item
+    async updateShopItem(itemId, guildId, name, price, stock, description = null, type = null, level = null, duration = null) {
+        const query = "UPDATE shop_items SET name = ?, price = ?, stock = ?, description = ?, type = ?, level = ?, duration = ? WHERE id = ? AND guild_id = ?;";
+        return this.query(query, [name, price, stock, description, type, level, duration, itemId, guildId]);
+    }
+
+    // Delete shop item
+    async deleteShopItem(itemId, guildId) {
+        const query = "DELETE FROM shop_items WHERE id = ? AND guild_id = ?;";
+        return this.query(query, [itemId, guildId]);
+    }
+
+    // Purchase item (decrease stock)
+    async purchaseShopItem(itemId, guildId, quantity = 1) {
+        const query = "UPDATE shop_items SET stock = stock - ? WHERE id = ? AND guild_id = ? AND stock >= ?;";
+        const result = await this.query(query, [quantity, itemId, guildId, quantity]);
+        return result.affectedRows > 0;
+    }
+
+    // Log shop purchase
+    async logShopPurchase(guildId, userId, itemId, quantity, totalPrice) {
+        const query = "INSERT INTO shop_purchases (guild_id, user_id, item_id, quantity, total_price) VALUES (?, ?, ?, ?, ?);";
+        return this.query(query, [guildId, userId, itemId, quantity, totalPrice]);
+    }
+
+    // Get shop purchase history
+    async getShopPurchaseHistory(guildId, limit = 50) {
+        const query = `
+            SELECT sp.*, si.name as item_name, sp.created_at
+            FROM shop_purchases sp
+            JOIN shop_items si ON sp.item_id = si.id
+            WHERE sp.guild_id = ?
+            ORDER BY sp.created_at DESC
+            LIMIT ?;
+        `;
+        return this.query(query, [guildId, limit]);
+    }
+
+    // Points management functions
+
+    // Get user's total points balance in a guild
+    async getUserPointsBalance(userId, guildId) {
+        const query = "SELECT COALESCE(SUM(amount), 0) as balance FROM points_transactions WHERE discord_id = ? AND guild_id = ?;";
+        const results = await this.query(query, [userId, guildId]);
+        return results.length > 0 ? results[0].balance : 0;
+    }
+
+    // Check if user has enough points for a purchase
+    async userCanAfford(userId, guildId, cost) {
+        const balance = await this.getUserPointsBalance(userId, guildId);
+        return balance >= cost;
+    }
+
+    // Deduct points from user for a purchase
+    async deductUserPoints(userId, guildId, amount, reason = 'shop purchase') {
+        const query = "INSERT INTO points_transactions (discord_id, guild_id, amount, reason) VALUES (?, ?, ?, ?);";
+        return this.query(query, [userId, guildId, -Math.abs(amount), reason]);
+    }
+
+    // Get user's points transaction history
+    async getUserPointsHistory(userId, guildId, limit = 50) {
+        const query = "SELECT * FROM points_transactions WHERE discord_id = ? AND guild_id = ? ORDER BY timestamp DESC LIMIT ?;";
+        return this.query(query, [userId, guildId, limit]);
+    }
+
+    // Add or remove points from a user (for admin purposes)
+    async addUserPoints(userId, guildId, amount, reason = 'admin change') {
+        const query = "INSERT INTO points_transactions (discord_id, guild_id, amount, reason) VALUES (?, ?, ?, ?);";
+        return this.query(query, [userId, guildId, amount, reason]); // Remove Math.abs to allow negative values
+    }
+
+    // Log points change for audit purposes
+    async logPointsChange(guildId, userId, amount, reason, type = 'manual') {
+        // This function can be used for additional logging if needed
+        // For now, the transaction is already logged in addUserPoints/deductUserPoints
+        // But we can add additional audit logging here if required
+        console.log(`Points change logged: Guild ${guildId}, User ${userId}, Amount ${amount}, Reason: ${reason}, Type: ${type}`);
+        return true;
     }
 }
 

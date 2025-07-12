@@ -81,6 +81,16 @@ module.exports = {
                         .setRequired(true)
                         .setMinValue(1)
                 )
+        ).addSubcommand((subcommand) =>
+            subcommand
+                .setName("currency-emoji")
+                .setDescription("Set a custom emoji for shop currency")
+                .addStringOption((option) =>
+                    option
+                        .setName("emoji")
+                        .setDescription("Custom emoji to use as currency symbol (use default Discord emoji or custom guild emoji)")
+                        .setRequired(true)
+                )
         ),
     async execute(interaction) {
         const sql = module.exports.sql;
@@ -169,6 +179,31 @@ module.exports = {
                         }
                         break;
                     }
+                case "currency-emoji":
+                    {
+                        const emoji = options.getString("emoji");
+                        
+                        // Validate emoji format (either Unicode emoji or Discord custom emoji format)
+                        const emojiRegex = /^(?:[\u{1f300}-\u{1f5ff}\u{1f900}-\u{1f9ff}\u{1f600}-\u{1f64f}\u{1f680}-\u{1f6ff}\u{2600}-\u{26ff}\u{2700}-\u{27bf}\u{1f1e6}-\u{1f1ff}\u{1f191}-\u{1f251}\u{1f004}\u{1f0cf}\u{1f170}-\u{1f171}\u{1f17e}-\u{1f17f}\u{1f18e}\u{3030}\u{2b50}\u{2b55}\u{2934}-\u{2935}\u{2b05}-\u{2b07}\u{2b1b}-\u{2b1c}\u{3297}\u{3299}\u{303d}\u{00a9}\u{00ae}\u{2122}\u{23f3}\u{24c2}\u{23e9}-\u{23ef}\u{25b6}\u{23f8}-\u{23fa}]|<a?:\w+:\d+>)$/u;
+                        
+                        if (!emojiRegex.test(emoji)) {
+                            await interaction.reply({ content: "❌ Invalid emoji format. Please use a standard emoji or a Discord custom emoji format like <:name:id>", flags: 64 });
+                            return;
+                        }
+                        
+                        await sql.setGuildCurrencyEmoji(emoji, guildId);
+                        
+                        // Import and use the refresh function from shop.on.js
+                        try {
+                            const shopModule = require('./shop.on.js');
+                            await shopModule.refreshShopChannel(guildId, sql, guild);
+                        } catch (error) {
+                            console.log('Could not refresh shop channel automatically:', error);
+                        }
+                        
+                        await interaction.reply({ content: `✅ Currency emoji has been set to ${emoji}. Shop channel has been refreshed with the new emoji.`, ...ephemeral });
+                        break;
+                    }
                 case "show-settings":
                     {
                         // Define channel-related fields
@@ -180,10 +215,14 @@ module.exports = {
                             'pledgers_channel',
                             'buff_channel',
                             'drago_lookup_channel',
+                            'shop_channel',
                             'ranking_channel',
                             'cmine_whitelist_channel',
                             'dsa_whitelist_channel'
                         ];
+
+                        // Define emoji fields
+                        const emojiFields = ['emoji_id'];
 
                         const settings = await sql.getGuildSettings(guildId);
                         if (!settings || !settings[0]) {
@@ -200,6 +239,9 @@ module.exports = {
                                 if (channelFields.includes(key)) {
                                     // Handle channel fields by converting to a channel mention
                                     displayValue = (value && value !== '0') ? `<#${value}>` : 'Not set';
+                                } else if (emojiFields.includes(key)) {
+                                    // Handle emoji fields by displaying the emoji
+                                    displayValue = value || '🪙 (default)';
                                 } else {
                                     // Handle non-channel fields as before
                                     displayValue = value !== null && value !== undefined ? String(value) : 'Not set';
@@ -264,6 +306,9 @@ async function createGuildChannels(interaction, guild, guildName, guildId, ephem
         }
         if (!managedChannelsDB.drago_lookup_channel || !existingChannelIds.includes(managedChannelsDB.drago_lookup_channel)) {
             await createDragoLookupChannel(interaction, guild, guildName, guildId, ephemeral, sql);
+        }
+        if (!managedChannelsDB.shop_channel || !existingChannelIds.includes(managedChannelsDB.shop_channel)) {
+            await createShopChannel(interaction, guild, guildName, guildId, ephemeral, sql);
         }
 
         await interaction.followUp({ content: `✅ Channels created or verified for ${guildName}`, ...ephemeral });
@@ -493,5 +538,107 @@ async function createDragoLookupChannel(interaction, guild, guildName, guildId, 
     } catch (error) {
         console.error(error);
         await interaction.followUp({ content: "There was an error while creating the Drago Info channel.", flags: 64 });
+    }
+}
+
+async function createShopChannel(interaction, guild, guildName, guildId, ephemeral, sql) {
+    try {
+        let shopChannel = await guild.channels.create({
+            name: "shop",
+            type: ChannelType.GuildText,
+            permissionOverwrites: [
+                {
+                    id: guildId, // @everyone role
+                    allow: [PermissionFlagsBits.ViewChannel],
+                    deny: [PermissionFlagsBits.SendMessages],
+                }
+            ]
+        });
+
+        await sql.setGuildShopChannel(shopChannel.id, guildId);
+
+        // Get shop items from database
+        const shopItems = await sql.getShopItems(guildId);
+        
+        // Create embed message for the shop
+        const embed = new EmbedBuilder()
+            .setColor(0xFFD700)
+            .setTitle(`🛒 ${guildName} Shop`)
+            .setDescription("Welcome to the guild shop! Browse and purchase items below.")
+            .setFooter({ text: "Powered by Lokex" });
+
+        // Create buttons for shop items
+        const rows = [];
+        let currentRow = new ActionRowBuilder();
+        let buttonsInRow = 0;
+
+        // Filter items with stock > 0 for display
+        const inStockItems = shopItems ? shopItems.filter(item => item.stock > 0) : [];
+        
+        if (inStockItems.length > 0) {
+            // Get currency emoji for buttons
+            const currencyEmoji = await sql.getGuildCurrencyEmoji(guildId) || "🪙";
+            
+            for (const item of inStockItems) {
+                const button = new ButtonBuilder()
+                    .setCustomId(`shop_buy_${item.id}`)
+                    .setLabel(`${item.name} - ${item.price} ${currencyEmoji}`)
+                    .setStyle(ButtonStyle.Success);
+
+                // Handle custom emoji for button
+                if (currencyEmoji.startsWith('<') && currencyEmoji.endsWith('>')) {
+                    // Custom emoji format: <:name:id> or <a:name:id>
+                    const emojiMatch = currencyEmoji.match(/<a?:(\w+):(\d+)>/);
+                    if (emojiMatch) {
+                        button.setEmoji({
+                            name: emojiMatch[1],
+                            id: emojiMatch[2],
+                            animated: currencyEmoji.startsWith('<a:')
+                        });
+                    } else {
+                        button.setEmoji("🪙"); // Fallback
+                    }
+                } else {
+                    // Unicode emoji - use currency emoji as button emoji
+                    button.setEmoji(currencyEmoji);
+                }
+
+                currentRow.addComponents(button);
+                buttonsInRow++;
+
+                if (buttonsInRow === 5) {
+                    rows.push(currentRow);
+                    currentRow = new ActionRowBuilder();
+                    buttonsInRow = 0;
+                }
+            }
+
+            if (buttonsInRow > 0) {
+                rows.push(currentRow);
+            }
+
+            // Add fields for each item in stock
+            for (const item of inStockItems) {
+                embed.addFields({
+                    name: item.name,
+                    value: `**Price:** ${item.price} ${currencyEmoji}\n**Stock:** ${item.stock}\n**Description:** ${item.description || 'No description'}`,
+                    inline: true
+                });
+            }
+        } else {
+            embed.addFields({
+                name: "No Items Available",
+                value: "There are currently no items in the shop. Check back later!",
+                inline: false
+            });
+        }
+
+        // Send message to the new channel
+        await shopChannel.send({ embeds: [embed], components: rows });
+
+        await interaction.followUp({ content: `✅ Shop channel created: ${shopChannel}`, ...ephemeral });
+    } catch (error) {
+        console.error(error);
+        await interaction.followUp({ content: "There was an error while creating the shop channel.", flags: 64 });
     }
 }
