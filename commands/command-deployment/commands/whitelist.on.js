@@ -197,11 +197,19 @@ module.exports = {
                 const nameResult = await sql.getKingdomName(kingdomId);
                 const displayName = (nameResult && nameResult[0] && nameResult[0].name) ? nameResult[0].name : kingdomId;
 
-                await sql.addToWhitelist(kingdomId, continent, guild, dsa.toString(), cmine.toString(), expiry);
+                const result = await sql.addToWhitelist(kingdomId, continent, guild, dsa.toString(), cmine.toString(), expiry);
                 
                 let responseContent = `${displayName} has been whitelisted (DSA: ${dsa}, CMine: ${cmine})`;
-                if (expiry) {
-                    responseContent += ` until ${formatExpiryForDisplay(expiry)}`;
+                
+                if (result && result.extended) {
+                    responseContent = `${displayName} license extended (DSA: ${dsa}, CMine: ${cmine})`;
+                    if (result.newExpiry) {
+                        responseContent += ` until ${formatExpiryForDisplay(result.newExpiry)}`;
+                    }
+                } else {
+                    if (expiry) {
+                        responseContent += ` until ${formatExpiryForDisplay(expiry)}`;
+                    }
                 }
                 responseContent += ".";
 
@@ -218,10 +226,35 @@ module.exports = {
                     return;
                 }
                 let msg = whitelist.map((w, i) => {
-                    let line = `${i + 1}. ${w.name ? w.name : w.kingdomid} | DSA: ${w.dsa} | CMine: ${w.cmine}`;
-                    if (w.expiry) {
-                        line += ` | Expires: ${formatExpiryForDisplay(w.expiry)}`;
+                    let line = `${i + 1}. ${w.name ? w.name : w.kingdomid}`;
+                    
+                    // Show DSA level and expiry inline
+                    if (w.dsa > 0) {
+                        if (w.dsa_expiry) {
+                            line += ` | DSA: ${w.dsa} until ${formatExpiryForDisplay(w.dsa_expiry)}`;
+                        } else {
+                            line += ` | DSA: ${w.dsa}`;
+                        }
+                    } else {
+                        line += ` | DSA: ${w.dsa}`;
                     }
+                    
+                    // Show CMine level and expiry inline
+                    if (w.cmine > 0) {
+                        if (w.cmine_expiry) {
+                            line += ` | CMine: ${w.cmine} until ${formatExpiryForDisplay(w.cmine_expiry)}`;
+                        } else {
+                            line += ` | CMine: ${w.cmine}`;
+                        }
+                    } else {
+                        line += ` | CMine: ${w.cmine}`;
+                    }
+                    
+                    // Show license count if more than 1
+                    if (w.license_count && w.license_count > 1) {
+                        line += ` | ${w.license_count} licenses`;
+                    }
+                    
                     return line;
                 }).join("\n");
 
@@ -345,12 +378,20 @@ module.exports = {
                 }
 
                 try {
-                    await sql.addToWhitelist(kingdomId, continent, guild, dsa.toString(), cmine.toString(), expiry);
+                    const result = await sql.addToWhitelist(kingdomId, continent, guild, dsa.toString(), cmine.toString(), expiry);
                     const nameResult = await sql.getKingdomName(kingdomId);
                     const displayName = (nameResult && nameResult[0] && nameResult[0].name) ? nameResult[0].name : kingdomId;
+                    
                     let addedText = `${displayName} (DSA: ${dsa}, CMine: ${cmine})`;
-                    if (expiry) {
-                        addedText += ` until ${formatExpiryForDisplay(expiry)}`;
+                    if (result && result.extended) {
+                        addedText = `${displayName} - Extended (DSA: ${dsa}, CMine: ${cmine})`;
+                        if (result.newExpiry) {
+                            addedText += ` until ${formatExpiryForDisplay(result.newExpiry)}`;
+                        }
+                    } else {
+                        if (expiry) {
+                            addedText += ` until ${formatExpiryForDisplay(expiry)}`;
+                        }
                     }
                     added.push(addedText);
                 } catch (err) {

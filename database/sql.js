@@ -1505,9 +1505,10 @@ class sqlFunctions {
     async getWhitelist(guild, continent) {
         return this.query(
             `SELECT w.kingdomid, i.name, 
-                    MAX(CAST(w.dsa AS UNSIGNED)) as dsa, 
-                    MAX(CAST(w.cmine AS UNSIGNED)) as cmine, 
-                    MIN(w.expiry) as earliest_expiry,
+                    MAX(w.dsa) as dsa, 
+                    MAX(w.cmine) as cmine,
+                    MIN(CASE WHEN w.dsa > '0' THEN w.expiry END) as dsa_expiry,
+                    MIN(CASE WHEN w.cmine > '0' THEN w.expiry END) as cmine_expiry,
                     COUNT(*) as license_count
              FROM whitelist w
              LEFT JOIN (
@@ -1516,10 +1517,10 @@ class sqlFunctions {
                 WHERE id IN (SELECT MAX(id) FROM info GROUP BY kingdomId)
              ) i ON w.kingdomid = i.kingdomId
              WHERE w.continent = ? AND w.guild = ? 
-             AND (w.dsa > 0 OR w.cmine > 0)
+             AND (w.dsa > '0' OR w.cmine > '0')
              AND (w.expiry IS NULL OR w.expiry > NOW())
              GROUP BY w.kingdomid, i.name
-             HAVING MAX(CAST(w.dsa AS UNSIGNED)) > 0 OR MAX(CAST(w.cmine AS UNSIGNED)) > 0
+             HAVING MAX(w.dsa) > '0' OR MAX(w.cmine) > '0'
              ORDER BY i.name`,
             [continent, guild]
         );
@@ -1596,23 +1597,23 @@ class sqlFunctions {
     // Check if a kingdom is whitelisted and return whitelist levels
     async checkWhitelistStatus(kingdomId, continent, guild) {
         const results = await this.query(
-            `SELECT MAX(CAST(dsa AS UNSIGNED)) as dsa, MAX(CAST(cmine AS UNSIGNED)) as cmine,
+            `SELECT MAX(w.dsa) as dsa, MAX(w.cmine) as cmine,
              MIN(expiry) as earliest_expiry
-             FROM whitelist 
+             FROM whitelist w
              WHERE kingdomid = ? AND continent = ? AND guild = ?
              AND (expiry IS NULL OR expiry > NOW())
-             AND (dsa > 0 OR cmine > 0)`,
+             AND (dsa > '0' OR cmine > '0')`,
             [kingdomId, continent, guild]
         );
         
-        // If no results or both dsa and cmine are 0, return null
-        if (results.length === 0 || (results[0].dsa === 0 && results[0].cmine === 0)) {
+        // If no results or both dsa and cmine are '0', return null
+        if (results.length === 0 || (results[0].dsa === '0' && results[0].cmine === '0')) {
             return null;
         }
         
         return {
-            dsa: results[0].dsa.toString(),
-            cmine: results[0].cmine.toString(),
+            dsa: results[0].dsa,
+            cmine: results[0].cmine,
             expiry: results[0].earliest_expiry
         };
     }
