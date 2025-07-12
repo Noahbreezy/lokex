@@ -1,5 +1,21 @@
 const { SlashCommandBuilder, PermissionFlagsBits, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, StringSelectMenuBuilder, StringSelectMenuOptionBuilder, ModalBuilder, TextInputBuilder, TextInputStyle } = require("discord.js");
 
+// Helper function to format numbers with K, M, B suffixes
+function formatNumber(num) {
+    const absNum = Math.abs(num);
+    const sign = num < 0 ? '-' : '';
+    
+    if (absNum >= 1_000_000_000) {
+        return sign + (absNum / 1_000_000_000).toFixed(1).replace(/\.0$/, '') + 'B';
+    } else if (absNum >= 1_000_000) {
+        return sign + (absNum / 1_000_000).toFixed(1).replace(/\.0$/, '') + 'M';
+    } else if (absNum >= 1_000) {
+        return sign + (absNum / 1_000).toFixed(1).replace(/\.0$/, '') + 'K';
+    } else {
+        return sign + Math.floor(absNum).toString();
+    }
+}
+
 module.exports = {
     data: new SlashCommandBuilder()
         .setName("shop")
@@ -93,7 +109,7 @@ module.exports = {
                 .addStringOption((option) =>
                     option
                         .setName("description")
-                        .setDescription("New description of the item")
+                        .setDescription("New description of the item (use 'CLEAR' to remove description)")
                         .setRequired(false)
                         .setMaxLength(200)
                 )
@@ -229,11 +245,23 @@ module.exports = {
                         const level = options.getInteger("level") || null;
                         const duration = options.getInteger("duration") || null;
 
+                        // Validate that dsa and cmine items have required level and duration
+                        if (type && (type.toLowerCase() === 'dsa' || type.toLowerCase() === 'cmine')) {
+                            if (!level) {
+                                await interaction.reply({ content: `❌ Items with type "${type.toUpperCase()}" must have a level specified.`, flags: 64 });
+                                return;
+                            }
+                            if (!duration) {
+                                await interaction.reply({ content: `❌ Items with type "${type.toUpperCase()}" must have a duration specified.`, flags: 64 });
+                                return;
+                            }
+                        }
+
                         await sql.addShopItem(guildId, name, price, stock, description, type, level, duration);
                         const items = await sql.getShopItems(guildId);
                         const addedItem = items.find(i => i.name === name && i.price === price && i.stock === stock);
                         const itemIdMsg = addedItem ? ` (ID: ${addedItem.id})` : '';
-                        await interaction.reply({ content: `✅ Item "${name}"${itemIdMsg} added to shop with price ${Math.floor(price)} ${currencyEmoji} and stock ${stock}.`, ...ephemeral });
+                        await interaction.reply({ content: `✅ Item "${name}"${itemIdMsg} added to shop with price ${formatNumber(price)} ${currencyEmoji} and stock ${stock}.`, ...ephemeral });
                         
                         // Refresh shop channel if it exists
                         await refreshShopChannel(guildId, sql, guild);
@@ -243,6 +271,13 @@ module.exports = {
                     {
                         const itemSelection = options.getString("item");
                         const itemId = parseInt(itemSelection);
+                        
+                        // Validate that itemId is a valid number
+                        if (isNaN(itemId) || itemId <= 0) {
+                            await interaction.reply({ content: "❌ Invalid item selection. Please select an item from the dropdown list.", flags: 64 });
+                            return;
+                        }
+                        
                         const name = options.getString("name");
                         const price = options.getNumber("price");
                         const stock = options.getInteger("stock");
@@ -262,13 +297,32 @@ module.exports = {
                         const updatedName = name || currentItem.name;
                         const updatedPrice = price !== null ? price : currentItem.price;
                         const updatedStock = stock !== null ? stock : currentItem.stock;
-                        const updatedDescription = description !== null ? description : currentItem.description;
+                        // Allow clearing description with special "CLEAR" value
+                        const updatedDescription = description !== null ? (description === "CLEAR" ? null : description) : currentItem.description;
                         const updatedType = type !== null ? type : currentItem.type;
                         const updatedLevel = level !== null ? level : currentItem.level;
                         const updatedDuration = duration !== null ? duration : currentItem.duration;
 
+                        // Validate that dsa and cmine items have required level and duration
+                        if (updatedType && (updatedType.toLowerCase() === 'dsa' || updatedType.toLowerCase() === 'cmine')) {
+                            if (!updatedLevel) {
+                                await interaction.reply({ content: `❌ Items with type "${updatedType.toUpperCase()}" must have a level specified.`, flags: 64 });
+                                return;
+                            }
+                            if (!updatedDuration) {
+                                await interaction.reply({ content: `❌ Items with type "${updatedType.toUpperCase()}" must have a duration specified.`, flags: 64 });
+                                return;
+                            }
+                        }
+
                         await sql.updateShopItem(itemId, guildId, updatedName, updatedPrice, updatedStock, updatedDescription, updatedType, updatedLevel, updatedDuration);
-                        await interaction.reply({ content: `✅ Item "${updatedName}" (ID: ${itemId}) updated successfully.`, ...ephemeral });
+                        
+                        let responseMessage = `✅ Item "${updatedName}" (ID: ${itemId}) updated successfully.`;
+                        if (description === "CLEAR") {
+                            responseMessage += " Description has been removed.";
+                        }
+                        
+                        await interaction.reply({ content: responseMessage, ...ephemeral });
                         
                         // Refresh shop channel if it exists
                         await refreshShopChannel(guildId, sql, guild);
@@ -278,6 +332,12 @@ module.exports = {
                     {
                         const itemSelection = options.getString("item");
                         const itemId = parseInt(itemSelection);
+                        
+                        // Validate that itemId is a valid number
+                        if (isNaN(itemId) || itemId <= 0) {
+                            await interaction.reply({ content: "❌ Invalid item selection. Please select an item from the dropdown list.", flags: 64 });
+                            return;
+                        }
                         
                         // Check if item exists
                         const item = await sql.getShopItem(itemId, guildId);
@@ -310,7 +370,7 @@ module.exports = {
 
                         let description = "";
                         for (const item of items) {
-                            description += `**ID:** ${item.id} | **${item.name}** - ${Math.floor(item.price)} ${currencyEmoji}\n`;
+                            description += `**ID:** ${item.id} | **${item.name}** - ${formatNumber(item.price)} ${currencyEmoji}\n`;
                             description += `Stock: ${item.stock}`;
                             if (item.type) description += ` | Type: ${item.type}`;
                             if (item.level) description += ` | Level: ${item.level}`;
@@ -351,7 +411,7 @@ module.exports = {
                         let description = "";
                         for (const purchase of history) {
                             const date = new Date(purchase.created_at).toLocaleDateString();
-                            description += `**${purchase.item_name}** x${purchase.quantity} - ${Math.floor(purchase.total_price)} ${currencyEmoji}\n`;
+                            description += `**${purchase.item_name}** x${purchase.quantity} - ${formatNumber(purchase.total_price)} ${currencyEmoji}\n`;
                             description += `User: <@${purchase.user_id}> | Date: ${date}\n\n`;
                         }
 
@@ -378,7 +438,7 @@ module.exports = {
                         const embed = new EmbedBuilder()
                             .setColor(0xFFD700)
                             .setTitle("💰 Points Balance")
-                            .setDescription(`${targetUser ? `**${checkUsername}**` : 'You'} currently ${targetUser ? 'has' : 'have'} **${Math.floor(balance)} ${currencyEmoji}**`)
+                            .setDescription(`${targetUser ? `**${checkUsername}**` : 'You'} currently ${targetUser ? 'has' : 'have'} **${formatNumber(balance)} ${currencyEmoji}**`)
                             .setTimestamp();
                             
                         if (targetUser) {
@@ -414,7 +474,7 @@ module.exports = {
                         const embed = new EmbedBuilder()
                             .setColor(isAdding ? 0x00FF00 : 0xFF6B6B)
                             .setTitle(isAdding ? "✅ Points Added" : "✅ Points Removed")
-                            .setDescription(`Successfully ${isAdding ? 'added' : 'removed'} **${Math.floor(absAmount)} ${currencyEmoji}** ${isAdding ? 'to' : 'from'} <@${targetUser.id}>.\n\n**Reason:** ${reason}`)
+                            .setDescription(`Successfully ${isAdding ? 'added' : 'removed'} **${formatNumber(absAmount)} ${currencyEmoji}** ${isAdding ? 'to' : 'from'} <@${targetUser.id}>.\n\n**Reason:** ${reason}`)
                             .setTimestamp();
 
                         await interaction.reply({ embeds: [embed], ...ephemeral });
@@ -442,6 +502,12 @@ module.exports = {
             // Extract item ID from custom ID
             const itemId = parseInt(customId.split("_")[2]);
             
+            // Validate that itemId is a valid number
+            if (isNaN(itemId) || itemId <= 0) {
+                await interaction.reply({ content: "❌ Invalid item ID. Please refresh the shop and try again.", flags: 64 });
+                return;
+            }
+            
             // Get item details
             const item = await sql.getShopItem(itemId, guildId);
             if (!item) {
@@ -464,7 +530,7 @@ module.exports = {
             
             if (userBalanceInt < itemPrice) {
                 await interaction.reply({ 
-                    content: `❌ Insufficient funds! You have ${userBalanceInt} ${currencyEmoji} but need ${itemPrice} ${currencyEmoji} to purchase this item.`, 
+                    content: `❌ Insufficient funds! You have ${formatNumber(userBalanceInt)} ${currencyEmoji} but need ${formatNumber(itemPrice)} ${currencyEmoji} to purchase this item.`, 
                     flags: 64 
                 });
                 return;
@@ -595,23 +661,24 @@ module.exports = {
             }
 
             // Add to whitelist
-            await sql.addToWhitelist(kingdomId, continent, guildId, dsaLevel.toString(), cmineLevel.toString(), expiry);
+            const whitelistResult = await sql.addToWhitelist(kingdomId, continent, guildId, dsaLevel.toString(), cmineLevel.toString(), expiry);
 
             // Get user's remaining balance
             const remainingBalance = await sql.getUserPointsBalance(user.id, guildId);
 
-            // Create purchase confirmation embed
+            // Create purchase confirmation embed with appropriate messaging
+            const isExtended = whitelistResult && whitelistResult.extended;
             const embed = new EmbedBuilder()
                 .setColor(0x00FF00)
                 .setTitle("✅ Purchase Successful!")
-                .setDescription(`You have successfully purchased **${item.name}** for ${Math.floor(item.price)} ${currencyEmoji}`)
+                .setDescription(`You have successfully purchased **${item.name}** for ${formatNumber(item.price)} ${currencyEmoji}`)
                 .addFields(
                     { name: "Item", value: item.name, inline: true },
-                    { name: "Price", value: `${Math.floor(item.price)} ${currencyEmoji}`, inline: true },
+                    { name: "Price", value: `${formatNumber(item.price)} ${currencyEmoji}`, inline: true },
                     { name: "Kingdom", value: kingdomName, inline: true },
                     { name: "Whitelist Applied", value: `${whitelistType.toUpperCase()}: Level ${item.level || 1}`, inline: true },
                     { name: "Duration", value: item.duration ? `${item.duration} weeks` : "Permanent", inline: true },
-                    { name: "Remaining Balance", value: `${Math.floor(remainingBalance)} ${currencyEmoji}`, inline: true }
+                    { name: "Remaining Balance", value: `${formatNumber(remainingBalance)} ${currencyEmoji}`, inline: true }
                 )
                 .setTimestamp()
                 .setFooter({ text: `Purchased by ${user.username}`, iconURL: user.displayAvatarURL() });
@@ -620,8 +687,23 @@ module.exports = {
                 embed.addFields({ name: "Description", value: item.description, inline: false });
             }
 
-            if (expiry) {
-                const expiryDate = new Date(expiry);
+            // Add information about license extension or new license
+            if (isExtended) {
+                embed.addFields({ 
+                    name: "🔄 License Extended", 
+                    value: `Your existing ${whitelistType.toUpperCase()} Level ${item.level || 1} license has been extended by ${item.duration} weeks.`, 
+                    inline: false 
+                });
+            } else if (expiry) {
+                embed.addFields({ 
+                    name: "🆕 New License", 
+                    value: `A new ${whitelistType.toUpperCase()} Level ${item.level || 1} license has been created.`, 
+                    inline: false 
+                });
+            }
+
+            if (expiry && whitelistResult && whitelistResult.newExpiry) {
+                const expiryDate = new Date(whitelistResult.newExpiry);
                 embed.addFields({ name: "Expires", value: expiryDate.toLocaleString('en-US', {
                     year: 'numeric',
                     month: '2-digit',
@@ -669,12 +751,12 @@ module.exports = {
             const embed = new EmbedBuilder()
                 .setColor(0x00FF00)
                 .setTitle("✅ Purchase Successful!")
-                .setDescription(`You have successfully purchased **${item.name}** for ${Math.floor(item.price)} ${currencyEmoji}`)
+                .setDescription(`You have successfully purchased **${item.name}** for ${formatNumber(item.price)} ${currencyEmoji}`)
                 .addFields(
                     { name: "Item", value: item.name, inline: true },
-                    { name: "Price", value: `${Math.floor(item.price)} ${currencyEmoji}`, inline: true },
+                    { name: "Price", value: `${formatNumber(item.price)} ${currencyEmoji}`, inline: true },
                     { name: "Quantity", value: "1", inline: true },
-                    { name: "Remaining Balance", value: `${Math.floor(remainingBalance)} ${currencyEmoji}`, inline: true }
+                    { name: "Remaining Balance", value: `${formatNumber(remainingBalance)} ${currencyEmoji}`, inline: true }
                 )
                 .setTimestamp()
                 .setFooter({ text: `Purchased by ${user.username}`, iconURL: user.displayAvatarURL() });
@@ -700,9 +782,6 @@ module.exports = {
 
         if (focusedOption.name === 'item') {
             try {
-                // Get currency emoji for this guild
-                const currencyEmoji = await getCurrencyEmoji(guildId, sql);
-                
                 // Get all shop items for this guild
                 const items = await sql.getShopItems(guildId);
                 
@@ -716,11 +795,17 @@ module.exports = {
                     .filter(item => item.name.toLowerCase().includes(focusedOption.value.toLowerCase()))
                     .slice(0, 25) // Discord limit is 25 choices
                     .map(item => {
-                        let displayName = `${item.name} (ID: ${item.id}, Stock: ${item.stock}, Price: ${Math.floor(item.price)} ${currencyEmoji}`;
+                        let displayName = `${item.name} (ID: ${item.id}, Stock: ${item.stock}, Price: ${formatNumber(item.price)}`;
                         if (item.type) displayName += `, Type: ${item.type}`;
                         if (item.level) displayName += `, Lvl: ${item.level}`;
                         if (item.duration) displayName += `, ${item.duration}w`;
                         displayName += ')';
+                        
+                        // Truncate if too long for Discord's 100 character limit
+                        if (displayName.length > 100) {
+                            displayName = displayName.substring(0, 97) + '...';
+                        }
+                        
                         return {
                             name: displayName,
                             value: item.id.toString()
@@ -853,7 +938,7 @@ async function refreshShopChannel(guildId, sql, guild) {
             for (const item of inStockItems) {
                 const button = new ButtonBuilder()
                     .setCustomId(`shop_buy_${item.id}`)
-                    .setLabel(`${Math.floor(item.price)} - ${item.name}`)
+                    .setLabel(`${formatNumber(item.price)} - ${item.name}`)
                     .setStyle(ButtonStyle.Success);
 
                 // Set the currency emoji as button emoji (appears at front of button)
@@ -875,8 +960,17 @@ async function refreshShopChannel(guildId, sql, guild) {
 
             // Add fields for each item in stock
             for (const item of inStockItems) {
-                let itemValue = `**Price:** ${Math.floor(item.price)} ${currencyEmoji}\n**Stock:** ${item.stock}`;
-                itemValue += `\n**Description:** ${item.description || 'No description'}`;
+                let itemValue = `**Price:** ${formatNumber(item.price)} ${currencyEmoji}\n**Stock:** ${item.stock}`;
+                
+                // Add duration if it exists
+                if (item.duration) {
+                    itemValue += `\n:clock3: **Duration:** ${item.duration} weeks`;
+                }
+                
+                // Add description only if it exists
+                if (item.description) {
+                    itemValue += `\n**Description:** ${item.description}`;
+                }
                 
                 embed.addFields({
                     name: item.name,

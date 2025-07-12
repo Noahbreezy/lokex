@@ -1504,38 +1504,138 @@ class sqlFunctions {
     // Get all whitelisted kingdoms for a specific guild and continent
     async getWhitelist(guild, continent) {
         return this.query(
-            `SELECT w.kingdomid, i.name, w.dsa, w.cmine, w.expiry
+            `SELECT w.kingdomid, i.name, 
+                    MAX(CAST(w.dsa AS UNSIGNED)) as dsa, 
+                    MAX(CAST(w.cmine AS UNSIGNED)) as cmine, 
+                    MIN(w.expiry) as earliest_expiry,
+                    COUNT(*) as license_count
              FROM whitelist w
              LEFT JOIN (
                 SELECT kingdomId, name
                 FROM info
                 WHERE id IN (SELECT MAX(id) FROM info GROUP BY kingdomId)
              ) i ON w.kingdomid = i.kingdomId
-             WHERE w.continent = ? AND w.guild = ? AND (w.dsa > 1 OR w.cmine > 1)
-             AND (w.expiry IS NULL OR w.expiry > NOW())`,
+             WHERE w.continent = ? AND w.guild = ? 
+             AND (w.dsa > 0 OR w.cmine > 0)
+             AND (w.expiry IS NULL OR w.expiry > NOW())
+             GROUP BY w.kingdomid, i.name
+             HAVING MAX(CAST(w.dsa AS UNSIGNED)) > 0 OR MAX(CAST(w.cmine AS UNSIGNED)) > 0
+             ORDER BY i.name`,
             [continent, guild]
         );
     }
 
     // Add/edit a kingdom to the whitelist
     async addToWhitelist(kingdomId, continent, guild, dsa, cmine, expiry = null) {
-        return this.query(
-            `INSERT INTO whitelist (kingdomid, continent, guild, dsa, cmine, expiry)
-             VALUES (?, ?, ?, ?, ?, ?)
-             ON DUPLICATE KEY UPDATE dsa = ?, cmine = ?, expiry = ?`,
-            [kingdomId, continent, guild, dsa, cmine, expiry, dsa, cmine, expiry]
-        );
+        // For temporary licenses, check if an existing entry with same type and level exists
+        if (expiry !== null) {
+            // Check for existing entries with same kingdom, type, and level
+            const existingEntries = await this.query(
+                `SELECT * FROM whitelist 
+                 WHERE kingdomid = ? AND continent = ? AND guild = ? 
+                 AND expiry IS NOT NULL
+                 AND ((dsa = ? AND dsa > 0) OR (cmine = ? AND cmine > 0))
+                 ORDER BY expiry DESC LIMIT 1`,
+                [kingdomId, continent, guild, dsa, cmine]
+            );
+
+            if (existingEntries && existingEntries.length > 0) {
+                const existing = existingEntries[0];
+                // Check if the levels match exactly for the same type
+                const dsaLevel = parseInt(dsa) || 0;
+                const cmineLevel = parseInt(cmine) || 0;
+                const existingDsaLevel = parseInt(existing.dsa) || 0;
+                const existingCmineLevel = parseInt(existing.cmine) || 0;
+
+                // If DSA levels match (and we're adding DSA) or CMINE levels match (and we're adding CMINE)
+                const dsaMatches = (dsaLevel > 0 && dsaLevel === existingDsaLevel);
+                const cmineMatches = (cmineLevel > 0 && cmineLevel === existingCmineLevel);
+
+                if (dsaMatches || cmineMatches) {
+                    // Extend the existing entry by calculating new expiry
+                    const existingExpiry = new Date(existing.expiry);
+                    const newExpiryDate = new Date(expiry);
+                    const currentTime = new Date();
+                    
+                    // Calculate the duration being added
+                    const durationToAdd = newExpiryDate.getTime() - currentTime.getTime();
+                    
+                    // Add duration to existing expiry (if existing expiry is in the future) or current time (if expired)
+                    const baseTime = existingExpiry > currentTime ? existingExpiry : currentTime;
+                    const extendedExpiry = new Date(baseTime.getTime() + durationToAdd);
+                    const extendedExpiryString = extendedExpiry.toISOString().slice(0, 19).replace('T', ' ');
+
+                    // Update the existing entry with extended expiry
+                    const result = await this.query(
+                        `UPDATE whitelist SET expiry = ? WHERE id = ?`,
+                        [extendedExpiryString, existing.id]
+                    );
+                    return { success: true, extended: true, originalExpiry: existing.expiry, newExpiry: extendedExpiryString };
+                }
+            }
+
+            // If no matching entry found or levels are different, create new entry
+            const result = await this.query(
+                `INSERT INTO whitelist (kingdomid, continent, guild, dsa, cmine, expiry)
+                 VALUES (?, ?, ?, ?, ?, ?)`,
+                [kingdomId, continent, guild, dsa, cmine, expiry]
+            );
+            return { success: true, extended: false, newExpiry: expiry };
+        } else {
+            // For permanent licenses, use ON DUPLICATE KEY UPDATE to replace existing permanent license
+            const result = await this.query(
+                `INSERT INTO whitelist (kingdomid, continent, guild, dsa, cmine, expiry)
+                 VALUES (?, ?, ?, ?, ?, ?)
+                 ON DUPLICATE KEY UPDATE dsa = ?, cmine = ?`,
+                [kingdomId, continent, guild, dsa, cmine, expiry, dsa, cmine]
+            );
+            return { success: true, extended: false, permanent: true };
+        }
     }
 
     // Check if a kingdom is whitelisted and return whitelist levels
     async checkWhitelistStatus(kingdomId, continent, guild) {
         const results = await this.query(
-            `SELECT dsa, cmine, expiry FROM whitelist 
+            `SELECT MAX(CAST(dsa AS UNSIGNED)) as dsa, MAX(CAST(cmine AS UNSIGNED)) as cmine,
+             MIN(expiry) as earliest_expiry
+             FROM whitelist 
              WHERE kingdomid = ? AND continent = ? AND guild = ?
-             AND (expiry IS NULL OR expiry > NOW())`,
+             AND (expiry IS NULL OR expiry > NOW())
+             AND (dsa > 0 OR cmine > 0)`,
             [kingdomId, continent, guild]
         );
-        return results.length > 0 ? results[0] : null;
+        
+        // If no results or both dsa and cmine are 0, return null
+        if (results.length === 0 || (results[0].dsa === 0 && results[0].cmine === 0)) {
+            return null;
+        }
+        
+        return {
+            dsa: results[0].dsa.toString(),
+            cmine: results[0].cmine.toString(),
+            expiry: results[0].earliest_expiry
+        };
+    }
+
+    // Get all licenses for a specific kingdom (for admin/debugging purposes)
+    async getKingdomLicenses(kingdomId, continent, guild) {
+        return this.query(
+            `SELECT id, dsa, cmine, expiry, created_at
+             FROM whitelist 
+             WHERE kingdomid = ? AND continent = ? AND guild = ?
+             AND (expiry IS NULL OR expiry > NOW())
+             AND (dsa > 0 OR cmine > 0)
+             ORDER BY expiry ASC, created_at DESC`,
+            [kingdomId, continent, guild]
+        );
+    }
+
+    // Clean up expired licenses (removes expired temporary licenses)
+    async cleanupExpiredLicenses() {
+        return this.query(
+            `DELETE FROM whitelist 
+             WHERE expiry IS NOT NULL AND expiry <= NOW()`
+        );
     }
 
     // Remove a kingdom from the whitelist (set dsa and cmine to 0)
