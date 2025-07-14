@@ -802,13 +802,13 @@ class sqlFunctions {
 
     // Get guild logchannels of a specific guild
     async getGuildLogChannels(guild) {
-        const query = "SELECT accept_log_channel, reject_log_channel, verification_channel, titles_channel, pledgers_channel, buff_channel, ranking_channel, cmine_whitelist_channel, dsa_whitelist_channel FROM guild_settings WHERE guild_id=?;";
+        const query = "SELECT accept_log_channel, reject_log_channel, verification_channel, titles_channel, pledgers_channel, buff_channel, ranking_channel, cmine_whitelist_channel, dsa_whitelist_channel, shop_log_channel FROM guild_settings WHERE guild_id=?;";
         return this.query(query, [guild]);
     }
 
     // get channels managed by the bot
     async getManagedChannels(guild) {
-        const query = "SELECT verification_channel, titles_channel, pledgers_channel, buff_channel, drago_lookup_channel, shop_channel, ranking_channel, cmine_whitelist_channel, dsa_whitelist_channel FROM guild_settings WHERE guild_id=?;";
+        const query = "SELECT verification_channel, titles_channel, pledgers_channel, buff_channel, drago_lookup_channel, shop_channel, ranking_channel, cmine_whitelist_channel, dsa_whitelist_channel, shop_log_channel FROM guild_settings WHERE guild_id=?;";
         return this.query(query, [guild]);
     }
 
@@ -821,6 +821,12 @@ class sqlFunctions {
     // Set guild reject log channel
     async setGuildRejectLogChannel(channel, guild) {
         const query = "UPDATE guild_settings SET reject_log_channel=? WHERE guild_id=?;";
+        return this.query(query, [channel, guild]);
+    }
+
+    // Set guild shop log channel
+    async setGuildShopLogChannel(channel, guild) {
+        const query = "UPDATE guild_settings SET shop_log_channel=? WHERE guild_id=?;";
         return this.query(query, [channel, guild]);
     }
 

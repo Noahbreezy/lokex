@@ -57,6 +57,17 @@ module.exports = {
         )
         .addSubcommand((subcommand) =>
             subcommand
+                .setName("shop-log-channel")
+                .setDescription("channel to log shop purchases and transactions")
+                .addChannelOption((option) =>
+                    option
+                        .setName("channel")
+                        .setDescription("Channel to log shop purchases and transactions")
+                        .setRequired(true)
+                )
+        )
+        .addSubcommand((subcommand) =>
+            subcommand
                 .setName("hide-answers")
                 .setDescription("Hide the bot's answers to commands")
                 .addBooleanOption((option) =>
@@ -144,6 +155,15 @@ module.exports = {
                         await interaction.reply({ content: `Channel ${channelName} has been set as the reject log channel.`, ...ephemeral });
                         break;
                     }
+                case "shop-log-channel":
+                    {
+                        const channel = options.getChannel("channel");
+                        const channelId = channel.id;
+                        const channelName = channel.name;
+                        await sql.setGuildShopLogChannel(channelId, guildId);
+                        await interaction.reply({ content: `Channel ${channelName} has been set as the shop log channel.`, ...ephemeral });
+                        break;
+                    }
                 case "hide-answers":
                     {
                         const hidden = options.getBoolean("hidden");
@@ -210,6 +230,7 @@ module.exports = {
                         const channelFields = [
                             'accept_log_channel',
                             'reject_log_channel',
+                            'shop_log_channel',
                             'verification_channel',
                             'titles_channel',
                             'pledgers_channel',

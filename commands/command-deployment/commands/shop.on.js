@@ -263,6 +263,20 @@ module.exports = {
                         const itemIdMsg = addedItem ? ` (ID: ${addedItem.id})` : '';
                         await interaction.reply({ content: `✅ Item "${name}"${itemIdMsg} added to shop with price ${formatNumber(price)} ${currencyEmoji} and stock ${stock}.`, ...ephemeral });
                         
+                        // Log the action
+                        if (addedItem) {
+                            await logShopAction(guildId, sql, guild, 'item_added', user, {
+                                id: addedItem.id,
+                                name,
+                                price,
+                                stock,
+                                description,
+                                type,
+                                level,
+                                duration
+                            });
+                        }
+                        
                         // Refresh shop channel if it exists
                         await refreshShopChannel(guildId, sql, guild);
                         break;
@@ -324,6 +338,18 @@ module.exports = {
                         
                         await interaction.reply({ content: responseMessage, ...ephemeral });
                         
+                        // Log the action
+                        await logShopAction(guildId, sql, guild, 'item_edited', user, {
+                            id: itemId,
+                            name: updatedName,
+                            price: updatedPrice,
+                            stock: updatedStock,
+                            description: updatedDescription,
+                            type: updatedType,
+                            level: updatedLevel,
+                            duration: updatedDuration
+                        });
+                        
                         // Refresh shop channel if it exists
                         await refreshShopChannel(guildId, sql, guild);
                         break;
@@ -348,6 +374,14 @@ module.exports = {
 
                         await sql.deleteShopItem(itemId, guildId);
                         await interaction.reply({ content: `✅ Item "${item.name}" (ID: ${itemId}) removed from shop.`, ...ephemeral });
+                        
+                        // Log the action
+                        await logShopAction(guildId, sql, guild, 'item_removed', user, {
+                            id: itemId,
+                            name: item.name,
+                            price: item.price,
+                            stock: item.stock
+                        });
                         
                         // Refresh shop channel if it exists
                         await refreshShopChannel(guildId, sql, guild);
@@ -387,6 +421,9 @@ module.exports = {
                         const success = await refreshShopChannel(guildId, sql, guild);
                         if (success) {
                             await interaction.reply({ content: "✅ Shop channel refreshed successfully.", ...ephemeral });
+                            
+                            // Log the action
+                            await logShopAction(guildId, sql, guild, 'shop_refreshed', user);
                         } else {
                             await interaction.reply({ content: "❌ Shop channel not found. Create channels first using `/guild create-channels`.", flags: 64 });
                         }
@@ -478,6 +515,13 @@ module.exports = {
                             .setTimestamp();
 
                         await interaction.reply({ embeds: [embed], ...ephemeral });
+                        
+                        // Log the action
+                        await logShopAction(guildId, sql, guild, 'points_added', user, {
+                            targetUserId: targetUser.id,
+                            amount: amount,
+                            reason: reason
+                        });
                         break;
                     }
                 default:
@@ -716,6 +760,18 @@ module.exports = {
 
             await interaction.reply({ embeds: [embed], flags: 64 });
 
+            // Log the purchase
+            await logShopAction(guildId, sql, guild, 'purchase', user, {
+                itemName: item.name,
+                price: item.price,
+                quantity: 1,
+                remainingStock: item.stock - 1,
+                kingdom: kingdomName,
+                whitelistType: whitelistType,
+                level: item.level || 1,
+                duration: item.duration ? (isExtended ? 'Extended' : `${item.duration} weeks`) : 'Permanent'
+            });
+
             // Refresh the shop channel to update stock
             await refreshShopChannel(guildId, sql, guild);
 
@@ -766,6 +822,14 @@ module.exports = {
             }
 
             await interaction.reply({ embeds: [embed], flags: 64 });
+
+            // Log the purchase
+            await logShopAction(guildId, sql, guild, 'purchase', user, {
+                itemName: item.name,
+                price: item.price,
+                quantity: 1,
+                remainingStock: item.stock - 1
+            });
 
             // Refresh the shop channel to update stock
             await refreshShopChannel(guildId, sql, guild);
@@ -854,6 +918,129 @@ module.exports = {
 async function getCurrencyEmoji(guildId, sql) {
     const customEmoji = await sql.getGuildCurrencyEmoji(guildId);
     return customEmoji || "🪙"; // Default to coin emoji if no custom emoji is set
+}
+
+// Helper function to log shop actions
+async function logShopAction(guildId, sql, guild, action, user, details = {}) {
+    try {
+        // Get log channels
+        const logChannels = await sql.getGuildLogChannels(guildId);
+        if (!logChannels || logChannels.length === 0) {
+            return; // No log channels configured
+        }
+
+        const channels = logChannels[0];
+        // Use shop_log_channel if available, otherwise fall back to accept_log_channel
+        const logChannelId = channels.shop_log_channel || channels.accept_log_channel;
+        
+        if (!logChannelId) {
+            return; // No suitable log channel found
+        }
+
+        const logChannel = await guild.channels.fetch(logChannelId).catch(() => null);
+        if (!logChannel) {
+            return; // Channel not found or not accessible
+        }
+
+        // Get currency emoji
+        const currencyEmoji = await getCurrencyEmoji(guildId, sql);
+
+        // Create embed based on action type
+        let embed = new EmbedBuilder()
+            .setTimestamp()
+            .setFooter({ text: `Action by ${user.username}`, iconURL: user.displayAvatarURL() });
+
+        switch (action) {
+            case 'item_added':
+                embed
+                    .setColor(0x00FF00)
+                    .setTitle("🛒 Shop Item Added")
+                    .setDescription(`**${details.name}** has been added to the shop`)
+                    .addFields(
+                        { name: "Price", value: `${formatNumber(details.price)} ${currencyEmoji}`, inline: true },
+                        { name: "Stock", value: details.stock.toString(), inline: true },
+                        { name: "Item ID", value: details.id?.toString() || 'Unknown', inline: true }
+                    );
+                if (details.type) embed.addFields({ name: "Type", value: details.type, inline: true });
+                if (details.level) embed.addFields({ name: "Level", value: details.level.toString(), inline: true });
+                if (details.duration) embed.addFields({ name: "Duration", value: `${details.duration} weeks`, inline: true });
+                if (details.description) embed.addFields({ name: "Description", value: details.description, inline: false });
+                break;
+
+            case 'item_edited':
+                embed
+                    .setColor(0xFFD700)
+                    .setTitle("✏️ Shop Item Edited")
+                    .setDescription(`**${details.name}** (ID: ${details.id}) has been updated`)
+                    .addFields(
+                        { name: "Price", value: `${formatNumber(details.price)} ${currencyEmoji}`, inline: true },
+                        { name: "Stock", value: details.stock.toString(), inline: true }
+                    );
+                if (details.type) embed.addFields({ name: "Type", value: details.type, inline: true });
+                if (details.level) embed.addFields({ name: "Level", value: details.level.toString(), inline: true });
+                if (details.duration) embed.addFields({ name: "Duration", value: `${details.duration} weeks`, inline: true });
+                if (details.description) embed.addFields({ name: "Description", value: details.description, inline: false });
+                break;
+
+            case 'item_removed':
+                embed
+                    .setColor(0xFF6B6B)
+                    .setTitle("🗑️ Shop Item Removed")
+                    .setDescription(`**${details.name}** (ID: ${details.id}) has been removed from the shop`)
+                    .addFields(
+                        { name: "Last Price", value: `${formatNumber(details.price)} ${currencyEmoji}`, inline: true },
+                        { name: "Last Stock", value: details.stock.toString(), inline: true }
+                    );
+                break;
+
+            case 'purchase':
+                embed
+                    .setColor(0x00FF00)
+                    .setTitle("💰 Item Purchased")
+                    .setDescription(`<@${user.id}> purchased **${details.itemName}**`)
+                    .addFields(
+                        { name: "Price", value: `${formatNumber(details.price)} ${currencyEmoji}`, inline: true },
+                        { name: "Quantity", value: details.quantity?.toString() || "1", inline: true },
+                        { name: "Remaining Stock", value: details.remainingStock?.toString() || "Unknown", inline: true }
+                    );
+                if (details.kingdom) embed.addFields({ name: "Kingdom", value: details.kingdom, inline: true });
+                if (details.whitelistType) embed.addFields({ name: "Whitelist Applied", value: `${details.whitelistType.toUpperCase()}: Level ${details.level || 1}`, inline: true });
+                if (details.duration) embed.addFields({ name: "Duration", value: details.duration, inline: true });
+                break;
+
+            case 'points_added':
+                embed
+                    .setColor(details.amount > 0 ? 0x00FF00 : 0xFF6B6B)
+                    .setTitle(details.amount > 0 ? "💸 Points Added" : "💸 Points Removed")
+                    .setDescription(`<@${details.targetUserId}> ${details.amount > 0 ? 'received' : 'lost'} **${formatNumber(Math.abs(details.amount))} ${currencyEmoji}**`)
+                    .addFields(
+                        { name: "Amount", value: `${details.amount > 0 ? '+' : ''}${formatNumber(details.amount)} ${currencyEmoji}`, inline: true },
+                        { name: "Reason", value: details.reason || "No reason provided", inline: true },
+                        { name: "Modified by", value: `<@${user.id}>`, inline: true }
+                    );
+                break;
+
+            case 'shop_refreshed':
+                embed
+                    .setColor(0x5865F2)
+                    .setTitle("🔄 Shop Refreshed")
+                    .setDescription("Shop channel has been refreshed");
+                break;
+
+            default:
+                embed
+                    .setColor(0x5865F2)
+                    .setTitle("🛒 Shop Action")
+                    .setDescription(`Action: ${action}`)
+                    .addFields({ name: "Details", value: JSON.stringify(details), inline: false });
+                break;
+        }
+
+        await logChannel.send({ embeds: [embed] });
+    } catch (error) {
+        console.error('Error logging shop action:', error);
+        // Don't throw the error - logging failures shouldn't break the main functionality
+    }
 }
 
 // Helper function to set emoji on button (handles both custom and unicode emojis)
