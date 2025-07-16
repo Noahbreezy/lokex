@@ -68,6 +68,17 @@ module.exports = {
         )
         .addSubcommand((subcommand) =>
             subcommand
+                .setName("announcement-channel")
+                .setDescription("channel for bot announcements and notifications")
+                .addChannelOption((option) =>
+                    option
+                        .setName("channel")
+                        .setDescription("Channel for bot announcements and notifications")
+                        .setRequired(true)
+                )
+        )
+        .addSubcommand((subcommand) =>
+            subcommand
                 .setName("hide-answers")
                 .setDescription("Hide the bot's answers to commands")
                 .addBooleanOption((option) =>
@@ -164,6 +175,15 @@ module.exports = {
                         await interaction.reply({ content: `Channel ${channelName} has been set as the shop log channel.`, ...ephemeral });
                         break;
                     }
+                case "announcement-channel":
+                    {
+                        const channel = options.getChannel("channel");
+                        const channelId = channel.id;
+                        const channelName = channel.name;
+                        await sql.setGuildAnnouncementChannel(channelId, guildId);
+                        await interaction.reply({ content: `Channel ${channelName} has been set as the announcement channel.`, ...ephemeral });
+                        break;
+                    }
                 case "hide-answers":
                     {
                         const hidden = options.getBoolean("hidden");
@@ -231,6 +251,7 @@ module.exports = {
                             'accept_log_channel',
                             'reject_log_channel',
                             'shop_log_channel',
+                            'announcement_channel',
                             'verification_channel',
                             'titles_channel',
                             'pledgers_channel',

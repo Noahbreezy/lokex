@@ -41,7 +41,7 @@ class UpdatePlayers {
 
     // updatePlayers logic
     async updatePlayers() {
-        const MAX_UPDATES_PER_MINUTE = 200;
+        const MAX_UPDATES_PER_MINUTE = 190;
         while (true) {
             try {
                 console.log('Updating players...');
