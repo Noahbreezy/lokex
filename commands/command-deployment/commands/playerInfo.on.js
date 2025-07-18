@@ -148,7 +148,7 @@ module.exports = {
         // Check if the continent linked to the guild is equal to the guild of the player
         const continents = await sql.getGuildContinent(guildId);
         console.log(Number(playerInfo.continent), Number(continents[0].continent));
-        if (Number(playerInfo.worldId) === Number(continents[0].continent)) {
+        if (Number(playerInfo.continent) === Number(continents[0].continent)) {
 
             const blacklist = new ButtonBuilder()
                 .setCustomId(blacklisted ? `playerinfo_ubl_${kingdomId}` : `playerinfo_bl_${kingdomId}`)
