@@ -6,11 +6,11 @@ function formatNumber(num) {
     const sign = num < 0 ? '-' : '';
     
     if (absNum >= 1_000_000_000) {
-        return sign + (absNum / 1_000_000_000).toFixed(1).replace(/\.0$/, '') + 'B';
+        return sign + (absNum / 1_000_000_000).toFixed(1) + 'B';
     } else if (absNum >= 1_000_000) {
-        return sign + (absNum / 1_000_000).toFixed(1).replace(/\.0$/, '') + 'M';
+        return sign + (absNum / 1_000_000).toFixed(1) + 'M';
     } else if (absNum >= 1_000) {
-        return sign + (absNum / 1_000).toFixed(1).replace(/\.0$/, '') + 'K';
+        return sign + (absNum / 1_000).toFixed(1) + 'K';
     } else {
         return sign + Math.floor(absNum).toString();
     }

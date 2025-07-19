@@ -25,7 +25,7 @@ module.exports = {
         // Check subscription
         const subscriptionFlagInfo = await sql.checkSubscriptionValid(guildId, "3");
         if (!subscriptionFlagInfo) {
-            await interaction.reply({ content: "Your continent needs to have a valid subscription to use this command. Use `/subscribe` to get a new subscription. ", ...ephemeral });
+            await interaction.reply({ content: "Your continent needs to have a valid subscription to use this command. Use `/subscribe` to get a new subscription. ", flags: 64 });
             return;
         }
 
@@ -35,12 +35,12 @@ module.exports = {
         // Get player information
         const token = (await sql.getRandomManagerTokenFromGuild(guildId))[0]?.token;
         if (!token) {
-            return interaction.editReply({ content: "No valid manager token found", ...ephemeral });
+            return interaction.editReply({ content: "No valid manager token found", flags: 64 });
         }
 
         const playerInfo = await getPlayerInfo(kingdomId, token, sql, api, encryption);
         if (!playerInfo) {
-            return interaction.editReply({ content: "Player not found or invalid kingdom ID.", ...ephemeral });
+            return interaction.editReply({ content: "Player not found or invalid kingdom ID.", flags: 64 });
         }
 
         // Check blacklist status
@@ -226,7 +226,7 @@ module.exports = {
         if (!guildMember.permissions.has("Administrator")) {
             return interaction.reply({
                 content: `You don't have the permission to use this command`,
-                ...ephemeral,
+                flags: 64,
             });
         }
         await commands(interaction, module.exports.sql, module.exports.api);
@@ -237,7 +237,7 @@ module.exports = {
         if (!guildMember.permissions.has("Administrator")) {
             return interaction.reply({
                 content: `You don't have the permission to use this command`,
-                ...ephemeral,
+                flags: 64,
             });
         }
         await modals(interaction, module.exports.sql, module.exports.api);
@@ -248,7 +248,7 @@ module.exports = {
         if (!guildMember.permissions.has("Administrator")) {
             return interaction.reply({
                 content: `You don't have the permission to use this command`,
-                ...ephemeral,
+                flags: 64,
             });
         }
         await sselect(interaction, module.exports.sql, module.exports.api);
@@ -442,7 +442,7 @@ async function commands(interaction, sql, api) {
         case "ubl":
             const alreadybl = await sql.isKingdomBlacklisted(kingdomId, interaction.guild.id);
             if (!alreadybl) {
-                return await interaction.reply({ content: "This kingdom is not blacklisted", ...ephemeral });
+                return await interaction.reply({ content: "This kingdom is not blacklisted", flags: 64 });
             }
             const logChannel = (await sql.getGuildLogChannels(interaction.guild.id))[0].accept_log_channel;
             const name = (await sql.getKingdomName(kingdomId))[0].name;
@@ -490,7 +490,7 @@ async function commands(interaction, sql, api) {
             const warnResult = await sql.query('SELECT num FROM warnings WHERE kingdomid = ? ORDER BY date DESC LIMIT 1', [kingdomId]);
             const precnum = warnResult[0].length ? warnResult[0][0].num : 0;
             if (precnum <= 0) {
-                return await interaction.reply({ content: "Warning counter already at 0", ...ephemeral });
+                return await interaction.reply({ content: "Warning counter already at 0", flags: 64 });
             }
             const warnNModal = new ModalBuilder()
                 .setCustomId(`playerinfo_warnm_n_${kingdomId}`)
@@ -519,19 +519,19 @@ async function commands(interaction, sql, api) {
             await interaction.reply({
                 content: 'Choose the rank',
                 components: [new ActionRowBuilder().addComponents(rankSelect)],
-                ...ephemeral
+                flags: 64
             });
             break;
 
         case "kick":
             const kickInfo = await sql.query('SELECT name, allianceTag FROM info WHERE kingdomid = ? ORDER BY date DESC LIMIT 1', [kingdomId]);
             if (!kickInfo[0].length) {
-                return await interaction.reply({ content: "Can't find this kingdom", ...ephemeral });
+                return await interaction.reply({ content: "Can't find this kingdom", flags: 64 });
             }
             const { name: kickName, allianceTag } = kickInfo[0][0];
             const kickToken = (await sql.query('SELECT token FROM botAccounts WHERE alliancetag = ?', [allianceTag]))[0][0]?.token;
             if (!kickToken) {
-                return await interaction.reply({ content: `Can't kick in this alliance (${allianceTag})`, ...ephemeral });
+                return await interaction.reply({ content: `Can't kick in this alliance (${allianceTag})`, flags: 64 });
             }
             try {
                 await api.request(
@@ -539,12 +539,12 @@ async function commands(interaction, sql, api) {
                     { memberKingdomId: kingdomId },
                     { "x-access-token": kickToken, "Content-Type": "application/json" }
                 );
-                await interaction.reply({ content: "Kicked successfully", ...ephemeral });
+                await interaction.reply({ content: "Kicked successfully", flags: 64 });
                 await interaction.client.channels.cache.get("1248750084376760451")
                     .send(`**${allianceTag}**\n${kickName} has been kicked by <@${interaction.user.id}>`);
             } catch (error) {
                 console.error('Error kicking member:', error);
-                return await interaction.reply({ content: "There has been an error", ...ephemeral });
+                return await interaction.reply({ content: "There has been an error", flags: 64 });
             }
             break;
 
@@ -570,7 +570,7 @@ async function commands(interaction, sql, api) {
             await interaction.reply({
                 content: 'Choose the alliance',
                 components: [new ActionRowBuilder().addComponents(inviteSelect)],
-                ...ephemeral
+                flags: 64
             });
             break;
     }
@@ -580,7 +580,7 @@ async function modals(interaction, sql, api) {
     const kingdomId = interaction.customId.split("_")[2] || interaction.customId.split("_")[3];
     const nameResult = await sql.query('SELECT name, allianceTag FROM info WHERE kingdomid = ? ORDER BY date DESC LIMIT 1', [kingdomId]);
     if (!nameResult[0].length) {
-        return await interaction.reply({ content: "Can't find this kingdom", ...ephemeral });
+        return await interaction.reply({ content: "Can't find this kingdom", flags: 64 });
     }
     const name = nameResult[0][0].name;
     const allianceTag = nameResult[0][0].allianceTag;
@@ -595,10 +595,10 @@ async function modals(interaction, sql, api) {
                 { json: JSON.stringify({ toName: name, subject: title, content: desc }) },
                 { "x-access-token": token }
             );
-            await interaction.reply({ content: "Mail sent successfully", ...ephemeral });
+            await interaction.reply({ content: "Mail sent successfully", flags: 64 });
         } catch (error) {
             console.error('Error sending mail:', error);
-            await interaction.reply({ content: "There was a problem with the email", ...ephemeral });
+            await interaction.reply({ content: "There was a problem with the email", flags: 64 });
         }
     } else if (interaction.customId.startsWith("playerinfo_blm_")) {
         const desc = interaction.fields.getTextInputValue('desc');
@@ -606,7 +606,7 @@ async function modals(interaction, sql, api) {
         const alreadybl = await sql.query('SELECT kingdomid, expiration, description FROM blacklist WHERE kingdomid = ? AND valid = 1 AND expiration > NOW()', [kingdomId]);
         if (alreadybl[0].length) {
             const dd = new Date(alreadybl[0][0].expiration);
-            return await interaction.reply({ content: `This kingdom is already blacklisted until <t:${Math.floor(dd.getTime() / 1000)}:f> for the reason: ${alreadybl[0][0].description}`, ...ephemeral });
+            return await interaction.reply({ content: `This kingdom is already blacklisted until <t:${Math.floor(dd.getTime() / 1000)}:f> for the reason: ${alreadybl[0][0].description}`, flags: 64 });
         }
         const dateexp = exp.trim() && parseString(exp) ? parseString(exp) : new Date("2030-12-12");
         const permanent = !exp.trim() || !parseString(exp);
@@ -615,7 +615,7 @@ async function modals(interaction, sql, api) {
             [interaction.user.id, kingdomId, dateexp, desc]);
         await interaction.reply({
             content: `${name} has been ${permanent ? "permanently " : ""}blacklisted${!permanent ? ` until ${ditim}` : ""} for the reason: ${desc}`,
-            ...ephemeral
+            flags: 64
         });
 
         const discordResult = await sql.query('SELECT discordId FROM verified WHERE kingdomid = ?', [kingdomId]);
@@ -651,12 +651,12 @@ async function modals(interaction, sql, api) {
                         { memberKingdomId: kingdomId },
                         { "x-access-token": kickToken, "Content-Type": "application/json" }
                     );
-                    await interaction.followUp({ content: "Kicked successfully", ...ephemeral });
+                    await interaction.followUp({ content: "Kicked successfully", flags: 64 });
                     await interaction.client.channels.cache.get("1248750084376760451")
                         .send(`**${allianceTag}**\n${name} has been kicked by <@${interaction.user.id}> (blacklisted)`);
                 } catch (error) {
                     console.error('Error kicking blacklisted member:', error);
-                    await interaction.followUp({ content: "There has been an error", ...ephemeral });
+                    await interaction.followUp({ content: "There has been an error", flags: 64 });
                 }
             }
         }
@@ -664,14 +664,14 @@ async function modals(interaction, sql, api) {
         const desc = interaction.fields.getTextInputValue('desc');
         await sql.query('INSERT INTO adminnote (discordid, kingdomid, note) VALUES (?, ?, ?)',
             [interaction.user.id, kingdomId, desc]);
-        await interaction.reply({ content: "Note has been set correctly", ...ephemeral });
+        await interaction.reply({ content: "Note has been set correctly", flags: 64 });
     } else if (interaction.customId.startsWith("playerinfo_warnm_p_")) {
         const desc = interaction.fields.getTextInputValue('desc');
         const warnResult = await sql.query('SELECT num FROM warnings WHERE kingdomid = ? ORDER BY date DESC LIMIT 1', [kingdomId]);
         const precnum = warnResult[0].length ? warnResult[0][0].num : 0;
         await sql.query('INSERT INTO warnings (discordid, kingdomid, num, description) VALUES (?, ?, ?, ?)',
             [interaction.user.id, kingdomId, precnum + 1, desc]);
-        await interaction.reply({ content: `Warning counter of ${name} increased to ${precnum + 1} with the reason:\n${desc}`, ...ephemeral });
+        await interaction.reply({ content: `Warning counter of ${name} increased to ${precnum + 1} with the reason:\n${desc}`, flags: 64 });
 
         const discordResult = await sql.query('SELECT discordId FROM verified WHERE kingdomid = ?', [kingdomId]);
         const token = (await sql.query('SELECT token FROM botAccounts WHERE alliancetag = "LGN1"'))[0][0]?.token;
@@ -699,11 +699,11 @@ async function modals(interaction, sql, api) {
         const warnResult = await sql.query('SELECT num FROM warnings WHERE kingdomid = ? ORDER BY date DESC LIMIT 1', [kingdomId]);
         const precnum = warnResult[0].length ? warnResult[0][0].num : 0;
         if (precnum <= 0) {
-            return await interaction.reply({ content: "Warning counter already at 0", ...ephemeral });
+            return await interaction.reply({ content: "Warning counter already at 0", flags: 64 });
         }
         await sql.query('INSERT INTO warnings (discordid, kingdomid, num, description) VALUES (?, ?, ?, ?)',
             [interaction.user.id, kingdomId, precnum - 1, desc]);
-        await interaction.reply({ content: `Warning counter of ${name} decreased to ${precnum - 1} with the reason:\n${desc}`, ...ephemeral });
+        await interaction.reply({ content: `Warning counter of ${name} decreased to ${precnum - 1} with the reason:\n${desc}`, flags: 64 });
 
         const discordResult = await sql.query('SELECT discordId FROM verified WHERE kingdomid = ?', [kingdomId]);
         const token = (await sql.query('SELECT token FROM botAccounts WHERE alliancetag = "LGN1"'))[0][0]?.token;
@@ -734,12 +734,12 @@ async function sselect(interaction, sql, api) {
         const [kingdomId, rank] = interaction.values[0].split(",");
         const nameResult = await sql.query('SELECT name, allianceTag FROM info WHERE kingdomid = ? ORDER BY date DESC LIMIT 1', [kingdomId]);
         if (!nameResult[0].length) {
-            return await interaction.reply({ content: "Can't find this kingdom", ...ephemeral });
+            return await interaction.reply({ content: "Can't find this kingdom", flags: 64 });
         }
         const { name, allianceTag } = nameResult[0][0];
         const token = (await sql.query('SELECT token FROM botAccounts WHERE alliancetag = ?', [allianceTag]))[0][0]?.token;
         if (!token) {
-            return await interaction.reply({ content: `Can't change rank in this alliance (${allianceTag})`, ...ephemeral });
+            return await interaction.reply({ content: `Can't change rank in this alliance (${allianceTag})`, flags: 64 });
         }
         try {
             await api.request(
@@ -747,28 +747,28 @@ async function sselect(interaction, sql, api) {
                 { json: `{"memberKingdomId":"${kingdomId}","rank":${rank},"title":0}` },
                 { "x-access-token": token }
             );
-            await interaction.reply({ content: "Rank changed successfully", ...ephemeral });
+            await interaction.reply({ content: "Rank changed successfully", flags: 64 });
             await interaction.client.channels.cache.get("1248750084376760451")
                 .send(`**${allianceTag}**\nRank of ${name} changed to R${rank} by <@${interaction.user.id}>`);
         } catch (error) {
             console.error('Error changing rank:', error);
-            return await interaction.reply({ content: "There has been an error", ...ephemeral });
+            return await interaction.reply({ content: "There has been an error", flags: 64 });
         }
     } else if (interaction.customId.startsWith("playerinfo_chinvite")) {
         const [kingdomId, allianceId] = interaction.values[0].split(",");
         const nameResult = await sql.query('SELECT name FROM info WHERE kingdomid = ? ORDER BY date DESC LIMIT 1', [kingdomId]);
         const allianceResult = await sql.query('SELECT allianceTag FROM info WHERE alliance = ? ORDER BY date DESC LIMIT 1', [allianceId]);
         if (!nameResult[0].length) {
-            return await interaction.reply({ content: "Can't find this kingdom", ...ephemeral });
+            return await interaction.reply({ content: "Can't find this kingdom", flags: 64 });
         }
         if (!allianceResult[0].length) {
-            return await interaction.reply({ content: "Can't find this alliance", ...ephemeral });
+            return await interaction.reply({ content: "Can't find this alliance", flags: 64 });
         }
         const name = nameResult[0][0].name;
         const allianceTag = allianceResult[0][0].allianceTag;
         const token = (await sql.query('SELECT token FROM botAccounts WHERE alliancetag = ?', [allianceTag]))[0][0]?.token;
         if (!token) {
-            return await interaction.reply({ content: `Can't invite in this alliance (${allianceTag})`, ...ephemeral });
+            return await interaction.reply({ content: `Can't invite in this alliance (${allianceTag})`, flags: 64 });
         }
         try {
             await api.request(
@@ -776,12 +776,12 @@ async function sselect(interaction, sql, api) {
                 { kingdomId: kingdomId },
                 { "x-access-token": token, "Content-Type": "application/json" }
             );
-            await interaction.reply({ content: "Invite sent!", ...ephemeral });
+            await interaction.reply({ content: "Invite sent!", flags: 64 });
             await interaction.client.channels.cache.get("1248750084376760451")
                 .send(`**${allianceTag}**\n${name} has been invited by <@${interaction.user.id}>`);
         } catch (error) {
             console.error('Error sending invite:', error);
-            return await interaction.reply({ content: "There has been an error", ...ephemeral });
+            return await interaction.reply({ content: "There has been an error", flags: 64 });
         }
     }
 }
