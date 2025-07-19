@@ -143,7 +143,7 @@ class AllianceManager {
               this.discordClient.channels.cache
                 .get(this.acceptLogChannel)
                 .send(
-                  `**${this.allianceTag}**\nTried to kick: ${kingdomname}, last online: ${members[counter].lastLogined} but has requested title in the last ${this.titleGrace} minutes`
+                  `**${this.allianceTag}**\nTried to kick: ${kingdomname} (${kingdomid}), last online: ${members[counter].lastLogined} but has requested title in the last ${this.titleGrace} minutes`
                 );
               maxkick++;
               continue;
@@ -180,9 +180,9 @@ class AllianceManager {
               this.discordClient.channels.cache
                 .get(this.acceptLogChannel)
                 .send(
-                  `**${this.allianceTag}**\nKicked: ${kingdomname}, last online: ${members[counter].lastLogined}`
+                  `**${this.allianceTag}**\nKicked: ${kingdomname} (${kingdomid}), last online: ${members[counter].lastLogined}`
                 );
-              console.log(`kicked ${kingdomname} from ${this.allianceTag}`);
+              console.log(`kicked ${kingdomname} (${kingdomid}) from ${this.allianceTag}`);
             }
             counter += 1;
 
@@ -207,7 +207,7 @@ class AllianceManager {
                 this.discordClient.channels.cache
                   .get(this.acceptLogChannel)
                   .send(
-                    `**${this.allianceTag}**\nTried to kick: ${kingdomname}, last online: ${onlineMembers[teller].lastLogined} but has requested title in the last ${this.titleGrace} minutes`
+                    `**${this.allianceTag}**\nTried to kick: ${kingdomname} (${kingdomid}), last online: ${onlineMembers[teller].lastLogined} but has requested title in the last ${this.titleGrace} minutes`
                   );
                 maxkick++;
                 continue;
@@ -236,9 +236,9 @@ class AllianceManager {
                 this.discordClient.channels.cache
                   .get(this.acceptLogChannel)
                   .send(
-                    `**${this.allianceTag}**\nKicked: ${kingdomname}, last online: ${onlineMembers[teller].lastLogined}`
+                    `**${this.allianceTag}**\nKicked: ${kingdomname} (${kingdomid}), last online: ${onlineMembers[teller].lastLogined}`
                   );
-                console.log(`kicked ${kingdomname} from ${this.allianceTag}`);
+                console.log(`kicked ${kingdomname} (${kingdomid}) from ${this.allianceTag}`);
               }
 
               teller += 1;
@@ -451,11 +451,11 @@ class AllianceManager {
                   .get(this.rejectLogChannel)
                   .send(
                     `**${this.allianceTag
-                    }**\nRejected: ${name}, power: ${this.addThousandSeparator(
+                    }**\nRejected: ${name} (${kid}), power: ${this.addThousandSeparator(
                       power
                     )} blacklisted\n`
                   );
-                console.log(`rejected by blacklist: ${name}`);
+                console.log(`rejected by blacklist: ${name} (${kid})`);
                 continue;
               }
 
@@ -489,11 +489,11 @@ class AllianceManager {
                     .get(this.acceptLogChannel)
                     .send(
                       `**${this.allianceTag
-                      }**\nAccepted by title: ${name}, power: ${this.addThousandSeparator(
+                      }**\nAccepted by title: ${name} (${kid}), power: ${this.addThousandSeparator(
                         power
                       )}\n`
                     );
-                  console.log(`accepted by title: ${name}`);
+                  console.log(`accepted by title: ${name} (${kid})`);
                   numtkn++;
                   continue;
                 }
@@ -529,11 +529,11 @@ class AllianceManager {
                   .get(this.rejectLogChannel)
                   .send(
                     `**${this.allianceTag
-                    }**\nRejected: ${name}, power: ${this.addThousandSeparator(
+                    }**\nRejected: ${name} (${kid}), power: ${this.addThousandSeparator(
                       power
                     )} not enough power\n`
                   );
-                console.log(`rejected by power: ${name}`);
+                console.log(`rejected by power: ${name} (${kid})`);
                 continue;
               }
 
@@ -567,7 +567,7 @@ class AllianceManager {
                     }),
                     { "x-access-token": mailAccountToken }
                   );
-                  console.log(`rejected by speed: ${name}`);
+                  console.log(`rejected by speed: ${name} (${kid})`);
 
                   console.log(speedResp.data);
 
@@ -575,7 +575,7 @@ class AllianceManager {
                     .get(this.rejectLogChannel)
                     .send(
                       `**${this.allianceTag
-                      }**\nRejected: ${name}, speed: ${playerSpeed} not enough speed\n`
+                      }**\nRejected: ${name} (${kid}), speed: ${playerSpeed} not enough speed\n`
                     );
                   continue;
                 }
@@ -613,12 +613,12 @@ class AllianceManager {
                   .get(this.rejectLogChannel)
                   .send(
                     `**${this.allianceTag
-                    }**\nRejected: ${name}, power: ${this.addThousandSeparator(
+                    }**\nRejected: ${name} (${kid}), power: ${this.addThousandSeparator(
                       power
                     )} not verified\n`
                   );
                 console.log(
-                  `rejected by discord verification: ${name}`
+                  `rejected by discord verification: ${name} (${kid})`
                 );
                 continue;
               }
@@ -627,7 +627,7 @@ class AllianceManager {
               try {
                 playerKills = (await this.sql.getKingdomKills(kid))[0].kills;
               } catch (error) {
-                console.log("cannot find kills, updating data");
+                console.log(`cannot find kills for ${kid}, updating data`);
                 await this.updateInfo.updateInfo(token, kid, this.allianceId, this.allianceTag);
               }
 
@@ -659,11 +659,11 @@ class AllianceManager {
                   .get(this.rejectLogChannel)
                   .send(
                     `**${this.allianceTag
-                    }**\nRejected: ${name}, power: ${this.addThousandSeparator(
+                    }**\nRejected: ${name} (${kid}), power: ${this.addThousandSeparator(
                       power
                     )} not enough kills.\n`
                   );
-                console.log(`rejected by kills: ${name}`);
+                console.log(`rejected by kills: ${name} (${kid})`);
                 continue;
               }
 
@@ -679,14 +679,14 @@ class AllianceManager {
                 );
 
                 console.log(
-                  `rejected by mastery: ${name}`
+                  `rejected by mastery: ${name} (${kid})`
                 );
 
                 this.discordClient.channels.cache
                   .get(this.rejectLogChannel)
                   .send(
                     `**${this.allianceTag
-                    }**\nRejected: ${name}, power: ${this.addThousandSeparator(
+                    }**\nRejected: ${name} (${kid}), power: ${this.addThousandSeparator(
                       power
                     )} incorrect mastery\n`
                   );
@@ -709,7 +709,7 @@ class AllianceManager {
 
                   // console.log(masteryMailResponse.data);
                 } catch (error) {
-                  console.log("Error sending mastery rejection mail:", error);
+                  console.log(`Error sending mastery rejection mail for ${kid}:`, error);
                   console.log(error.response.data);
                 }
 
@@ -720,7 +720,7 @@ class AllianceManager {
               try {
                 kingdomLevel = (await this.sql.getKingdomLevel(kid))[0].level;
               } catch (error) {
-                console.log("cannot find kingdom level, updating data");
+                console.log(`cannot find kingdom level for ${kid}, updating data`);
                 await this.updateInfo.updateInfo(token, kid, this.allianceId, this.allianceTag);
               }
               if (this.castle > kingdomLevel) {
@@ -733,13 +733,13 @@ class AllianceManager {
                   }
                 );
 
-                console.log(`rejected by castle level: ${name}`);
+                console.log(`rejected by castle level: ${name} (${kid})`);
 
                 this.discordClient.channels.cache
                   .get(this.rejectLogChannel)
                   .send(
                     `**${this.allianceTag
-                    }**\nRejected: ${name}, level: ${kingdomLevel} castle level too low\n`
+                    }**\nRejected: ${name} (${kid}), level: ${kingdomLevel} castle level too low\n`
                   );
 
                 try {
@@ -758,7 +758,7 @@ class AllianceManager {
 
                   // console.log(castleMailResponse.data);
                 } catch (error) {
-                  console.log("Error sending castle rejection mail:", error);
+                  console.log(`Error sending castle rejection mail for ${kid}:`, error);
                   console.log(error.response.data);
                 }
 
@@ -778,7 +778,7 @@ class AllianceManager {
                 ) {
 
                   await this.sql.addAcceptLog(kid, name);
-                  console.log(`accepted: ${name}`);
+                  console.log(`accepted: ${name} (${kid})`);
                   numtkn++;
 
                   // console.log(this.discordClient.channels.cache.get(this.acceptLogChannel));
@@ -787,12 +787,12 @@ class AllianceManager {
                     .get(this.acceptLogChannel)
                     .send(
                       `**${this.allianceTag
-                      }**\nAccepted: ${name}, power: ${this.addThousandSeparator(
+                      }**\nAccepted: ${name} (${kid}), power: ${this.addThousandSeparator(
                         power
                       )}\n`
                     );
                 } else {
-                  console.log("error accepting");
+                  console.log(`error accepting ${name} (${kid})`);
                   console.log(acceptResponse.data);
 
                   await this.api.request(
@@ -815,7 +815,7 @@ class AllianceManager {
                   //     )} already in an alliance\n`
                   //   );
                   console.log(
-                    `rejected by already in alliance: ${name}`
+                    `rejected by already in alliance: ${name} (${kid})`
                   );
                 }
               }
