@@ -113,6 +113,31 @@ module.exports = {
                         .setDescription("Custom emoji to use as currency symbol (use default Discord emoji or custom guild emoji)")
                         .setRequired(true)
                 )
+        ).addSubcommand((subcommand) =>
+            subcommand
+                .setName("verification-bonus")
+                .setDescription("Set verification bonus amounts and limits")
+                .addIntegerOption((option) =>
+                    option
+                        .setName("main")
+                        .setDescription("Bonus amount for main kingdom verification")
+                        .setRequired(true)
+                        .setMinValue(0)
+                )
+                .addIntegerOption((option) =>
+                    option
+                        .setName("alt")
+                        .setDescription("Bonus amount for alt kingdom verification")
+                        .setRequired(true)
+                        .setMinValue(0)
+                )
+                .addIntegerOption((option) =>
+                    option
+                        .setName("limit")
+                        .setDescription("Maximum number of bonuses per user")
+                        .setRequired(true)
+                        .setMinValue(0)
+                )
         ),
     async execute(interaction) {
         const sql = module.exports.sql;
@@ -242,6 +267,23 @@ module.exports = {
                         }
                         
                         await interaction.reply({ content: `✅ Currency emoji has been set to ${emoji}. Shop channel has been refreshed with the new emoji.`, ...ephemeral });
+                        break;
+                    }
+                case "verification-bonus":
+                    {
+                        const mainBonus = options.getInteger("main");
+                        const altBonus = options.getInteger("alt");
+                        const bonusLimit = options.getInteger("limit");
+                        
+                        await sql.setVerificationBonuses(guildId, mainBonus, altBonus, bonusLimit);
+                        
+                        await interaction.reply({ 
+                            content: `✅ Verification bonuses have been set:\n` +
+                                   `• Main kingdom bonus: ${mainBonus.toLocaleString()}\n` +
+                                   `• Alt kingdom bonus: ${altBonus.toLocaleString()}\n` +
+                                   `• Bonus limit per user: ${bonusLimit}`, 
+                            ...ephemeral 
+                        });
                         break;
                     }
                 case "show-settings":

@@ -232,13 +232,62 @@ module.exports = {
 
                     await sql.addVerified(kingdomId, kingdomName, userId, userName, guildId, wallet);
 
-                    const guildSettings = await sql.getGuildVerificationRole(guildId);
-                    if (guildSettings[0]?.verified_role) {
+                    // Check if this is the user's first verification (main) or additional (alt)
+                    const existingVerifications = await sql.checkVerifiedKingdoms(userId, guildId);
+                    const isFirstVerification = !existingVerifications || existingVerifications.length <= 1;
+                    
+                    const logChannels = await sql.getGuildLogChannels(guildId);
+
+                    // Get guild verification bonus settings
+                    const guildSettings = await sql.getGuildSettings(guildId);
+                    if (guildSettings && guildSettings[0]) {
+                        const { main_verify_bonus, alt_verify_bonus, bonus_limit } = guildSettings[0];
+                        
+                        // Determine bonus amount based on verification type
+                        let bonusAmount = 0;
+                        let bonusType = '';
+                        
+                        if (isFirstVerification && main_verify_bonus > 0) {
+                            bonusAmount = main_verify_bonus;
+                            bonusType = 'main verification';
+                        } else if (!isFirstVerification && alt_verify_bonus > 0) {
+                            // Check if user hasn't exceeded bonus limit
+                            // Current verification count includes the one we just added
+                            const currentVerificationCount = existingVerifications ? existingVerifications.length : 1;
+                            
+                            // If bonus_limit is 0, unlimited bonuses allowed
+                            // If bonus_limit > 0, check if current count is within limit
+                            if (bonus_limit === 0 || currentVerificationCount <= bonus_limit) {
+                                bonusAmount = alt_verify_bonus;
+                                bonusType = 'alt verification';
+                            }
+                        }
+                        
+                        // Award bonus if applicable
+                        if (bonusAmount > 0) {
+                            await sql.addUserPoints(userId, guildId, bonusAmount, `${bonusType} bonus`);
+                            if (logChannels[0]?.shop_log_channel) {
+                                try {
+                                    const shopChannel = await interaction.client.channels.fetch(logChannels[0].shop_log_channel);
+                                    if (shopChannel) {
+                                        await shopChannel.send(`<@${userId}> received a ${bonusType} bonus of ${bonusAmount} points!`);
+                                    } else {
+                                        console.error('Shop log channel not found:', logChannels[0].shop_log_channel);
+                                    }
+                                } catch (error) {
+                                    console.error('Error sending bonus log message:', error);
+                                }
+                            }
+                        }
+                    }
+
+                    const roleSettings = await sql.getGuildVerificationRole(guildId);
+                    if (roleSettings[0]?.verified_role) {
                         try {
                             const guild = await interaction.client.guilds.fetch(guildId); // Fetch guild explicitly
                             if (guild) {
                                 const member = await guild.members.fetch(userId);
-                                await member.roles.add(guildSettings[0].verified_role);
+                                await member.roles.add(roleSettings[0].verified_role);
                             } else {
                                 console.error(`Guild with ID ${guildId} not found.`);
                             }
@@ -247,10 +296,21 @@ module.exports = {
                         }
                     }
 
-                    const logChannels = await sql.getGuildLogChannels(guildId);
                     if (logChannels[0]?.accept_log_channel) {
-                        const acceptChannel = await interaction.client.channels.fetch(logChannels[0].accept_log_channel);
-                        await acceptChannel.send(`${kingdomName} has been verified and linked to <@${userId}>`);
+                        try {
+                            console.log('Attempting to send log message to channel:', logChannels[0].accept_log_channel);
+                            const acceptChannel = await interaction.client.channels.fetch(logChannels[0].accept_log_channel);
+                            if (acceptChannel) {
+                                await acceptChannel.send(`${kingdomName} has been verified and linked to <@${userId}>`);
+                                console.log('Log message sent successfully');
+                            } else {
+                                console.error('Accept log channel not found:', logChannels[0].accept_log_channel);
+                            }
+                        } catch (channelError) {
+                            console.error('Error sending message to accept log channel:', channelError);
+                        }
+                    } else {
+                        console.log('No accept log channel configured for guild:', guildId);
                     }
 
                     const user = await interaction.client.users.fetch(userId);

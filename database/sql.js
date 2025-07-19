@@ -959,6 +959,12 @@ class sqlFunctions {
         return results.length > 0 ? results[0].unverified_period : null;
     }
 
+    // Set verification bonus settings for a specific guild
+    async setVerificationBonuses(guildId, mainBonus, altBonus, bonusLimit) {
+        const query = "UPDATE guild_settings SET main_verify_bonus=?, alt_verify_bonus=?, bonus_limit=? WHERE guild_id=?;";
+        return this.query(query, [mainBonus, altBonus, bonusLimit, guildId]);
+    }
+
     // Check if a channel exists in the settings already for a specific guild
     async channelExists(channel, guild) {
         const query = `SELECT ${channel} FROM guild_settings WHERE guild_id = ?;`;
