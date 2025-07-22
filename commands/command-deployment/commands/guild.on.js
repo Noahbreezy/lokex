@@ -138,6 +138,30 @@ module.exports = {
                         .setRequired(true)
                         .setMinValue(0)
                 )
+        ).addSubcommand((subcommand) =>
+            subcommand
+                .setName("setwallet")
+                .setDescription("Set the guild's EVM wallet address")
+                .addStringOption((option) =>
+                    option
+                        .setName("wallet")
+                        .setDescription("EVM wallet address (42 characters starting with 0x)")
+                        .setRequired(true)
+                        .setMinLength(42)
+                        .setMaxLength(42)
+                )
+        ).addSubcommand((subcommand) =>
+            subcommand
+                .setName("point-price")
+                .setDescription("Set the price per point in decimal format")
+                .addNumberOption((option) =>
+                    option
+                        .setName("price")
+                        .setDescription("DST price per point (decimal value, e.g., 0.01)")
+                        .setRequired(true)
+                        .setMinValue(0)
+                        .setMaxValue(99999999.99)
+                )
         ),
     async execute(interaction) {
         const sql = module.exports.sql;
@@ -286,6 +310,51 @@ module.exports = {
                         });
                         break;
                     }
+                case "setwallet":
+                    {
+                        const wallet = options.getString("wallet");
+                        
+                        // Validate EVM wallet address format
+                        const isValidEvmAddress = /^0x[a-fA-F0-9]{40}$/.test(wallet);
+                        
+                        if (!isValidEvmAddress) {
+                            await interaction.reply({ 
+                                content: "❌ Invalid wallet address format. Please provide a valid EVM wallet address (42 characters starting with 0x).", 
+                                flags: 64 
+                            });
+                            return;
+                        }
+                        
+                        await sql.setGuildWallet(wallet, guildId);
+                        
+                        await interaction.reply({ 
+                            content: `✅ Guild wallet address has been set to: \`${wallet}\``, 
+                            ...ephemeral 
+                        });
+                        break;
+                    }
+                case "point-price":
+                    {
+                        const price = options.getNumber("price");
+                        
+                        // Validate the decimal places (max 2 decimal places for currency-like values)
+                        const decimalPlaces = (price.toString().split('.')[1] || '').length;
+                        if (decimalPlaces > 2) {
+                            await interaction.reply({ 
+                                content: "❌ Price can have a maximum of 2 decimal places.", 
+                                flags: 64 
+                            });
+                            return;
+                        }
+                        
+                        await sql.setGuildPointPrice(price, guildId);
+                        
+                        await interaction.reply({ 
+                            content: `✅ Point price has been set to: **${price.toFixed(2)} DST**`, 
+                            ...ephemeral 
+                        });
+                        break;
+                    }
                 case "show-settings":
                     {
                         // Define channel-related fields
@@ -308,6 +377,18 @@ module.exports = {
                         // Define emoji fields
                         const emojiFields = ['emoji_id'];
 
+                        // Define wallet fields
+                        const walletFields = ['guild_wallet'];
+
+                        // Define role fields
+                        const roleFields = ['verified_role'];
+
+                        // Define numeric fields that should be formatted with commas
+                        const numericFields = ['main_verify_bonus', 'alt_verify_bonus'];
+
+                        // Define decimal fields that should be formatted as currency/price
+                        const decimalFields = ['point_price'];
+
                         const settings = await sql.getGuildSettings(guildId);
                         if (!settings || !settings[0]) {
                             await interaction.reply({ content: "No settings found for this guild.", ...ephemeral });
@@ -320,14 +401,27 @@ module.exports = {
                             .map(([key, value]) => {
                                 const displayKey = key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
                                 let displayValue;
+                                
                                 if (channelFields.includes(key)) {
                                     // Handle channel fields by converting to a channel mention
                                     displayValue = (value && value !== '0') ? `<#${value}>` : 'Not set';
                                 } else if (emojiFields.includes(key)) {
                                     // Handle emoji fields by displaying the emoji
                                     displayValue = value || '🪙 (default)';
+                                } else if (walletFields.includes(key)) {
+                                    // Handle wallet fields with code formatting
+                                    displayValue = value ? `\`${value}\`` : 'Not set';
+                                } else if (roleFields.includes(key)) {
+                                    // Handle role fields by converting to role mention
+                                    displayValue = (value && value !== '0') ? `<@&${value}>` : 'Not set';
+                                } else if (numericFields.includes(key)) {
+                                    // Handle numeric fields with comma formatting
+                                    displayValue = value ? Number(value).toLocaleString() : '0';
+                                } else if (decimalFields.includes(key)) {
+                                    // Handle decimal fields with fixed decimal places
+                                    displayValue = value ? Number(value).toFixed(2) : '0.00';
                                 } else {
-                                    // Handle non-channel fields as before
+                                    // Handle other fields as before
                                     displayValue = value !== null && value !== undefined ? String(value) : 'Not set';
                                 }
                                 return { name: displayKey, value: displayValue, inline: false };

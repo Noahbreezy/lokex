@@ -965,6 +965,32 @@ class sqlFunctions {
         return this.query(query, [mainBonus, altBonus, bonusLimit, guildId]);
     }
 
+    // Set guild wallet address
+    async setGuildWallet(wallet, guildId) {
+        const query = "UPDATE guild_settings SET guild_wallet=? WHERE guild_id=?;";
+        return this.query(query, [wallet, guildId]);
+    }
+
+    // Get guild wallet address
+    async getGuildWallet(guildId) {
+        const query = "SELECT guild_wallet FROM guild_settings WHERE guild_id=?;";
+        const results = await this.query(query, [guildId]);
+        return results.length > 0 ? results[0].guild_wallet : null;
+    }
+
+    // Set guild point price
+    async setGuildPointPrice(price, guildId) {
+        const query = "UPDATE guild_settings SET point_price=? WHERE guild_id=?;";
+        return this.query(query, [price, guildId]);
+    }
+
+    // Get guild point price
+    async getGuildPointPrice(guildId) {
+        const query = "SELECT point_price FROM guild_settings WHERE guild_id=?;";
+        const results = await this.query(query, [guildId]);
+        return results.length > 0 ? results[0].point_price : null;
+    }
+
     // Check if a channel exists in the settings already for a specific guild
     async channelExists(channel, guild) {
         const query = `SELECT ${channel} FROM guild_settings WHERE guild_id = ?;`;
