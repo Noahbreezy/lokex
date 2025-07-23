@@ -7,6 +7,7 @@ const UpdateStakers = require('./updaters/updateStakers.js');
 const UpdateBuffs = require('./updaters/updateBuffs.js');
 const UpdateReminders = require('./updaters/updateReminders.js');
 const UpdateAnnouncements = require('./updaters/updateAnnouncement.js');
+const UpdateTransactions = require('./updaters/updateTransactions.js');
 
 const sql = new sqlFunctions();
 const api = new Api(sql);
@@ -17,6 +18,7 @@ const updateStakers = new UpdateStakers(sql, api);
 const updateBuffs = new UpdateBuffs(sql, api);
 const updateReminders = new UpdateReminders(sql);
 const updateAnnouncements = new UpdateAnnouncements(sql, api);
+const updateTransactions = new UpdateTransactions(sql, api);
 
 async function startUpdaters() {
     updateBots.updateBotsToken(); // Midnight utc
@@ -29,6 +31,7 @@ async function startUpdaters() {
     updateBuffs.runBuffCheck(); // Every 1 minutes
     updateReminders.runSubscriptionReminder(); // Every day at 8am utc
     updateAnnouncements.start(); // Runs continuously, listening for Discord messages
+    updateTransactions.start(); // Runs continuously, monitoring DST transactions
 }
 
 startUpdaters();

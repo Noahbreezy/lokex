@@ -1,0 +1,400 @@
+const { Client, GatewayIntentBits, EmbedBuilder } = require('discord.js');
+
+class UpdateTransactions {
+    constructor(sql, api) {
+        this.sql = sql;
+        this.api = api;
+        this.polygonRpcUrl = 'https://polygon-rpc.com';
+        this.dstContractAddress = '0x3b7e1ce09afe2bb3a23919afb65a38e627cfbe97';
+        this.lastCheckedBlock = null;
+        this.isRunning = false;
+        this.checkInterval = 60000; // Check every minute
+        
+        // Initialize Discord client
+        this.discordClient = new Client({
+            intents: [
+                GatewayIntentBits.Guilds,
+                GatewayIntentBits.GuildMessages,
+            ],
+        });
+        this.discordToken = process.env.DISCORD_TOKEN;
+        this.discordClient.login(this.discordToken);
+
+        // Ensure the client is ready before proceeding
+        this.readyPromise = new Promise((resolve) => {
+            this.discordClient.once('ready', () => {
+                console.log('UpdateTransactions Discord client is ready.');
+                resolve();
+            });
+        });
+    }
+
+    // Start the transaction monitoring
+    start() {
+        if (this.isRunning) {
+            console.log('Transaction updater is already running');
+            return;
+        }
+        
+        console.log('Starting DST transaction monitoring...');
+        this.isRunning = true;
+        this.initializeLastBlock();
+        this.scheduleNextCheck();
+    }
+
+    // Stop the monitoring
+    stop() {
+        if (this.checkTimeout) {
+            clearTimeout(this.checkTimeout);
+        }
+        this.isRunning = false;
+        console.log('DST transaction monitoring stopped');
+    }
+
+    // Initialize the last checked block
+    async initializeLastBlock() {
+        try {
+            // Get current block number if not set
+            if (!this.lastCheckedBlock) {
+                const response = await this.api.request(this.polygonRpcUrl, {
+                    jsonrpc: "2.0",
+                    method: "eth_blockNumber",
+                    params: [],
+                    id: 1
+                }, {
+                    'Content-Type': 'application/json'
+                });
+                
+                this.lastCheckedBlock = parseInt(response.data.result, 16) - 100; // Start from 100 blocks ago
+                console.log(`Starting DST monitoring from block: ${this.lastCheckedBlock}`);
+            }
+        } catch (error) {
+            console.error('Error initializing last block:', error);
+            this.lastCheckedBlock = null;
+        }
+    }
+
+    // Schedule the next check
+    scheduleNextCheck() {
+        if (!this.isRunning) return;
+        
+        this.checkTimeout = setTimeout(() => {
+            this.checkForNewTransactions();
+        }, this.checkInterval);
+    }
+
+    // Main function to check for new DST transactions
+    async checkForNewTransactions() {
+        try {
+            console.log('Checking for new DST transactions...');
+            
+            // Get all guild wallets
+            const guildWallets = await this.getGuildWallets();
+            if (guildWallets.length === 0) {
+                console.log('No guild wallets configured');
+                this.scheduleNextCheck();
+                return;
+            }
+
+            // Get current block number
+            const currentBlock = await this.getCurrentBlock();
+            if (!currentBlock || !this.lastCheckedBlock) {
+                console.log('Unable to get block numbers');
+                this.scheduleNextCheck();
+                return;
+            }
+
+            // Get DST transfer events since last check
+            const transfers = await this.getDSTTransfers(this.lastCheckedBlock, currentBlock);
+            
+            if (transfers.length > 0) {
+                console.log(`Found ${transfers.length} DST transfer events`);
+                await this.processTransfers(transfers, guildWallets);
+            } else {
+                console.log('No new DST transfers found');
+            }
+
+            this.lastCheckedBlock = currentBlock;
+            
+        } catch (error) {
+            console.error('Error checking for transactions:', error);
+        }
+        
+        this.scheduleNextCheck();
+    }
+
+    // Get all guild wallets from database
+    async getGuildWallets() {
+        try {
+            const results = await this.sql.getGuildWallets();
+            return results || [];
+        } catch (error) {
+            console.error('Error fetching guild wallets:', error);
+            return [];
+        }
+    }
+
+    // Get current block number
+    async getCurrentBlock() {
+        try {
+            const response = await this.api.request(this.polygonRpcUrl, {
+                jsonrpc: "2.0",
+                method: "eth_blockNumber",
+                params: [],
+                id: 1
+            }, {
+                'Content-Type': 'application/json'
+            });
+            
+            return parseInt(response.data.result, 16);
+        } catch (error) {
+            console.error('Error getting current block:', error);
+            return null;
+        }
+    }
+
+    // Get DST transfer events from blockchain
+    async getDSTTransfers(fromBlock, toBlock) {
+        try {
+            // ERC20 Transfer event signature: Transfer(address,address,uint256)
+            const transferTopic = '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef';
+            
+            const response = await this.api.request(this.polygonRpcUrl, {
+                jsonrpc: "2.0",
+                method: "eth_getLogs",
+                params: [{
+                    fromBlock: `0x${fromBlock.toString(16)}`,
+                    toBlock: `0x${toBlock.toString(16)}`,
+                    address: this.dstContractAddress,
+                    topics: [transferTopic]
+                }],
+                id: 1
+            }, {
+                'Content-Type': 'application/json'
+            });
+
+            return response.data.result || [];
+        } catch (error) {
+            console.error('Error getting DST transfers:', error);
+            return [];
+        }
+    }
+
+    // Process transfer events and award points
+    async processTransfers(transfers, guildWallets) {
+        for (const transfer of transfers) {
+            try {
+                const decodedTransfer = this.decodeTransferEvent(transfer);
+                if (!decodedTransfer) continue;
+
+                // Check if this transfer is to any guild wallet
+                const targetGuild = guildWallets.find(guild => 
+                    guild.guild_wallet.toLowerCase() === decodedTransfer.to.toLowerCase()
+                );
+
+                if (targetGuild) {
+                    await this.processGuildTransfer(decodedTransfer, targetGuild.guild_id, transfer.transactionHash);
+                }
+            } catch (error) {
+                console.error('Error processing transfer:', error);
+            }
+        }
+    }
+
+    // Decode transfer event data
+    decodeTransferEvent(transferLog) {
+        try {
+            if (transferLog.topics.length !== 3) return null;
+
+            // Decode from and to addresses from topics
+            const from = '0x' + transferLog.topics[1].slice(26); // Remove padding
+            const to = '0x' + transferLog.topics[2].slice(26); // Remove padding
+            
+            // Decode amount from data (hex to decimal, considering 18 decimals)
+            const amountHex = transferLog.data;
+            const amountWei = BigInt(amountHex);
+            const amountDST = Number(amountWei) / Math.pow(10, 18);
+
+            return {
+                from: from.toLowerCase(),
+                to: to.toLowerCase(),
+                amount: amountDST,
+                blockNumber: parseInt(transferLog.blockNumber, 16),
+                transactionHash: transferLog.transactionHash
+            };
+        } catch (error) {
+            console.error('Error decoding transfer event:', error);
+            return null;
+        }
+    }
+
+    // Process a transfer to a guild wallet
+    async processGuildTransfer(transfer, guildId, txHash) {
+        try {
+            console.log(`Processing DST transfer to guild ${guildId}: ${transfer.amount} DST from ${transfer.from}`);
+
+            // Check if we already processed this transaction
+            if (await this.isTransactionProcessed(txHash, guildId)) {
+                console.log(`Transaction ${txHash} already processed for guild ${guildId}`);
+                return;
+            }
+
+            // Get guild point price
+            const pointPrice = await this.sql.getGuildPointPrice(guildId);
+            if (!pointPrice || pointPrice <= 0) {
+                console.log(`No valid point price set for guild ${guildId}`);
+                await this.logTransaction(txHash, guildId, transfer.from, transfer.amount, 0, 'No point price set');
+                return;
+            }
+
+            // Calculate points to award (DST amount / price per point)
+            const pointsToAward = Math.floor(transfer.amount / pointPrice);
+            if (pointsToAward <= 0) {
+                console.log(`Transfer amount too small to award points: ${transfer.amount} DST, price: ${pointPrice}`);
+                await this.logTransaction(txHash, guildId, transfer.from, transfer.amount, 0, 'Amount too small');
+                return;
+            }
+
+            // Check if sender has a verified Discord account
+            const userInfo = await this.sql.checkDiscordUserByWallet(transfer.from, guildId);
+            if (userInfo) {
+                // Award points to the Discord user
+                await this.sql.addUserPoints(
+                    userInfo.discordId, 
+                    guildId, 
+                    pointsToAward, 
+                    `DST payment`
+                );
+                
+                console.log(`Awarded ${pointsToAward} points to Discord user ${userInfo.discordId} (${userInfo.name}) for ${transfer.amount} DST`);
+                await this.logTransaction(txHash, guildId, transfer.from, transfer.amount, pointsToAward, `Awarded to ${userInfo.discordId}`);
+                
+                // Send Discord notification
+                await this.sendDiscordNotification(guildId, userInfo, pointsToAward, transfer.amount, txHash);
+            } else {
+                console.log(`No verified Discord account found for wallet ${transfer.from} in guild ${guildId}`);
+                await this.logTransaction(txHash, guildId, transfer.from, transfer.amount, 0, 'No verified Discord account');
+            }
+
+        } catch (error) {
+            console.error('Error processing guild transfer:', error);
+            await this.logTransaction(txHash, guildId, transfer.from, transfer.amount, 0, `Error: ${error.message}`);
+        }
+    }
+
+    // Check if transaction was already processed
+    async isTransactionProcessed(txHash, guildId) {
+        try {
+            return await this.sql.isDSTTransactionProcessed(txHash, guildId);
+        } catch (error) {
+            console.error('Error checking if transaction processed:', error);
+            return false;
+        }
+    }
+
+    // Log transaction for audit purposes
+    async logTransaction(txHash, guildId, fromWallet, dstAmount, pointsAwarded, notes) {
+        try {
+            await this.sql.logDSTTransaction(txHash, guildId, fromWallet, dstAmount, pointsAwarded, notes);
+        } catch (error) {
+            console.error('Error logging transaction:', error);
+        }
+    }
+
+    // Method to manually check a specific transaction hash
+    async checkSpecificTransaction(txHash) {
+        try {
+            const response = await this.api.request(this.polygonRpcUrl, {
+                jsonrpc: "2.0",
+                method: "eth_getTransactionReceipt",
+                params: [txHash],
+                id: 1
+            }, {
+                'Content-Type': 'application/json'
+            });
+
+            const receipt = response.data.result;
+            if (!receipt) {
+                console.log('Transaction not found');
+                return;
+            }
+
+            // Filter for DST transfer events
+            const dstTransfers = receipt.logs.filter(log => 
+                log.address.toLowerCase() === this.dstContractAddress.toLowerCase() &&
+                log.topics[0] === '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef'
+            );
+
+            const guildWallets = await this.getGuildWallets();
+            await this.processTransfers(dstTransfers, guildWallets);
+            
+        } catch (error) {
+            console.error('Error checking specific transaction:', error);
+        }
+    }
+
+    // Send Discord notification about points distribution
+    async sendDiscordNotification(guildId, userInfo, pointsAwarded, dstAmount, txHash) {
+        try {
+            // Wait for Discord client to be ready
+            await this.readyPromise;
+
+            // Get notification channel (shop_log_channel or accept_log_channel as fallback)
+            const channelId = await this.sql.getGuildDSTNotificationChannel(guildId);
+            if (!channelId) {
+                console.log(`No notification channel configured for guild ${guildId}`);
+                return;
+            }
+
+            // Get guild currency emoji
+            const currencyEmoji = await this.sql.getGuildCurrencyEmoji(guildId);
+            const emoji = currencyEmoji || '🪙'; // Default coin emoji if no custom emoji is set
+
+            // Get the Discord channel
+            const channel = await this.discordClient.channels.fetch(channelId);
+            if (!channel) {
+                console.log(`Could not find channel ${channelId} for guild ${guildId}`);
+                return;
+            }
+
+            // Create embed message using EmbedBuilder
+            const embed = new EmbedBuilder()
+                .setTitle('💰 DST Payment Processed')
+                .setColor(0x00ff00) // Green color
+                .addFields(
+                    {
+                        name: '👤 User',
+                        value: `<@${userInfo.discordId}> (${userInfo.name})`,
+                        inline: true
+                    },
+                    {
+                        name: '💎 DST Amount',
+                        value: `${dstAmount} DST`,
+                        inline: true
+                    },
+                    {
+                        name: '⭐ Points Awarded',
+                        value: `${pointsAwarded} ${emoji}`,
+                        inline: true
+                    },
+                    {
+                        name: '🔗 Transaction Hash',
+                        value: `[${txHash.slice(0, 10)}...${txHash.slice(-8)}](https://polygonscan.com/tx/${txHash})`,
+                        inline: false
+                    }
+                )
+                .setTimestamp()
+                .setFooter({ text: 'DST Payment System' });
+
+            // Send the message
+            await channel.send({ embeds: [embed] });
+
+            console.log(`Discord notification sent to channel ${channelId} for guild ${guildId}`);
+            
+        } catch (error) {
+            console.error('Error sending Discord notification:', error);
+        }
+    }
+}
+
+module.exports = UpdateTransactions;

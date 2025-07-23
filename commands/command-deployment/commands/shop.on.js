@@ -16,6 +16,8 @@ function formatNumber(num) {
     }
 }
 
+
+
 module.exports = {
     data: new SlashCommandBuilder()
         .setName("shop")
@@ -203,6 +205,19 @@ module.exports = {
                         .setDescription("Reason for adding/removing points")
                         .setRequired(false)
                         .setAutocomplete(true)
+                )
+        )
+        .addSubcommand((subcommand) =>
+            subcommand
+                .setName("purchase-points")
+                .setDescription("Claim points from a DST payment using transaction hash")
+                .addStringOption((option) =>
+                    option
+                        .setName("txhash")
+                        .setDescription("Transaction hash of your DST payment")
+                        .setRequired(true)
+                        .setMinLength(66)
+                        .setMaxLength(66)
                 )
         ),
     async execute(interaction) {
@@ -522,6 +537,152 @@ module.exports = {
                             amount: amount,
                             reason: reason
                         });
+                        break;
+                    }
+                case "purchase-points":
+                    {
+                        const txHash = options.getString("txhash");
+                        
+                        // Validate transaction hash format
+                        if (!/^0x[a-fA-F0-9]{64}$/.test(txHash)) {
+                            await interaction.reply({ content: "❌ Invalid transaction hash format. Transaction hash must be 66 characters long and start with '0x'.", flags: 64 });
+                            return;
+                        }
+
+                        await interaction.deferReply({ flags: 64 }); // Private reply while processing
+
+                        try {
+                            // Check if this transaction was already processed for this guild
+                            const alreadyProcessed = await sql.isDSTTransactionProcessed(txHash, guildId);
+                            if (alreadyProcessed) {
+                                await interaction.editReply({ content: "❌ This transaction has already been processed for points in this guild." });
+                                return;
+                            }
+
+                            // Get guild point price and wallet
+                            const pointPrice = await sql.getGuildPointPrice(guildId);
+                            const guildWallet = await sql.getGuildWallet(guildId);
+                            
+                            if (!pointPrice || pointPrice <= 0) {
+                                await interaction.editReply({ content: "❌ No point price is configured for this guild. Contact an administrator." });
+                                return;
+                            }
+                            
+                            if (!guildWallet) {
+                                await interaction.editReply({ content: "❌ No guild wallet is configured for this guild. Contact an administrator." });
+                                return;
+                            }
+
+                            // Verify the DST transaction
+                            const Api = require('../../../general/api.js');
+                            const api = new Api(sql);
+                            const DST_CONTRACT = '0x3b7e1ce09afe2bb3a23919afb65a38e627cfbe97';
+                            
+                            // Get transaction receipt
+                            const requestBody = {
+                                jsonrpc: '2.0',
+                                method: 'eth_getTransactionReceipt',
+                                params: [txHash],
+                                id: 1
+                            };
+                            
+                            const receipt = await api.request('https://polygon-rpc.com', requestBody, {
+                                'Content-Type': 'application/json'
+                            });
+
+                            if (!receipt.data.result || receipt.data.result.status !== '0x1') {
+                                await interaction.editReply({ content: "❌ Transaction not found or failed" });
+                                return;
+                            }
+
+                            // Check if transaction is to DST contract
+                            if (receipt.data.result.to.toLowerCase() !== DST_CONTRACT.toLowerCase()) {
+                                await interaction.editReply({ content: "❌ Transaction is not a DST token transfer" });
+                                return;
+                            }
+
+                            // Parse transaction logs for Transfer events
+                            const transferEvent = receipt.data.result.logs.find(log => 
+                                log.topics[0] === '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef' && // Transfer event signature
+                                log.address.toLowerCase() === DST_CONTRACT.toLowerCase()
+                            );
+
+                            if (!transferEvent) {
+                                await interaction.editReply({ content: "❌ No DST transfer found in transaction" });
+                                return;
+                            }
+
+                            // Decode transfer event
+                            const toAddress = '0x' + transferEvent.topics[2].slice(26); // Remove padding
+                            const amount = BigInt(transferEvent.data);
+
+                            // Check if transfer is to guild wallet
+                            if (toAddress.toLowerCase() !== guildWallet.toLowerCase()) {
+                                await interaction.editReply({ content: "❌ DST transfer is not to the guild wallet" });
+                                return;
+                            }
+
+                            // Convert amount from wei to DST (18 decimals)
+                            const dstAmount = parseFloat(amount.toString()) / Math.pow(10, 18);
+                            const fromAddress = '0x' + transferEvent.topics[1].slice(26); // Remove padding
+
+                            // Calculate points to award
+                            const pointsToAward = Math.floor(dstAmount / pointPrice);
+                            
+                            // Award points to the user (even if 0 points)
+                            if (pointsToAward > 0) {
+                                await sql.addUserPoints(
+                                    user.id, 
+                                    guildId, 
+                                    pointsToAward, 
+                                    `DST payment`
+                                );
+                            }
+
+                            // Log the transaction (always log, even for 0 points)
+                            await sql.logDSTTransaction(txHash, guildId, fromAddress, dstAmount, pointsToAward, `Manual verification by ${user.username} (${user.id})`);
+
+                            // Send success message
+                            const embed = new EmbedBuilder()
+                                .setColor(pointsToAward > 0 ? 0x00FF00 : 0xFFD700)
+                                .setTitle(pointsToAward > 0 ? '✅ DST Payment Verified' : '✅ DST Payment Verified (No Points)')
+                                .setDescription(
+                                    pointsToAward > 0 
+                                        ? `Successfully verified your DST payment and awarded **${formatNumber(pointsToAward)} ${currencyEmoji}**!`
+                                        : `Successfully verified your DST payment. However, the amount (${dstAmount} DST) is too small to award points. Minimum required: ${pointPrice} DST per point.`
+                                )
+                                .addFields(
+                                    {
+                                        name: '💎 DST Amount',
+                                        value: `${dstAmount} DST`,
+                                        inline: true
+                                    },
+                                    {
+                                        name: '⭐ Points Awarded',
+                                        value: pointsToAward > 0 ? `${formatNumber(pointsToAward)} ${currencyEmoji}` : `0 ${currencyEmoji}`,
+                                        inline: true
+                                    },
+                                    {
+                                        name: '🔗 Transaction Hash',
+                                        value: `[${txHash.slice(0, 10)}...${txHash.slice(-8)}](https://polygonscan.com/tx/${txHash})`,
+                                        inline: false
+                                    }
+                                )
+                                .setTimestamp();
+
+                            await interaction.editReply({ embeds: [embed] });
+
+                            // Log the action
+                            await logShopAction(guildId, sql, guild, 'payment_verified', user, {
+                                txHash: txHash,
+                                dstAmount: dstAmount,
+                                pointsAwarded: pointsToAward
+                            });
+
+                        } catch (error) {
+                            console.error('Error verifying DST payment:', error);
+                            await interaction.editReply({ content: "❌ Error verifying transaction. Please ensure the transaction hash is correct and try again." });
+                        }
                         break;
                     }
                 default:

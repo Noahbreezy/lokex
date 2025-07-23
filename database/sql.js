@@ -539,6 +539,13 @@ class sqlFunctions {
         return results.length > 0 ? results : false;
     }
 
+    // Check if a discord user exists for a certain wallet, if it does, return user information from verified
+    async checkDiscordUserByWallet(wallet, guild) {
+        const query = 'SELECT discordId, name FROM verified WHERE wallet = ? AND guild = ?';
+        const results = await this.query(query, [wallet, guild]);
+        return results.length > 0 ? results[0] : null;
+    }
+
     // Get kingdoms and Discord users that need status/role changes
     async getUnlinkedKingdomsAndRoles(days) {
         // Increase GROUP_CONCAT limit to handle large lists
@@ -1843,6 +1850,45 @@ class sqlFunctions {
         // But we can add additional audit logging here if required
         console.log(`Points change logged: Guild ${guildId}, User ${userId}, Amount ${amount}, Reason: ${reason}, Type: ${type}`);
         return true;
+    }
+
+    // DST Transaction functions
+
+    // Get all guild wallets that have a wallet address set
+    async getGuildWallets() {
+        const query = "SELECT guild_id, guild_wallet FROM guild_settings WHERE guild_wallet IS NOT NULL AND guild_wallet != '' AND guild_wallet != '0'";
+        return this.query(query);
+    }
+
+    // Check if a DST transaction was already processed
+    async isDSTTransactionProcessed(txHash, guildId) {
+        const query = "SELECT id FROM dst_transactions WHERE tx_hash = ? AND guild_id = ? AND points_awarded > 0";
+        const results = await this.query(query, [txHash, guildId]);
+        return results.length > 0;
+    }
+
+    // Log DST transaction for audit purposes
+    async logDSTTransaction(txHash, guildId, fromWallet, dstAmount, pointsAwarded, notes) {
+        const query = `
+            INSERT INTO dst_transactions (tx_hash, guild_id, from_wallet, dst_amount, points_awarded, notes)
+            VALUES (?, ?, ?, ?, ?, ?)
+            ON DUPLICATE KEY UPDATE 
+                points_awarded = VALUES(points_awarded),
+                notes = VALUES(notes),
+                updated_at = CURRENT_TIMESTAMP
+        `;
+        return this.query(query, [txHash, guildId, fromWallet, dstAmount, pointsAwarded, notes]);
+    }
+
+    // Get guild notification channel for DST transactions (shop_log_channel or accept_log_channel as fallback)
+    async getGuildDSTNotificationChannel(guildId) {
+        const query = "SELECT shop_log_channel, accept_log_channel FROM guild_settings WHERE guild_id=?;";
+        const results = await this.query(query, [guildId]);
+        if (results.length > 0) {
+            const channels = results[0];
+            return channels.shop_log_channel || channels.accept_log_channel;
+        }
+        return null;
     }
 }
 
