@@ -68,6 +68,17 @@ module.exports = {
         )
         .addSubcommand((subcommand) =>
             subcommand
+                .setName("blacklist-log-channel")
+                .setDescription("channel to log blacklist actions and updates")
+                .addChannelOption((option) =>
+                    option
+                        .setName("channel")
+                        .setDescription("Channel to log blacklist actions and updates")
+                        .setRequired(true)
+                )
+        )
+        .addSubcommand((subcommand) =>
+            subcommand
                 .setName("announcement-channel")
                 .setDescription("channel for bot announcements and notifications")
                 .addChannelOption((option) =>
@@ -224,6 +235,15 @@ module.exports = {
                         await interaction.reply({ content: `Channel ${channelName} has been set as the shop log channel.`, ...ephemeral });
                         break;
                     }
+                case "blacklist-log-channel":
+                    {
+                        const channel = options.getChannel("channel");
+                        const channelId = channel.id;
+                        const channelName = channel.name;
+                        await sql.setGuildBlacklistLogChannel(channelId, guildId);
+                        await interaction.reply({ content: `Channel ${channelName} has been set as the blacklist log channel.`, ...ephemeral });
+                        break;
+                    }
                 case "announcement-channel":
                     {
                         const channel = options.getChannel("channel");
@@ -362,6 +382,7 @@ module.exports = {
                             'accept_log_channel',
                             'reject_log_channel',
                             'shop_log_channel',
+                            'blacklist_log_channel',
                             'announcement_channel',
                             'verification_channel',
                             'titles_channel',

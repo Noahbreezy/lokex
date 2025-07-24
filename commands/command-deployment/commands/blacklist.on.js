@@ -84,6 +84,10 @@ module.exports = {
             return;
         }
 
+
+        const blacklistChannel = (await sql.getGuildBlacklistLogChannel(guild))[0]?.blacklist_log_channel;
+
+
         switch (options.getSubcommand()) {
             case "remove": {
                 const kingdomId = interaction.options.getString("name");
@@ -158,6 +162,21 @@ module.exports = {
                     );
                 } else {
                     console.error("Log channel not found or bot lacks permissions.");
+                }
+
+                if (blacklistChannel) {
+                    const blacklistChannelCache = interaction.client.channels.cache.get(blacklistChannel);
+                    if (blacklistChannelCache) {
+                        await blacklistChannelCache.send(
+                            name +
+                            ` has been ` +
+                            "unblacklisted by <@" +
+                            interaction.user.id +
+                            ">"
+                        );
+                    } else {
+                        console.error("Blacklist channel not found or bot lacks permissions.");
+                    }
                 }
                 break;
             }
@@ -300,6 +319,10 @@ async function handleBlacklistModal(interaction, sql, api, ephemeral) {
     } catch (error) {
         logChannel = "1064289954739523654";
     }
+
+
+    const blacklistChannel = (await sql.getGuildBlacklistLogChannel(guild))[0]?.blacklist_log_channel;
+
     if (interaction.customId.startsWith("blacklist_blm_")) {
         let kingdomId = interaction.customId.split("_")[2];
         const isBlacklisted = await sql.isKingdomBlacklisted(kingdomId, guild)
@@ -355,8 +378,6 @@ async function handleBlacklistModal(interaction, sql, api, ephemeral) {
                     (!permanent ? " until " + ditim : "") +
                     " for the reason: " +
                     desc +
-                    "\n\nBlacklisted by: <@" +
-                    interaction.user.id +
                     ">\n\n" + hidden + "https://tenor.com/view/blacklist-blacklist-nft-gif-24682375"
                 );
 
@@ -405,6 +426,22 @@ async function handleBlacklistModal(interaction, sql, api, ephemeral) {
             );
         } else {
             console.error("Log channel not found or bot lacks permissions.");
+        }
+
+        if (blacklistChannel) {
+            const blacklistChannelCache = interaction.client.channels.cache.get(blacklistChannel);
+            if (blacklistChannelCache) {
+                await blacklistChannelCache.send(
+                    name +
+                    ` has been ` +
+                    (permanent ? "permanent " : "") + "blacklisted" +
+                    (!permanent ? " until " + ditim : "") +
+                    " for the reason: " +
+                    desc
+                );
+            } else {
+                console.error("Blacklist channel not found or bot lacks permissions.");
+            }
         }
 
         if (nameList.length > 0 || nameList[0]?.allianceId) {

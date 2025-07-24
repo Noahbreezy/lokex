@@ -837,6 +837,12 @@ class sqlFunctions {
         return this.query(query);
     }
 
+    // Get guild blacklist log channel
+    async getGuildBlacklistLogChannel(guild) {
+        const query = "SELECT blacklist_log_channel FROM guild_settings WHERE guild_id=?;";
+        return this.query(query, [guild]);
+    }
+
     // Set guild accept log channel
     async setGuildAcceptLogChannel(channel, guild) {
         const query = "UPDATE guild_settings SET accept_log_channel=? WHERE guild_id=?;";
@@ -852,6 +858,12 @@ class sqlFunctions {
     // Set guild shop log channel
     async setGuildShopLogChannel(channel, guild) {
         const query = "UPDATE guild_settings SET shop_log_channel=? WHERE guild_id=?;";
+        return this.query(query, [channel, guild]);
+    }
+
+    // Set guild blacklist log channel
+    async setGuildBlacklistLogChannel(channel, guild) {
+        const query = "UPDATE guild_settings SET blacklist_log_channel=? WHERE guild_id=?;";
         return this.query(query, [channel, guild]);
     }
 
