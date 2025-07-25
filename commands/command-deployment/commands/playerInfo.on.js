@@ -2,6 +2,7 @@ const { SlashCommandBuilder, PermissionFlagsBits, EmbedBuilder, ActionRowBuilder
 const path = require('path');
 const fs = require('fs');
 const Encryption = require("../../../encryption/encryption.js");
+const { log } = require("console");
 
 module.exports = {
     data: new SlashCommandBuilder()
@@ -454,7 +455,7 @@ async function commands(interaction, sql, api) {
             await sql.removeFromBlacklist(kingdomId, interaction.guild.id);
 
             await interaction.client.channels.cache.get(logChannel)
-                .send(`${name} has been unblacklisted by <@${interaction.user.id}>`);
+                .send(`${name} (${kingdomId}) has been unblacklisted by <@${interaction.user.id}>`);
             break;
 
         case "note":
@@ -619,7 +620,7 @@ async function modals(interaction, sql, api) {
         await sql.query('INSERT INTO blacklist (discordid, kingdomid, expiration, valid, description) VALUES (?, ?, ?, 1, ?)',
             [interaction.user.id, kingdomId, dateexp, desc]);
         await interaction.reply({
-            content: `${name} has been ${permanent ? "permanently " : ""}blacklisted${!permanent ? ` until ${ditim}` : ""} for the reason: ${desc}`,
+            content: `${name} (${kingdomId}) has been ${permanent ? "permanently " : ""}blacklisted${!permanent ? ` until ${ditim}` : ""} for the reason: ${desc}`,
             flags: 64
         });
 
@@ -644,8 +645,8 @@ async function modals(interaction, sql, api) {
                 console.error('Error sending blacklist notification:', error);
             }
         }
-        await interaction.client.channels.cache.get("1250611223532273695")
-            .send(`${name} has been ${permanent ? "permanently " : ""}blacklisted${!permanent ? ` until ${ditim}` : ""} by <@${interaction.user.id}> for the reason: ${desc}`);
+        await interaction.client.channels.cache.get(logChannel)
+            .send(`${name} (${kingdomId}) (${kingdomId}) has been ${permanent ? "permanently " : ""}blacklisted${!permanent ? ` until ${ditim}` : ""} by <@${interaction.user.id}> for the reason: ${desc}`);
 
         if (allianceTag) {
             const kickToken = (await sql.query('SELECT token FROM botAccounts WHERE alliancetag = ?', [allianceTag]))[0][0]?.token;
@@ -658,7 +659,7 @@ async function modals(interaction, sql, api) {
                     );
                     await interaction.followUp({ content: "Kicked successfully", flags: 64 });
                     await interaction.client.channels.cache.get("1248750084376760451")
-                        .send(`**${allianceTag}**\n${name} has been kicked by <@${interaction.user.id}> (blacklisted)`);
+                        .send(`**${allianceTag}**\n${name} (${kingdomId}) has been kicked by <@${interaction.user.id}> (blacklisted)`);
                 } catch (error) {
                     console.error('Error kicking blacklisted member:', error);
                     await interaction.followUp({ content: "There has been an error", flags: 64 });
@@ -676,7 +677,7 @@ async function modals(interaction, sql, api) {
         const precnum = warnResult[0].length ? warnResult[0][0].num : 0;
         await sql.query('INSERT INTO warnings (discordid, kingdomid, num, description) VALUES (?, ?, ?, ?)',
             [interaction.user.id, kingdomId, precnum + 1, desc]);
-        await interaction.reply({ content: `Warning counter of ${name} increased to ${precnum + 1} with the reason:\n${desc}`, flags: 64 });
+        await interaction.reply({ content: `Warning counter of ${name} (${kingdomId}) increased to ${precnum + 1} with the reason:\n${desc}`, flags: 64 });
 
         const discordResult = await sql.query('SELECT discordId FROM verified WHERE kingdomid = ?', [kingdomId]);
         const token = (await sql.query('SELECT token FROM botAccounts WHERE alliancetag = "LGN1"'))[0][0]?.token;
@@ -694,7 +695,7 @@ async function modals(interaction, sql, api) {
                     { "x-access-token": token }
                 );
                 await interaction.client.users.send(discordResult[0][0].discordId,
-                    `Warning counter of ${name} increased to ${precnum + 1} with the reason:\n${desc}`);
+                    `Warning counter of ${name} (${kingdomId}) increased to ${precnum + 1} with the reason:\n${desc}`);
             } catch (error) {
                 console.error('Error sending warning notification:', error);
             }
@@ -708,7 +709,7 @@ async function modals(interaction, sql, api) {
         }
         await sql.query('INSERT INTO warnings (discordid, kingdomid, num, description) VALUES (?, ?, ?, ?)',
             [interaction.user.id, kingdomId, precnum - 1, desc]);
-        await interaction.reply({ content: `Warning counter of ${name} decreased to ${precnum - 1} with the reason:\n${desc}`, flags: 64 });
+        await interaction.reply({ content: `Warning counter of ${name} (${kingdomId}) decreased to ${precnum - 1} with the reason:\n${desc}`, flags: 64 });
 
         const discordResult = await sql.query('SELECT discordId FROM verified WHERE kingdomid = ?', [kingdomId]);
         const token = (await sql.query('SELECT token FROM botAccounts WHERE alliancetag = "LGN1"'))[0][0]?.token;
@@ -726,7 +727,7 @@ async function modals(interaction, sql, api) {
                     { "x-access-token": token }
                 );
                 await interaction.client.users.send(discordResult[0][0].discordId,
-                    `Warning counter of ${name} decreased to ${precnum - 1} with the reason:\n${desc}`);
+                    `Warning counter of ${name} (${kingdomId}) decreased to ${precnum - 1} with the reason:\n${desc}`);
             } catch (error) {
                 console.error('Error sending warning notification:', error);
             }
@@ -754,7 +755,7 @@ async function sselect(interaction, sql, api) {
             );
             await interaction.reply({ content: "Rank changed successfully", flags: 64 });
             await interaction.client.channels.cache.get("1248750084376760451")
-                .send(`**${allianceTag}**\nRank of ${name} changed to R${rank} by <@${interaction.user.id}>`);
+                .send(`**${allianceTag}**\nRank of ${name} (${kingdomId}) changed to R${rank} by <@${interaction.user.id}>`);
         } catch (error) {
             console.error('Error changing rank:', error);
             return await interaction.reply({ content: "There has been an error", flags: 64 });
@@ -783,7 +784,7 @@ async function sselect(interaction, sql, api) {
             );
             await interaction.reply({ content: "Invite sent!", flags: 64 });
             await interaction.client.channels.cache.get("1248750084376760451")
-                .send(`**${allianceTag}**\n${name} has been invited by <@${interaction.user.id}>`);
+                .send(`**${allianceTag}**\n${name} (${kingdomId}) has been invited by <@${interaction.user.id}>`);
         } catch (error) {
             console.error('Error sending invite:', error);
             return await interaction.reply({ content: "There has been an error", flags: 64 });

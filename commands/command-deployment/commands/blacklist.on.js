@@ -110,9 +110,11 @@ module.exports = {
                     name = nameList[0].name;
                 }
 
+                const discordId = (await sql.getVerifiedDiscordId(kingdomId, guild))[0]?.discordId;
+
                 await sql.removeFromBlacklist(kingdomId, guild);
                 await interaction.reply({
-                    content: name + " has been unblacklisted",
+                    content: name + (kingdomId ? " (" + kingdomId + ")" : "") + ` from ` + (discordId ? `<@${discordId}>` : `<Unknown User>`) + " has been unblacklisted",
                     ...ephemeral,
                 });
 
@@ -122,7 +124,7 @@ module.exports = {
                     try {
                         await interaction.client.users.send(
                             discordList[0].discordId,
-                            name + " has been unblacklisted"
+                            name + (kingdomId ? " (" + kingdomId + ")" : "") + " has been unblacklisted"
                         );
 
                         // const queryally11 =
@@ -154,7 +156,7 @@ module.exports = {
 
                 if (logChannelCache) {
                     await logChannelCache.send(
-                        name +
+                        name + (kingdomId ? " (" + kingdomId + ")" : "") + ` from ` + (discordId ? `<@${discordId}>` : `<Unknown User>`) +
                         ` has been ` +
                         "unblacklisted by <@" +
                         interaction.user.id +
@@ -168,7 +170,7 @@ module.exports = {
                     const blacklistChannelCache = interaction.client.channels.cache.get(blacklistChannel);
                     if (blacklistChannelCache) {
                         await blacklistChannelCache.send(
-                            name +
+                            name + (kingdomId ? " (" + kingdomId + ")" : "") + ` from ` + (discordId ? `<@${discordId}>` : `<Unknown User>`) +
                             ` has been ` +
                             "unblacklisted by <@" +
                             interaction.user.id +
@@ -357,10 +359,11 @@ async function handleBlacklistModal(interaction, sql, api, ephemeral) {
             }
         const discordList = await sql.getVerifiedDiscordId(kingdomId, guild);
         console.log(userId, kingdomId, dateexp, desc, guild);
+        const discordId = (await sql.getVerifiedDiscordId(kingdomId, guild))[0]?.discordId;
         await sql.addToBlacklist(userId, kingdomId, dateexp, desc, guild);
         await interaction.followUp({
             content:
-                name +
+                name + (kingdomId ? " (" + kingdomId + ")" : "") + ` from ` + (discordId ? `<@${discordId}>` : `<Unknown User>`) +
                 ` has been ` +
                 (permanent ? "permanent " : "") + "blacklisted" +
                 (!permanent ? " until " + ditim : "") +
@@ -372,7 +375,7 @@ async function handleBlacklistModal(interaction, sql, api, ephemeral) {
             try {
                 await interaction.client.users.send(
                     discordList[0].discordId,
-                    name +
+                    name + (kingdomId ? " (" + kingdomId + ")" : "") +
                     ` has been ` +
                     (permanent ? "permanent " : "") + "blacklisted" +
                     (!permanent ? " until " + ditim : "") +
@@ -415,7 +418,7 @@ async function handleBlacklistModal(interaction, sql, api, ephemeral) {
         const logChannelCache = interaction.client.channels.cache.get(logChannel);
         if (logChannelCache) {
             await logChannelCache.send(
-                name +
+                name + (kingdomId ? " (" + kingdomId + ")" : "") + ` from ` + (discordId ? `<@${discordId}>` : `<Unknown User>`) +
                 ` has been ` +
                 (permanent ? "permanent " : "") + "blacklisted" +
                 (!permanent ? " until " + ditim : "") +
@@ -432,7 +435,7 @@ async function handleBlacklistModal(interaction, sql, api, ephemeral) {
             const blacklistChannelCache = interaction.client.channels.cache.get(blacklistChannel);
             if (blacklistChannelCache) {
                 await blacklistChannelCache.send(
-                    name +
+                    name + (kingdomId ? " (" + kingdomId + ")" : "") + ` from ` + (discordId ? `<@${discordId}>` : `<Unknown User>`) +
                     ` has been ` +
                     (permanent ? "permanent " : "") + "blacklisted" +
                     (!permanent ? " until " + ditim : "") +
@@ -482,7 +485,7 @@ async function handleBlacklistModal(interaction, sql, api, ephemeral) {
                             "**" +
                             allianceTag +
                             "**\n" +
-                            name +
+                            name + (kingdomId ? " (" + kingdomId + ")" : "") + ` from ` + (discordId ? `<@${discordId}>` : `<Unknown User>`) +
                             " has been kicked by <@" +
                             interaction.user.id +
                             "> (blacklisted)"
