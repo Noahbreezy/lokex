@@ -158,6 +158,8 @@ module.exports = {
             components.push(new ActionRowBuilder().addComponents(blacklist));
         }
 
+        console.log("Player Info:", playerInfo);
+
         // Build embed with all fields
         const embed = new EmbedBuilder()
             .setTitle(playerInfo.name || "Unknown Player")
@@ -280,10 +282,10 @@ async function getPlayerInfo(kingdomId, token, sql, api, encryption) {
 
     const basicPlayerInfo = JSON.parse(await encryption.decryptXorMessage(basicPlayerInfoResponse.data, xorPass)).profile;
     const historyPlayerInfo = historyPlayerInfoResponse.data.history;
-    console.log('Basic Player Info:', basicPlayerInfo);
-    console.log('History Player Info:', historyPlayerInfo);
+    // console.log('Basic Player Info:', basicPlayerInfo);
+    // console.log('History Player Info:', historyPlayerInfo);
 
-    let location = await getMemberLocation(kingdomId, basicPlayerInfo.alliance?._id, token, api);
+    let location = await getMemberLocation(kingdomId, basicPlayerInfo.alliance?._id, token, api, sql);
     const ralliesDone = await sql.getRalliesCount(kingdomId, sql.guildId);
     const pastKingdomNames = await sql.getPastKingdomNames(kingdomId);
 
@@ -313,15 +315,18 @@ async function getPlayerInfo(kingdomId, token, sql, api, encryption) {
     };
 }
 
-async function getMemberLocation(kingdomId, allianceId, token, api) {
+async function getMemberLocation(kingdomId, allianceId, token, api, sql) {
     if (!allianceId) return { x: 0, y: 0, continent: 0 };
+
+    const managerToken = (await sql.getManagerToken(allianceId))[0]?.token;
 
     try {
         const response = await api.request(
             "https://api-lok-live.leagueofkingdoms.com/api/alliance/member/fo",
             { json: `{"targetId":"${kingdomId}"}` },
-            { "x-access-token": token }
+            { "x-access-token": managerToken }
         );
+        console.log("Member location response:", response.data);
         if (response.data.fo?.loc) {
             return {
                 x: response.data.fo.loc[1],
