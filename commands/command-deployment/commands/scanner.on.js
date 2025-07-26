@@ -32,6 +32,8 @@ module.exports = {
         const sql = module.exports.sql;
         const guildId = interaction.guild.id;
         const subcommand = interaction.options.getSubcommand();
+        const ephemeralFlag = await sql.getEphemeral(guildId);
+        const ephemeral = ephemeralFlag ? { flags: 64 } : {};
 
         // Check subscription (scanner = 5)
         const subscriptionFlagInfo = await sql.checkSubscriptionValid(guildId, "5");
@@ -65,7 +67,7 @@ module.exports = {
                     .setTitle("Select Free Days")
                     .setDescription("Choose which days the scanner should NOT report. Select 'None' for no free days.")
                     .setColor("Blue");
-                await interaction.reply({ embeds: [embed], components: [row], flags: 64 });
+                await interaction.reply({ embeds: [embed], components: [row], ...ephemeral });
                 break;
             }
             case "minlevel": {
@@ -76,7 +78,7 @@ module.exports = {
                     return;
                 }
                 await sql.setCmineAndDsaLevels(guildId, cmine_lvl, dsa_lvl);
-                await interaction.reply({ content: `Scanner minimum levels updated: CMine Lv.${cmine_lvl}, DSA Lv.${dsa_lvl}`, flags: 64 });
+                await interaction.reply({ content: `Scanner minimum levels updated: CMine Lv.${cmine_lvl}, DSA Lv.${dsa_lvl}`, ...ephemeral });
                 break;
             }
             default:
@@ -85,6 +87,9 @@ module.exports = {
     },
     // No autocomplete needed for freedays, handled by select menu
     async stringselect(interaction) {
+        const ephemeralFlag = await sql.getEphemeral(interaction.guild.id);
+        const ephemeral = ephemeralFlag ? { flags: 64 } : {};
+
         // Handle the freedays select menu
         if (interaction.customId === "scanner_freedays_select") {
             const sql = module.exports.sql;
@@ -101,7 +106,7 @@ module.exports = {
             const replyText = selected.includes("0")
                 ? "No free days set. Scanner will report every day."
                 : `Scanner free days updated to: ${selected.sort().map(d => dayNames[d]).join(", ")}`;
-            await interaction.update({ content: replyText, embeds: [], components: [], flags: 64 });
+            await interaction.update({ content: replyText, embeds: [], components: [], ...ephemeral });
         }
     },
 };
