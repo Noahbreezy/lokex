@@ -208,14 +208,14 @@ module.exports = {
                             for (let i = 0; i < embeds.length; i += 10) {
                                 chunks.push(embeds.slice(i, i + 10));
                             }
-                            await interaction.editReply({ embeds: chunks[0], ...ephemeral });
+                            await interaction.editReply({ embeds: chunks[0], flags: 64 });
                             // Send each chunk of embeds as a separate message
                             chunks.slice(1).forEach(async chunk => {
-                                await interaction.followUp({ embeds: chunk, ...ephemeral });
+                                await interaction.followUp({ embeds: chunk, flags: 64 });
                             });
                         } else {
                             // Send all embeds in a single message
-                            await interaction.editReply({ embeds: embeds, ...ephemeral });
+                            await interaction.editReply({ embeds: embeds, flags: 64 });
                         }
                     }
                     break;
