@@ -23,9 +23,11 @@ module.exports = {
             const code = await this.generateUniqueCode(interaction, sql);
             await this.saveCodeToDatabase(code, userId, guildId, sql);
             const queenInfo = (await sql.getQueenInfo(guildId))[0];
-            let queenLocation = await sql.getKingdomLocation(guildId);
+            // console.log('Queen info:', queenInfo);
+            let queenLocation = await sql.getKingdomLocation(queenInfo.kingdomId);
+            console.log('Queen location:', queenLocation);
             if (queenLocation.length > 0) {
-                queenLocation = `located at coordinates ${queenLocation[0].x}:${queenLocation[0].y}`;
+                queenLocation = `**_located at coordinates ${queenLocation[0].x}:${queenLocation[0].y}_**`;
             } else {
                 queenLocation = '';
             }
