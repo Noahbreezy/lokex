@@ -815,7 +815,7 @@ async function createShopChannel(interaction, guild, guildName, guildId, ephemer
             for (const item of inStockItems) {
                 const button = new ButtonBuilder()
                     .setCustomId(`shop_buy_${item.id}`)
-                    .setLabel(`${item.name} - ${item.price} ${currencyEmoji}`)
+                    .setLabel(`${item.name} - ${item.price}`)
                     .setStyle(ButtonStyle.Success);
 
                 // Handle custom emoji for button
