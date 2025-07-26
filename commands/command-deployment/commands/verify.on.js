@@ -203,6 +203,7 @@ module.exports = {
                 if (mail.content.toUpperCase().includes(code)) {
                     const kingdomId = mail.from._id;
                     const kingdomName = mail.from.name;
+                    const kingdomLevel = mail.from.level;
                     const congressTitle = mail.from.congressTitle;
                     const worldId = mail.from.worldId;
 
@@ -242,15 +243,20 @@ module.exports = {
                     const guildSettings = await sql.getGuildSettings(guildId);
                     if (guildSettings && guildSettings[0]) {
                         const { main_verify_bonus, alt_verify_bonus, bonus_limit } = guildSettings[0];
-                        
+
+                        // Get minimum levels for verification bonuses
+                        const minLevels = await sql.getMinLevelForVerificationBonus(guildId);
+                        const mainMinLevel = minLevels ? minLevels.mainMinLevel : 35;
+                        const altMinLevel = minLevels ? minLevels.altMinLevel : 21;
+
                         // Determine bonus amount based on verification type
                         let bonusAmount = 0;
                         let bonusType = '';
-                        
-                        if (isFirstVerification && main_verify_bonus > 0) {
+
+                        if (isFirstVerification && main_verify_bonus > 0 && kingdomLevel >= mainMinLevel) {
                             bonusAmount = main_verify_bonus;
                             bonusType = 'main verification';
-                        } else if (!isFirstVerification && alt_verify_bonus > 0) {
+                        } else if (!isFirstVerification && alt_verify_bonus > 0 && kingdomLevel >= altMinLevel) {
                             // Check if user hasn't exceeded bonus limit
                             // Current verification count includes the one we just added
                             const currentVerificationCount = existingVerifications ? existingVerifications.length : 1;

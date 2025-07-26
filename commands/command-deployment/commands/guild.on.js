@@ -149,6 +149,22 @@ module.exports = {
                         .setRequired(true)
                         .setMinValue(0)
                 )
+                .addIntegerOption((option) =>
+                    option
+                        .setName("main-min-level")
+                        .setDescription("Minimum castle level required for main kingdom bonus")
+                        .setRequired(false)
+                        .setMinValue(1)
+                        .setMaxValue(100)
+                )
+                .addIntegerOption((option) =>
+                    option
+                        .setName("alt-min-level")
+                        .setDescription("Minimum castle level required for alt kingdom bonus")
+                        .setRequired(false)
+                        .setMinValue(1)
+                        .setMaxValue(100)
+                )
         ).addSubcommand((subcommand) =>
             subcommand
                 .setName("setwallet")
@@ -315,17 +331,29 @@ module.exports = {
                     }
                 case "verification-bonus":
                     {
+                        const mainMinLevel = options.getInteger("main-min-level");
+                        const altMinLevel = options.getInteger("alt-min-level");
                         const mainBonus = options.getInteger("main");
                         const altBonus = options.getInteger("alt");
                         const bonusLimit = options.getInteger("limit");
                         
-                        await sql.setVerificationBonuses(guildId, mainBonus, altBonus, bonusLimit);
+                        await sql.setVerificationBonuses(guildId, mainBonus, altBonus, bonusLimit, mainMinLevel, altMinLevel);
+                        
+                        let responseContent = `✅ Verification bonuses have been set:\n` +
+                                            `• Main kingdom bonus: ${mainBonus.toLocaleString()}\n` +
+                                            `• Alt kingdom bonus: ${altBonus.toLocaleString()}\n` +
+                                            `• Bonus limit per user: ${bonusLimit}`;
+                        
+                        if (mainMinLevel !== null) {
+                            responseContent += `\n• Main kingdom minimum level: ${mainMinLevel}`;
+                        }
+                        
+                        if (altMinLevel !== null) {
+                            responseContent += `\n• Alt kingdom minimum level: ${altMinLevel}`;
+                        }
                         
                         await interaction.reply({ 
-                            content: `✅ Verification bonuses have been set:\n` +
-                                   `• Main kingdom bonus: ${mainBonus.toLocaleString()}\n` +
-                                   `• Alt kingdom bonus: ${altBonus.toLocaleString()}\n` +
-                                   `• Bonus limit per user: ${bonusLimit}`, 
+                            content: responseContent, 
                             ...ephemeral 
                         });
                         break;

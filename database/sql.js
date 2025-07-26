@@ -979,9 +979,9 @@ class sqlFunctions {
     }
 
     // Set verification bonus settings for a specific guild
-    async setVerificationBonuses(guildId, mainBonus, altBonus, bonusLimit) {
-        const query = "UPDATE guild_settings SET main_verify_bonus=?, alt_verify_bonus=?, bonus_limit=? WHERE guild_id=?;";
-        return this.query(query, [mainBonus, altBonus, bonusLimit, guildId]);
+    async setVerificationBonuses(guildId, mainBonus, altBonus, bonusLimit, mainMinLevel = null, altMinLevel = null) {
+        const query = "UPDATE guild_settings SET main_verify_bonus=?, alt_verify_bonus=?, bonus_limit=?, bonus_main_min_level=?, bonus_alt_min_level=? WHERE guild_id=?;";
+        return this.query(query, [mainBonus, altBonus, bonusLimit, mainMinLevel, altMinLevel, guildId]);
     }
 
     // Set guild wallet address
@@ -1027,6 +1027,19 @@ class sqlFunctions {
     async addGuild(guildId, guildName) {
         const query = `INSERT INTO guild_settings (guild_id, guild_name) VALUES (?, ?);`;
         return this.query(query, [guildId, guildName]);
+    }
+
+    // Get minimum level for verification bonus
+    async getMinLevelForVerificationBonus(guildId) {
+        const query = `SELECT bonus_main_min_level, bonus_alt_min_level FROM guild_settings WHERE guild_id = ?;`;
+        const results = await this.query(query, [guildId]);
+        if (results.length > 0) {
+            return {
+                mainMinLevel: results[0].bonus_main_min_level,
+                altMinLevel: results[0].bonus_alt_min_level
+            };
+        }
+        return null;
     }
 
     // Use ephemeral messages flag
