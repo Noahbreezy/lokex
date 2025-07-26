@@ -438,6 +438,9 @@ module.exports = {
                         // Define decimal fields that should be formatted as currency/price
                         const decimalFields = ['point_price'];
 
+                        // Define boolean fields that should be formatted as YES/NO
+                        const booleanFields = ['unverify', 'ephemeral'];
+
                         const settings = await sql.getGuildSettings(guildId);
                         if (!settings || !settings[0]) {
                             await interaction.reply({ content: "No settings found for this guild.", ...ephemeral });
@@ -469,6 +472,9 @@ module.exports = {
                                 } else if (decimalFields.includes(key)) {
                                     // Handle decimal fields with fixed decimal places
                                     displayValue = value ? Number(value).toFixed(2) : '0.00';
+                                } else if (booleanFields.includes(key)) {
+                                    // Handle boolean fields by converting 0/1 to NO/YES
+                                    displayValue = (value === 1 || value === '1' || value === true) ? 'YES' : 'NO';
                                 } else {
                                     // Handle other fields as before
                                     displayValue = value !== null && value !== undefined ? String(value) : 'Not set';
