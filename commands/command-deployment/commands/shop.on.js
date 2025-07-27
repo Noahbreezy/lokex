@@ -473,9 +473,18 @@ module.exports = {
 
                         let description = "";
                         for (const purchase of history) {
-                            const date = new Date(purchase.created_at).toLocaleDateString();
+                            const date = new Date(purchase.created_at);
+                            const formattedDate = date.toLocaleDateString('en-GB', {
+                                day: '2-digit',
+                                month: '2-digit',
+                                year: 'numeric'
+                            }) + ' ' + date.toLocaleTimeString('en-GB', {
+                                hour: '2-digit',
+                                minute: '2-digit',
+                                hour12: false
+                            });
                             description += `**${purchase.item_name}** x${purchase.quantity} - ${formatNumber(purchase.total_price)} ${currencyEmoji}\n`;
-                            description += `User: <@${purchase.user_id}> | Date: ${date}\n\n`;
+                            description += `User: <@${purchase.user_id}> | Date: ${formattedDate}\n\n`;
                         }
 
                         embed.setDescription(description);
@@ -752,14 +761,8 @@ module.exports = {
                                 
                                 if (kingdom.expiry) {
                                     const expiryDate = new Date(kingdom.expiry);
-                                    description += `└ **Expires:** ${expiryDate.toLocaleString('en-US', {
-                                        year: 'numeric',
-                                        month: '2-digit',
-                                        day: '2-digit',
-                                        hour: '2-digit',
-                                        minute: '2-digit',
-                                        hour12: false
-                                    })}\n`;
+                                    const timestamp = Math.floor(expiryDate.getTime() / 1000);
+                                    description += `└ **Expires:** <t:${timestamp}:F> (<t:${timestamp}:R>)\n`;
                                 } else {
                                     description += `└ **Expires:** Never (Permanent)\n`;
                                 }
@@ -1000,14 +1003,8 @@ module.exports = {
 
             if (expiry && whitelistResult && whitelistResult.newExpiry) {
                 const expiryDate = new Date(whitelistResult.newExpiry);
-                embed.addFields({ name: "Expires", value: expiryDate.toLocaleString('en-US', {
-                    year: 'numeric',
-                    month: '2-digit',
-                    day: '2-digit',
-                    hour: '2-digit',
-                    minute: '2-digit',
-                    hour12: false
-                }), inline: true });
+                const timestamp = Math.floor(expiryDate.getTime() / 1000);
+                embed.addFields({ name: "Expires", value: `<t:${timestamp}:F> (<t:${timestamp}:R>)`, inline: true });
             }
 
             await interaction.reply({ embeds: [embed], flags: 64 });
