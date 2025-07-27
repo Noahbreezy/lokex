@@ -1651,10 +1651,10 @@ class sqlFunctions {
                     const existingExpiry = new Date(existing.expiry);
                     const newExpiryDate = new Date(expiry);
                     const currentTime = new Date();
-                    
+
                     // Calculate the duration being added
                     const durationToAdd = newExpiryDate.getTime() - currentTime.getTime();
-                    
+
                     // Add duration to existing expiry (if existing expiry is in the future) or current time (if expired)
                     const baseTime = existingExpiry > currentTime ? existingExpiry : currentTime;
                     const extendedExpiry = new Date(baseTime.getTime() + durationToAdd);
@@ -1699,12 +1699,12 @@ class sqlFunctions {
              AND (dsa > '0' OR cmine > '0')`,
             [kingdomId, continent, guild]
         );
-        
+
         // If no results or both dsa and cmine are '0', return null
         if (results.length === 0 || (results[0].dsa === '0' && results[0].cmine === '0')) {
             return null;
         }
-        
+
         return {
             dsa: results[0].dsa,
             cmine: results[0].cmine,
@@ -1723,6 +1723,48 @@ class sqlFunctions {
              ORDER BY expiry ASC, created_at DESC`,
             [kingdomId, continent, guild]
         );
+    }
+
+    // Check verified kingdoms with whitelist from discordId
+    async checkVerifiedKingdomsWithWhitelist(discordId, guildId) {
+        // Get verified kingdoms for this discord user in this guild
+        const verifiedKingdoms = await this.query(
+            `SELECT kingdomId, kingdomName, guild
+             FROM verified
+             WHERE discordId = ? AND guild = ?`,
+            [discordId, guildId]
+        );
+
+        if (!verifiedKingdoms || verifiedKingdoms.length === 0) {
+            return null;
+        }
+
+        const results = [];
+        for (const kingdom of verifiedKingdoms) {
+            // Check whitelist status for this kingdom in this guild
+            const whitelistResult = await this.query(
+                `SELECT MAX(w.dsa) as dsa, MAX(w.cmine) as cmine,
+                 MIN(w.expiry) as earliest_expiry
+                 FROM whitelist w
+                 WHERE w.kingdomid = ? AND w.guild = ?
+                 AND (w.expiry IS NULL OR w.expiry > NOW())
+                 AND (w.dsa > '0' OR w.cmine > '0')`,
+                [kingdom.kingdomId, guildId]
+            );
+
+            if (whitelistResult.length > 0 && (whitelistResult[0].dsa !== '0' || whitelistResult[0].cmine !== '0')) {
+                results.push({
+                    kingdomId: kingdom.kingdomId,
+                    kingdomName: kingdom.kingdomName,
+                    guild: kingdom.guild,
+                    dsa: whitelistResult[0].dsa,
+                    cmine: whitelistResult[0].cmine,
+                    expiry: whitelistResult[0].earliest_expiry
+                });
+            }
+        }
+
+        return results.length > 0 ? results : null;
     }
 
     // Clean up expired licenses (removes expired temporary licenses)

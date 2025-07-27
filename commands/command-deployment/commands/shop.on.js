@@ -219,6 +219,17 @@ module.exports = {
                         .setMinLength(66)
                         .setMaxLength(66)
                 )
+        )
+        .addSubcommand((subcommand) =>
+            subcommand
+                .setName("licenses")
+                .setDescription("View your available whitelist licenses")
+                .addUserOption((option) =>
+                    option
+                        .setName("user")
+                        .setDescription("Check another user's licenses (admin only)")
+                        .setRequired(false)
+                )
         ),
     async execute(interaction) {
         const sql = module.exports.sql;
@@ -683,6 +694,86 @@ module.exports = {
                             console.error('Error verifying DST payment:', error);
                             await interaction.editReply({ content: "❌ Error verifying transaction. Please ensure the transaction hash is correct and try again." });
                         }
+                        break;
+                    }
+                case "licenses":
+                    {
+                        const targetUser = options.getUser("user");
+                        
+                        // If checking another user's licenses, verify admin permissions
+                        if (targetUser && targetUser.id !== user.id) {
+                            if (!interaction.member.permissions.has(PermissionFlagsBits.Administrator)) {
+                                await interaction.reply({ content: "❌ You need administrator permissions to check other users' licenses.", flags: 64 });
+                                return;
+                            }
+                        }
+                        
+                        const checkUserId = targetUser ? targetUser.id : user.id;
+                        const checkUsername = targetUser ? targetUser.username : user.username;
+                        
+                        // Get user's verified kingdoms with whitelist licenses
+                        const licensedKingdoms = await sql.checkVerifiedKingdomsWithWhitelist(checkUserId, guildId);
+                        
+                        const embed = new EmbedBuilder()
+                            .setColor(0x00FF00)
+                            .setTitle("📜 Whitelist Licenses")
+                            .setTimestamp();
+                            
+                        if (targetUser) {
+                            embed.setThumbnail(targetUser.displayAvatarURL());
+                            embed.setDescription(`**${checkUsername}**'s available whitelist licenses:`);
+                        } else {
+                            embed.setThumbnail(user.displayAvatarURL());
+                            embed.setDescription("Your available whitelist licenses:");
+                        }
+                        
+                        if (!licensedKingdoms || licensedKingdoms.length === 0) {
+                            embed.addFields({
+                                name: "No Licenses Found",
+                                value: targetUser ? 
+                                    `${checkUsername} has no active whitelist licenses in this guild.` :
+                                    "You have no active whitelist licenses in this guild.\n\nPurchase DSA or C-Mine licenses from the shop to get started!",
+                                inline: false
+                            });
+                        } else {
+                            let description = "";
+                            for (const kingdom of licensedKingdoms) {
+                                description += `**${kingdom.kingdomName}** (ID: ${kingdom.kingdomId})\n`;
+                                
+                                const licenses = [];
+                                if (kingdom.dsa && kingdom.dsa !== '0') {
+                                    licenses.push(`DSA Level ${kingdom.dsa}`);
+                                }
+                                if (kingdom.cmine && kingdom.cmine !== '0') {
+                                    licenses.push(`C-Mine Level ${kingdom.cmine}`);
+                                }
+                                
+                                description += `└ **Licenses:** ${licenses.join(', ')}\n`;
+                                
+                                if (kingdom.expiry) {
+                                    const expiryDate = new Date(kingdom.expiry);
+                                    description += `└ **Expires:** ${expiryDate.toLocaleString('en-US', {
+                                        year: 'numeric',
+                                        month: '2-digit',
+                                        day: '2-digit',
+                                        hour: '2-digit',
+                                        minute: '2-digit',
+                                        hour12: false
+                                    })}\n`;
+                                } else {
+                                    description += `└ **Expires:** Never (Permanent)\n`;
+                                }
+                                description += "\n";
+                            }
+                            
+                            embed.addFields({
+                                name: `Active Licenses (${licensedKingdoms.length} kingdom${licensedKingdoms.length === 1 ? '' : 's'})`,
+                                value: description,
+                                inline: false
+                            });
+                        }
+                        
+                        await interaction.reply({ embeds: [embed], ...ephemeral });
                         break;
                     }
                 default:
