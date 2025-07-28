@@ -162,6 +162,12 @@ class sqlFunctions {
         return this.query(query, [kingdomId]);
     }
 
+    // Get manager info by allianceId
+    async getManagerInfoByAllianceId(allianceId) {
+        const query = `SELECT token, kingdomId, allianceId, allianceTag, guild FROM botAccounts WHERE allianceId = ? AND role = 'MANAGER';`;
+        return this.query(query, [allianceId]);
+    }
+
     // Get a random token from a specific guild
     async getRandomManagerTokenFromGuild(guild) {
         const query = `SELECT token FROM botAccounts WHERE guild = ? AND role = 'MANAGER' ORDER BY RAND() LIMIT 1;`;
