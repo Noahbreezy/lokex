@@ -720,8 +720,65 @@ module.exports = {
                         const checkUserId = targetUser ? targetUser.id : user.id;
                         const checkUsername = targetUser ? targetUser.username : user.username;
                         
-                        // Get user's verified kingdoms with whitelist licenses
-                        const licensedKingdoms = await sql.checkVerifiedKingdomsWithWhitelist(checkUserId, guildId);
+                        // Get user's verified kingdoms for this guild
+                        const verifiedKingdoms = await sql.query(
+                            `SELECT kingdomId, kingdomName FROM verified WHERE discordId = ? AND guild = ?`,
+                            [checkUserId, guildId]
+                        );
+                        
+                        if (!verifiedKingdoms || verifiedKingdoms.length === 0) {
+                            const embed = new EmbedBuilder()
+                                .setColor(0x00FF00)
+                                .setTitle("📜 Whitelist Licenses")
+                                .setTimestamp();
+                                
+                            if (targetUser) {
+                                embed.setThumbnail(targetUser.displayAvatarURL());
+                                embed.setDescription(`**${checkUsername}**'s available whitelist licenses:`);
+                            } else {
+                                embed.setThumbnail(user.displayAvatarURL());
+                                embed.setDescription("Your available whitelist licenses:");
+                            }
+                            
+                            embed.addFields({
+                                name: "No Verified Kingdoms",
+                                value: targetUser ? 
+                                    `${checkUsername} has no verified kingdoms in this guild.` :
+                                    "You have no verified kingdoms in this guild.\n\nUse `/verify` to verify your kingdoms first!",
+                                inline: false
+                            });
+                            await interaction.reply({ embeds: [embed], ...ephemeral });
+                            return;
+                        }
+                        
+                        // Get continent for this guild
+                        const continentArr = await sql.getGuildContinents(guildId);
+                        const continent = continentArr && continentArr.length > 0 ? continentArr[0].continent : null;
+                        if (!continent) {
+                            await interaction.reply({ content: "No continent linked to this guild.", ...ephemeral });
+                            return;
+                        }
+                        
+                        // Get all whitelist entries for this guild/continent (same query as whitelist command)
+                        const allWhitelistKingdoms = await sql.getWhitelist(guildId, continent);
+                        
+                        // Filter to only include the user's verified kingdoms
+                        const verifiedKingdomIds = new Set(verifiedKingdoms.map(k => k.kingdomId));
+                        const licensedKingdoms = allWhitelistKingdoms.filter(kingdom => {
+                            return verifiedKingdomIds.has(kingdom.kingdomid) && (kingdom.dsa > 0 || kingdom.cmine > 0);
+                        });
+                        
+                        // Debug logging for MIYAVI
+                        const miyaviKingdom = licensedKingdoms.find(k => k.name === 'MIYAVI');
+                        if (miyaviKingdom) {
+                            console.log(`Debug MIYAVI whitelist data:`, {
+                                dsa: miyaviKingdom.dsa,
+                                cmine: miyaviKingdom.cmine,
+                                dsa_expiry: miyaviKingdom.dsa_expiry,
+                                cmine_expiry: miyaviKingdom.cmine_expiry,
+                                license_count: miyaviKingdom.license_count
+                            });
+                        }
                         
                         const embed = new EmbedBuilder()
                             .setColor(0x00FF00)
@@ -744,39 +801,112 @@ module.exports = {
                                     "You have no active whitelist licenses in this guild.\n\nPurchase DSA or C-Mine licenses from the shop to get started!",
                                 inline: false
                             });
+                            await interaction.reply({ embeds: [embed], ...ephemeral });
                         } else {
-                            let description = "";
-                            for (const kingdom of licensedKingdoms) {
-                                description += `**${kingdom.kingdomName}** (ID: ${kingdom.kingdomId})\n`;
+                            // Create paginated embeds to handle large amounts of license data
+                            const embeds = [];
+                            const maxFieldLength = 1024; // Discord's field value limit
+                            const maxEmbedsPerMessage = 10; // Discord's embed limit per message
+                            
+                            let currentDescription = "";
+                            let currentEmbed = new EmbedBuilder()
+                                .setColor(0x00FF00)
+                                .setTitle("📜 Whitelist Licenses")
+                                .setTimestamp();
+                                
+                            if (targetUser) {
+                                currentEmbed.setThumbnail(targetUser.displayAvatarURL());
+                                currentEmbed.setDescription(`**${checkUsername}**'s available whitelist licenses:`);
+                            } else {
+                                currentEmbed.setThumbnail(user.displayAvatarURL());
+                                currentEmbed.setDescription("Your available whitelist licenses:");
+                            }
+                            
+                            for (let i = 0; i < licensedKingdoms.length; i++) {
+                                const kingdom = licensedKingdoms[i];
                                 
                                 const licenses = [];
-                                if (kingdom.dsa && kingdom.dsa !== '0') {
+                                
+                                // Add DSA license info if exists
+                                if (kingdom.dsa > 0) {
                                     licenses.push(`DSA Level ${kingdom.dsa}`);
                                 }
-                                if (kingdom.cmine && kingdom.cmine !== '0') {
+                                
+                                // Add C-Mine license info if exists
+                                if (kingdom.cmine > 0) {
                                     licenses.push(`C-Mine Level ${kingdom.cmine}`);
                                 }
                                 
-                                description += `└ **Licenses:** ${licenses.join(', ')}\n`;
+                                // Use kingdom name or kingdomid as fallback
+                                const kingdomName = kingdom.name || kingdom.kingdomid;
+                                let kingdomInfo = `**${kingdomName}** (ID: ${kingdom.kingdomid})\n`;
+                                kingdomInfo += `└ **Licenses:** ${licenses.join(', ')}\n`;
                                 
-                                if (kingdom.expiry) {
-                                    const expiryDate = new Date(kingdom.expiry);
-                                    const timestamp = Math.floor(expiryDate.getTime() / 1000);
-                                    description += `└ **Expires:** <t:${timestamp}:F> (<t:${timestamp}:R>)\n`;
-                                } else {
-                                    description += `└ **Expires:** Never (Permanent)\n`;
+                                // Show expiry information - handle different expiry dates properly using the separate fields
+                                if (kingdom.dsa > 0 && kingdom.cmine > 0) {
+                                    // Both licenses exist - show separate expiry dates
+                                    kingdomInfo += `└ **DSA Expires:** ${kingdom.dsa_expiry ? `<t:${Math.floor(new Date(kingdom.dsa_expiry).getTime() / 1000)}:F> (<t:${Math.floor(new Date(kingdom.dsa_expiry).getTime() / 1000)}:R>)` : 'Never (Permanent)'}\n`;
+                                    kingdomInfo += `└ **C-Mine Expires:** ${kingdom.cmine_expiry ? `<t:${Math.floor(new Date(kingdom.cmine_expiry).getTime() / 1000)}:F> (<t:${Math.floor(new Date(kingdom.cmine_expiry).getTime() / 1000)}:R>)` : 'Never (Permanent)'}\n`;
+                                } else if (kingdom.dsa > 0) {
+                                    // Only DSA license
+                                    kingdomInfo += `└ **Expires:** ${kingdom.dsa_expiry ? `<t:${Math.floor(new Date(kingdom.dsa_expiry).getTime() / 1000)}:F> (<t:${Math.floor(new Date(kingdom.dsa_expiry).getTime() / 1000)}:R>)` : 'Never (Permanent)'}\n`;
+                                } else if (kingdom.cmine > 0) {
+                                    // Only C-Mine license
+                                    kingdomInfo += `└ **Expires:** ${kingdom.cmine_expiry ? `<t:${Math.floor(new Date(kingdom.cmine_expiry).getTime() / 1000)}:F> (<t:${Math.floor(new Date(kingdom.cmine_expiry).getTime() / 1000)}:R>)` : 'Never (Permanent)'}\n`;
                                 }
-                                description += "\n";
+                                kingdomInfo += "\n";
+                                
+                                // Check if adding this kingdom would exceed the field limit
+                                if (currentDescription.length + kingdomInfo.length > maxFieldLength) {
+                                    // Add current field to embed and start a new one
+                                    if (currentDescription.length > 0) {
+                                        const fieldName = embeds.length === 0 
+                                            ? `Active Licenses (${licensedKingdoms.length} kingdom${licensedKingdoms.length === 1 ? '' : 's'})`
+                                            : "Continued...";
+                                        currentEmbed.addFields({
+                                            name: fieldName,
+                                            value: currentDescription,
+                                            inline: false
+                                        });
+                                        embeds.push(currentEmbed);
+                                    }
+                                    
+                                    // Start new embed if we've reached the embed limit
+                                    currentEmbed = new EmbedBuilder()
+                                        .setColor(0x00FF00)
+                                        .setTitle(`📜 Whitelist Licenses (Page ${embeds.length + 1})`)
+                                        .setTimestamp();
+                                    
+                                    currentDescription = kingdomInfo;
+                                } else {
+                                    currentDescription += kingdomInfo;
+                                }
                             }
                             
-                            embed.addFields({
-                                name: `Active Licenses (${licensedKingdoms.length} kingdom${licensedKingdoms.length === 1 ? '' : 's'})`,
-                                value: description,
-                                inline: false
-                            });
+                            // Add the final field and embed
+                            if (currentDescription.length > 0) {
+                                const fieldName = embeds.length === 0 
+                                    ? `Active Licenses (${licensedKingdoms.length} kingdom${licensedKingdoms.length === 1 ? '' : 's'})`
+                                    : "Continued...";
+                                currentEmbed.addFields({
+                                    name: fieldName,
+                                    value: currentDescription,
+                                    inline: false
+                                });
+                                embeds.push(currentEmbed);
+                            }
+                            
+                            // Limit to max embeds per message (Discord limit is 10)
+                            const embedsToSend = embeds.slice(0, maxEmbedsPerMessage);
+                            
+                            await interaction.reply({ embeds: embedsToSend, ...ephemeral });
+                            
+                            // If there are more embeds, send them in follow-up messages
+                            for (let i = maxEmbedsPerMessage; i < embeds.length; i += maxEmbedsPerMessage) {
+                                const nextBatch = embeds.slice(i, i + maxEmbedsPerMessage);
+                                await interaction.followUp({ embeds: nextBatch, ...ephemeral });
+                            }
                         }
-                        
-                        await interaction.reply({ embeds: [embed], ...ephemeral });
                         break;
                     }
                 default:

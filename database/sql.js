@@ -1792,7 +1792,7 @@ class sqlFunctions {
     // Reset all whitelisted kingdoms for a specific guild and continent (set dsa and cmine to 0)
     async resetWhitelist(guild, continent) {
         return this.query(
-            `UPDATE whitelist SET dsa = '0', cmine = '0' WHERE guild = ? AND continent = ?`,
+            `UPDATE whitelist SET dsa = '0', cmine = '0' WHERE guild = ? AND continent = ? AND expiry IS NULL`,
             [guild, continent]
         );
     }
