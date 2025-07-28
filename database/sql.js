@@ -552,6 +552,31 @@ class sqlFunctions {
         return results.length > 0 ? results[0] : null;
     }
 
+    // Update wallet address for a verified discord user
+    async updateUserWallet(discordId, guild, newWallet) {
+        const sql = `UPDATE verified SET wallet = ? WHERE discordId = ? AND guild = ? AND status = 1`;
+        return await this.query(sql, [newWallet, discordId, guild]);
+    }
+
+    // Get wallet address for a verified discord user
+    async getUserWallet(discordId, guild) {
+        const sql = `SELECT wallet FROM verified WHERE discordId = ? AND guild = ? AND status = 1`;
+        return await this.query(sql, [discordId, guild]);
+    }
+
+    // Check if a wallet address is already in use by another user in the same guild
+    async checkWalletInUse(wallet, guild, excludeDiscordId = null) {
+        let sql = `SELECT discordId, kingdomName FROM verified WHERE wallet = ? AND guild = ? AND status = 1`;
+        let params = [wallet, guild];
+        
+        if (excludeDiscordId) {
+            sql += ` AND discordId != ?`;
+            params.push(excludeDiscordId);
+        }
+        
+        return await this.query(sql, params);
+    }
+
     // Get kingdoms and Discord users that need status/role changes
     async getUnlinkedKingdomsAndRoles(days) {
         // Increase GROUP_CONCAT limit to handle large lists
