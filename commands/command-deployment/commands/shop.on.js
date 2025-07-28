@@ -707,12 +707,15 @@ module.exports = {
                     }
                 case "licenses":
                     {
+                        // Defer reply immediately to prevent timeout
+                        await interaction.deferReply(ephemeral);
+                        
                         const targetUser = options.getUser("user");
                         
                         // If checking another user's licenses, verify admin permissions
                         if (targetUser && targetUser.id !== user.id) {
                             if (!interaction.member.permissions.has(PermissionFlagsBits.Administrator)) {
-                                await interaction.reply({ content: "❌ You need administrator permissions to check other users' licenses.", flags: 64 });
+                                await interaction.editReply({ content: "❌ You need administrator permissions to check other users' licenses." });
                                 return;
                             }
                         }
@@ -747,7 +750,7 @@ module.exports = {
                                     "You have no verified kingdoms in this guild.\n\nUse `/verify` to verify your kingdoms first!",
                                 inline: false
                             });
-                            await interaction.reply({ embeds: [embed], ...ephemeral });
+                            await interaction.editReply({ embeds: [embed] });
                             return;
                         }
                         
@@ -755,7 +758,7 @@ module.exports = {
                         const continentArr = await sql.getGuildContinents(guildId);
                         const continent = continentArr && continentArr.length > 0 ? continentArr[0].continent : null;
                         if (!continent) {
-                            await interaction.reply({ content: "No continent linked to this guild.", ...ephemeral });
+                            await interaction.editReply({ content: "No continent linked to this guild." });
                             return;
                         }
                         
@@ -801,7 +804,7 @@ module.exports = {
                                     "You have no active whitelist licenses in this guild.\n\nPurchase DSA or C-Mine licenses from the shop to get started!",
                                 inline: false
                             });
-                            await interaction.reply({ embeds: [embed], ...ephemeral });
+                            await interaction.editReply({ embeds: [embed] });
                         } else {
                             // Create paginated embeds to handle large amounts of license data
                             const embeds = [];
@@ -899,7 +902,7 @@ module.exports = {
                             // Limit to max embeds per message (Discord limit is 10)
                             const embedsToSend = embeds.slice(0, maxEmbedsPerMessage);
                             
-                            await interaction.reply({ embeds: embedsToSend, ...ephemeral });
+                            await interaction.editReply({ embeds: embedsToSend });
                             
                             // If there are more embeds, send them in follow-up messages
                             for (let i = maxEmbedsPerMessage; i < embeds.length; i += maxEmbedsPerMessage) {
