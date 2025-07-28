@@ -215,7 +215,7 @@ module.exports = {
                     }
 
                     const continent = (await sql.getGuildContinent(guildId))[0].continent;
-                    console.log('continent:', continent, 'World ID:', worldId);
+                    console.log('continent:', continent, 'Player World ID:', worldId, 'Kingdom ID:', kingdomId, 'Kingdom Name:', kingdomName);
                     console.log(typeof continent, typeof worldId);
 
                     await updateInfo.updateInfo(queenToken, kingdomId, "", "");
