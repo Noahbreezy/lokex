@@ -1067,51 +1067,6 @@ class sqlFunctions {
         return results.length > 0 ? results[0].land_point : null;
     }
 
-    // Lands management functions
-
-    // Add a land ID to a guild
-    async addGuildLand(landId, guildId) {
-        const query = "INSERT INTO lands (land_id, guild_id) VALUES (?, ?);";
-        return this.query(query, [landId, guildId]);
-    }
-
-    // Remove a land ID from a guild
-    async removeGuildLand(landId, guildId) {
-        const query = "DELETE FROM lands WHERE land_id = ? AND guild_id = ?;";
-        return this.query(query, [landId, guildId]);
-    }
-
-    // Check if a land ID exists for a guild
-    async checkGuildLand(landId, guildId) {
-        const query = "SELECT id FROM lands WHERE land_id = ? AND guild_id = ?;";
-        const results = await this.query(query, [landId, guildId]);
-        return results.length > 0;
-    }
-
-    // Get all land IDs for a guild
-    async getGuildLands(guildId) {
-        const query = "SELECT land_id FROM lands WHERE guild_id = ? ORDER BY land_id ASC;";
-        return this.query(query, [guildId]);
-    }
-
-    // Clear all land IDs for a guild
-    async clearGuildLands(guildId) {
-        const query = "DELETE FROM lands WHERE guild_id = ?;";
-        return this.query(query, [guildId]);
-    }
-
-    // Get all guild IDs that have a specific land ID
-    async getGuildsWithLand(landId) {
-        const query = "SELECT guild_id FROM lands WHERE land_id = ?;";
-        return this.query(query, [landId]);
-    }
-
-    // Check if a channel exists in the settings already for a specific guild
-    async channelExists(channel, guild) {
-        const query = `SELECT ${channel} FROM guild_settings WHERE guild_id = ?;`;
-        return this.query(query, [guild]);
-    }
-
     // Check if a guild exists in the settings already
     async guildExists(guildId) {
         const query = `SELECT guild_id FROM guild_settings WHERE guild_id = ?;`;
@@ -1149,6 +1104,45 @@ class sqlFunctions {
         const query = `SELECT ephemeral FROM guild_settings WHERE guild_id = ?;`;
         const results = await this.query(query, [guildId]);
         return results.length > 0 ? results[0].ephemeral === 1 : false;
+    }
+    
+    // Lands management functions
+
+    // Add a land ID to a guild
+    async addGuildLand(landId, guildId) {
+        const query = "INSERT INTO lands (land_id, guild_id) VALUES (?, ?);";
+        return this.query(query, [landId, guildId]);
+    }
+
+    // Remove a land ID from a guild
+    async removeGuildLand(landId, guildId) {
+        const query = "DELETE FROM lands WHERE land_id = ? AND guild_id = ?;";
+        return this.query(query, [landId, guildId]);
+    }
+
+    // Check if a land ID exists for a guild
+    async checkGuildLand(landId, guildId) {
+        const query = "SELECT id FROM lands WHERE land_id = ? AND guild_id = ?;";
+        const results = await this.query(query, [landId, guildId]);
+        return results.length > 0;
+    }
+
+    // Get all land IDs for a guild
+    async getGuildLands(guildId) {
+        const query = "SELECT land_id FROM lands WHERE guild_id = ? ORDER BY land_id ASC;";
+        return this.query(query, [guildId]);
+    }
+
+    // Clear all land IDs for a guild
+    async clearGuildLands(guildId) {
+        const query = "DELETE FROM lands WHERE guild_id = ?;";
+        return this.query(query, [guildId]);
+    }
+
+    // Get all guild IDs that have a specific land ID
+    async getGuildsWithLand(landId) {
+        const query = "SELECT guild_id FROM lands WHERE land_id = ?;";
+        return this.query(query, [landId]);
     }
 
     // Scanner settings functions
