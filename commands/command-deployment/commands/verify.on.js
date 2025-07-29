@@ -45,8 +45,8 @@ module.exports = {
                 .setTitle('🔹 Kingdom Verification')
                 .setDescription(
                     'To verify your kingdom account:\n' +
-                    `1. **Verify your wallet below first !!**\n` +
-                    `2. Send the following code to the queen account in **mail** "${queenInfo.name}" ${queenLocation}\n` +
+                    `1. **Optionally verify your wallet below (it is not recommended skip)**\n` +
+                    `2. Send the following code to the queen account in **mail body** "${queenInfo.name}" ${queenLocation}\n` +
                     `**Code:**\n\`\`\`${code}\`\`\`\n` +
                     '   - *Desktop*: Copy the code above or from the message below.\n' +
                     '   - *Mobile*: Tap and hold the message below to copy the code.\n\n' +
@@ -81,14 +81,18 @@ module.exports = {
 
             const walletPrompt = new EmbedBuilder()
                 .setColor(0x5865F2)
-                .setTitle('🔹 Wallet Verification')
-                .setDescription('Please enter your wallet address to complete the verification process.');
+                .setTitle('🔹 Wallet Verification (Optional)')
+                .setDescription('You can enter your wallet address or skip this step. If skipped, your wallet will be set to "0" in the database.');
 
             const walletInput = new ActionRowBuilder().addComponents(
                 new ButtonBuilder()
                     .setCustomId('wallet_input')
                     .setLabel('Enter Wallet Address')
-                    .setStyle(ButtonStyle.Primary)
+                    .setStyle(ButtonStyle.Primary),
+                new ButtonBuilder()
+                    .setCustomId('skip_wallet')
+                    .setLabel('Skip Wallet')
+                    .setStyle(ButtonStyle.Secondary)
             );
 
             await userDMChannel.send({
@@ -103,29 +107,36 @@ module.exports = {
                     new ActionRowBuilder().addComponents(
                         new TextInputBuilder()
                             .setCustomId('wallet_address')
-                            .setLabel('Wallet Address')
+                            .setLabel('Wallet Address (Optional)')
                             .setStyle(TextInputStyle.Short)
-                            .setPlaceholder('e.g., 0x1234567890abcdef1234567890abcdef12345678')
-                            .setRequired(true)
-                            .setMinLength(42)
-                            .setMaxLength(42)
+                            .setPlaceholder('e.g., 0x1234567890abcdef1234567890abcdef12345678 (or leave empty to skip)')
+                            .setRequired(false)
                     )
                 );
 
-            const filter = (i) => i.customId === 'wallet_input' && i.user.id === interaction.user.id;
+            const filter = (i) => (i.customId === 'wallet_input' || i.customId === 'skip_wallet') && i.user.id === interaction.user.id;
             const collector = userDMChannel.createMessageComponentCollector({ filter, time: 600000 });
 
             collector.on('collect', async (i) => {
                 if (i.customId === 'wallet_input') {
                     await i.showModal(walletModal);
+                } else if (i.customId === 'skip_wallet') {
+                    await i.reply({
+                        content: 'Wallet verification skipped. Please send the code in the **_mail body_**. Starting kingdom verification process...',
+                        ephemeral: true
+                    });
+                    
+                    // Start verification process with '0' as wallet
+                    const storedCode = code;
+                    await this.checkVerification(interaction, storedCode, guildId, '0', 0, this.sql, this.api);
+                    collector.stop('wallet_skipped');
                 }
             });
 
             collector.on('end', (collected, reason) => {
-                const hasWalletFlag = sql.checkVerifiedWallet(userId, guildId);
-                if (reason === 'time' && !hasWalletFlag) {
+                if (reason === 'time') {
                     userDMChannel.send({
-                        content: 'You did not enter your wallet address in time. Please try again.',
+                        content: 'You did not respond in time. Please try the verification process again.',
                     });
                 }
             });
@@ -218,9 +229,9 @@ module.exports = {
                     console.log('continent:', continent, 'Player World ID:', worldId, 'Kingdom ID:', kingdomId, 'Kingdom Name:', kingdomName);
                     console.log(typeof continent, typeof worldId);
 
-                    await updateInfo.updateInfo(queenToken, kingdomId, "", "");
+                    const playerInfo = await updateInfo.updateInfo(queenToken, kingdomId, "", "");
 
-                    if (String(continent) !== String(worldId)) {
+                    if (String(continent) !== String(playerInfo.continent)) {
                         const user = await interaction.client.users.fetch(userId);
                         await user.send(`Your kingdom is not in the correct continent. Please verify a kingdom that is in the correct continent.`);
                         return;
@@ -342,28 +353,33 @@ module.exports = {
         try {
             await interaction.deferReply({ flags: 64 });
 
-            const walletAddress = interaction.fields.getTextInputValue('wallet_address');
-            const isValidEvmAddress = /^0x[a-fA-F0-9]{40}$/.test(walletAddress);
+            const walletInput = interaction.fields.getTextInputValue('wallet_address');
+            const walletAddress = walletInput.trim() === '' ? '0' : walletInput;
             const userId = interaction.user.id;
             const latestRequest = await sql.getLatestVerificationRequestForUser(userId);
             const guildId = latestRequest.guild_id;
             const storedCode = latestRequest.code;
 
-            if (isValidEvmAddress) {
-                await interaction.editReply({
-                    content: 'Wallet address saved successfully!',
-                });
-
-                if (storedCode) {
-                    await this.checkVerification(interaction, storedCode, guildId, walletAddress, 0, this.sql, this.api);
-                } else {
+            // If wallet address is provided, validate it
+            if (walletAddress !== '0') {
+                const isValidEvmAddress = /^0x[a-fA-F0-9]{40}$/.test(walletAddress);
+                if (!isValidEvmAddress) {
                     await interaction.editReply({
-                        content: 'No verification code found. Please start the process again.',
+                        content: 'Invalid wallet address. Please enter a valid EVM wallet address or leave it empty to skip.',
                     });
+                    return;
                 }
+            }
+
+            await interaction.editReply({
+                content: walletAddress === '0' ? 'Wallet verification skipped. Starting kingdom verification process...' : 'Wallet address saved successfully!',
+            });
+
+            if (storedCode) {
+                await this.checkVerification(interaction, storedCode, guildId, walletAddress, 0, this.sql, this.api);
             } else {
                 await interaction.editReply({
-                    content: 'Invalid wallet address. Please enter a valid EVM wallet address.',
+                    content: 'No verification code found. Please start the process again.',
                 });
             }
         } catch (error) {
