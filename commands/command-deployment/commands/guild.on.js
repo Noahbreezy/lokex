@@ -189,6 +189,18 @@ module.exports = {
                         .setMinValue(0)
                         .setMaxValue(99999999.99)
                 )
+        ).addSubcommand((subcommand) =>
+            subcommand
+                .setName("land-point")
+                .setDescription("Set the shop points per land development point in decimal format")
+                .addNumberOption((option) =>
+                    option
+                        .setName("points")
+                        .setDescription("Shop points per land development point (decimal value, e.g., 0.01)")
+                        .setRequired(true)
+                        .setMinValue(0)
+                        .setMaxValue(99999999.99)
+                )
         ),
     async execute(interaction) {
         const sql = module.exports.sql;
@@ -399,6 +411,50 @@ module.exports = {
                         
                         await interaction.reply({ 
                             content: `✅ Point price has been set to: **${price.toFixed(2)} DST**`, 
+                            ...ephemeral 
+                        });
+                        break;
+                    }
+                case "land-price":
+                    {
+                        const price = options.getNumber("price");
+                        
+                        // Validate the decimal places (max 2 decimal places for currency-like values)
+                        const decimalPlaces = (price.toString().split('.')[1] || '').length;
+                        if (decimalPlaces > 2) {
+                            await interaction.reply({ 
+                                content: "❌ Price can have a maximum of 2 decimal places.", 
+                                flags: 64 
+                            });
+                            return;
+                        }
+                        
+                        await sql.setGuildLandPrice(price, guildId);
+                        
+                        await interaction.reply({ 
+                            content: `✅ Land price has been set to: **${price.toFixed(2)} DST**`, 
+                            ...ephemeral 
+                        });
+                        break;
+                    }
+                case "land-point":
+                    {
+                        const points = options.getNumber("points");
+                        
+                        // Validate the decimal places (max 2 decimal places for currency-like values)
+                        const decimalPlaces = (points.toString().split('.')[1] || '').length;
+                        if (decimalPlaces > 2) {
+                            await interaction.reply({ 
+                                content: "❌ Points can have a maximum of 2 decimal places.", 
+                                flags: 64 
+                            });
+                            return;
+                        }
+                        
+                        await sql.setGuildLandPoint(points, guildId);
+                        
+                        await interaction.reply({ 
+                            content: `✅ Land points have been set to: **${points.toFixed(2)} shop points per land development point**`, 
                             ...ephemeral 
                         });
                         break;
