@@ -1,7 +1,7 @@
 const { Client, GatewayIntentBits, EmbedBuilder } = require('discord.js');
 const cron = require('node-cron');
 
-class UpdatePoints {
+class UpdateLandPoints {
     constructor(sql, api) {
         this.sql = sql;
         this.api = api;
@@ -19,7 +19,7 @@ class UpdatePoints {
         // Ensure the client is ready before proceeding
         this.readyPromise = new Promise((resolve) => {
             this.discordClient.once('ready', () => {
-                console.log('UpdatePoints Discord client is ready.');
+                console.log('UpdateLandPoints Discord client is ready.');
                 resolve();
             });
         });
@@ -28,7 +28,7 @@ class UpdatePoints {
     }
 
     // Start the daily points distribution scheduler
-    runPointsDistribution() {
+    runLandPointsDistribution() {
         // Schedule to run every day at 1:00 AM UTC
         cron.schedule('0 1 * * *', async () => {
             console.log('Starting daily land contribution points distribution...');
@@ -302,4 +302,4 @@ class UpdatePoints {
     }
 }
 
-module.exports = UpdatePoints;
+module.exports = UpdateLandPoints;
