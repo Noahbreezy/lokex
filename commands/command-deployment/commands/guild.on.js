@@ -201,6 +201,18 @@ module.exports = {
                         .setMinValue(0)
                         .setMaxValue(99999999.99)
                 )
+        ).addSubcommand((subcommand) =>
+            subcommand
+                .setName("rally-point")
+                .setDescription("Set the shop points per rally point in decimal format")
+                .addNumberOption((option) =>
+                    option
+                        .setName("points")
+                        .setDescription("Shop points per rally point (decimal value, e.g., 0.01)")
+                        .setRequired(true)
+                        .setMinValue(0)
+                        .setMaxValue(99999999.99)
+                )
         ),
     async execute(interaction) {
         const sql = module.exports.sql;
@@ -459,6 +471,28 @@ module.exports = {
                         });
                         break;
                     }
+                case "rally-point":
+                    {
+                        const points = options.getNumber("points");
+                        
+                        // Validate the decimal places (max 2 decimal places for currency-like values)
+                        const decimalPlaces = (points.toString().split('.')[1] || '').length;
+                        if (decimalPlaces > 2) {
+                            await interaction.reply({ 
+                                content: "❌ Points can have a maximum of 2 decimal places.", 
+                                flags: 64 
+                            });
+                            return;
+                        }
+                        
+                        await sql.setGuildRallyPoint(points, guildId);
+                        
+                        await interaction.reply({ 
+                            content: `✅ Rally points have been set to: **${points.toFixed(2)} shop points per rally point**`, 
+                            ...ephemeral 
+                        });
+                        break;
+                    }
                 case "show-settings":
                     {
                         // Define channel-related fields
@@ -492,7 +526,7 @@ module.exports = {
                         const numericFields = ['main_verify_bonus', 'alt_verify_bonus'];
 
                         // Define decimal fields that should be formatted as currency/price
-                        const decimalFields = ['point_price'];
+                        const decimalFields = ['point_price', 'land_point', 'rally_point'];
 
                         // Define boolean fields that should be formatted as YES/NO
                         const booleanFields = ['unverify', 'ephemeral'];

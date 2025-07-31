@@ -1067,6 +1067,19 @@ class sqlFunctions {
         return results.length > 0 ? results[0].land_point : null;
     }
 
+    // Set guild rally point value
+    async setGuildRallyPoint(points, guildId) {
+        const query = "UPDATE guild_settings SET rally_point=? WHERE guild_id=?;";
+        return this.query(query, [points, guildId]);
+    }
+
+    // Get guild rally point value
+    async getGuildRallyPoint(guildId) {
+        const query = "SELECT rally_point FROM guild_settings WHERE guild_id=?;";
+        const results = await this.query(query, [guildId]);
+        return results.length > 0 ? results[0].rally_point : null;
+    }
+
     // Check if a guild exists in the settings already
     async guildExists(guildId) {
         const query = `SELECT guild_id FROM guild_settings WHERE guild_id = ?;`;
@@ -1502,6 +1515,25 @@ class sqlFunctions {
             LIMIT 100
         `;
         return this.query(query, [guildId]);
+    }
+
+    // Get rally participation for a specific date range
+    async getRallyParticipationByDate(guildId, startDate, endDate) {
+        const query = `
+            SELECT r.by_kingdom_id, i.name, COUNT(*) as rally_count
+            FROM rallies r
+            LEFT JOIN (
+                SELECT kingdomId, name
+                FROM info
+                WHERE id IN (
+                    SELECT MAX(id) FROM info GROUP BY kingdomId
+                )
+            ) i ON r.by_kingdom_id = i.kingdomId
+            WHERE r.guild_id = ? AND r.timestamp >= ? AND r.timestamp <= ?
+            GROUP BY r.by_kingdom_id, i.name
+            ORDER BY rally_count DESC
+        `;
+        return this.query(query, [guildId, startDate, endDate]);
     }
 
     // Subscription functions
