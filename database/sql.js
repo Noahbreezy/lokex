@@ -2041,6 +2041,20 @@ class sqlFunctions {
         return true;
     }
 
+    // Check if user has already received a main verification bonus in a guild
+    async hasReceivedMainVerificationBonus(userId, guildId) {
+        const query = `SELECT COUNT(*) as count FROM points_transactions WHERE discord_id = ? AND guild_id = ? AND reason = 'main verification bonus';`;
+        const result = await this.query(query, [userId, guildId]);
+        return result[0].count > 0;
+    }
+
+    // Get the total count of verification bonuses (both main and alt) received by a user in a guild
+    async getTotalVerificationBonusCount(userId, guildId) {
+        const query = `SELECT COUNT(*) as count FROM points_transactions WHERE discord_id = ? AND guild_id = ? AND reason IN ('main verification bonus', 'alt verification bonus');`;
+        const result = await this.query(query, [userId, guildId]);
+        return result[0].count;
+    }
+
     // DST Transaction functions
 
     // Get all guild wallets that have a wallet address set

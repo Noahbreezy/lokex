@@ -246,10 +246,6 @@ module.exports = {
 
                     await sql.addVerified(kingdomId, kingdomName, userId, userName, guildId, wallet);
 
-                    // Check if this is the user's first verification (main) or additional (alt)
-                    const existingVerifications = await sql.checkVerifiedKingdoms(userId, guildId);
-                    const isFirstVerification = !existingVerifications || existingVerifications.length <= 1;
-                    
                     const logChannels = await sql.getGuildLogChannels(guildId);
 
                     // Get guild verification bonus settings
@@ -262,21 +258,27 @@ module.exports = {
                         const mainMinLevel = minLevels ? minLevels.mainMinLevel : 35;
                         const altMinLevel = minLevels ? minLevels.altMinLevel : 21;
 
-                        // Determine bonus amount based on verification type
+                        // Check if user has already received bonuses using the points_transactions table
+                        const hasReceivedMainBonus = await sql.hasReceivedMainVerificationBonus(userId, guildId);
+                        const totalBonusCount = await sql.getTotalVerificationBonusCount(userId, guildId);
+
+                        // Determine bonus amount based on verification type and eligibility
                         let bonusAmount = 0;
                         let bonusType = '';
 
-                        if (isFirstVerification && main_verify_bonus > 0 && kingdomLevel >= mainMinLevel) {
-                            bonusAmount = main_verify_bonus;
-                            bonusType = 'main verification';
-                        } else if (!isFirstVerification && alt_verify_bonus > 0 && kingdomLevel >= altMinLevel) {
-                            // Check if user hasn't exceeded bonus limit
-                            // Current verification count includes the one we just added
-                            const currentVerificationCount = existingVerifications ? existingVerifications.length : 1;
-                            
-                            // If bonus_limit is 0, unlimited bonuses allowed
-                            // If bonus_limit > 0, check if current count is within limit
-                            if (bonus_limit === 0 || currentVerificationCount <= bonus_limit) {
+                        // Check for main verification bonus eligibility (only once per user)
+                        if (!hasReceivedMainBonus && main_verify_bonus > 0 && kingdomLevel >= mainMinLevel) {
+                            // Check if within bonus limit (if limit is set)
+                            if (bonus_limit === 0 || totalBonusCount < bonus_limit) {
+                                bonusAmount = main_verify_bonus;
+                                bonusType = 'main verification';
+                            }
+                        } 
+                        // Check for alt verification bonus eligibility (can be received multiple times up to limit)
+                        else if (alt_verify_bonus > 0 && kingdomLevel >= altMinLevel) {
+                            // Check if within bonus limit (if limit is set)
+                            // For alts, we allow multiple bonuses as long as total count is under limit
+                            if (bonus_limit === 0 || totalBonusCount < bonus_limit) {
                                 bonusAmount = alt_verify_bonus;
                                 bonusType = 'alt verification';
                             }
