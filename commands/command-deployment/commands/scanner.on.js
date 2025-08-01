@@ -11,18 +11,18 @@ module.exports = {
         )
         .addSubcommand(subcommand =>
             subcommand
-                .setName("minlevel")
-                .setDescription("Set minimum CMine and DSA level for reporting")
+                .setName("maxlevel")
+                .setDescription("Set max CMine and DSA level as free for all players")
                 .addIntegerOption(option =>
                     option.setName("cmine_lvl")
-                        .setDescription("Minimum CMine level (1-5)")
+                        .setDescription("Max CMine level (1-5)")
                         .setRequired(true)
                         .setMinValue(1)
                         .setMaxValue(5)
                 )
                 .addIntegerOption(option =>
                     option.setName("dsa_lvl")
-                        .setDescription("Minimum DSA level (1-5)")
+                        .setDescription("Max DSA level (1-5)")
                         .setRequired(true)
                         .setMinValue(1)
                         .setMaxValue(5)
@@ -70,7 +70,7 @@ module.exports = {
                 await interaction.reply({ embeds: [embed], components: [row], ...ephemeral });
                 break;
             }
-            case "minlevel": {
+            case "maxlevel": {
                 const cmine_lvl = interaction.options.getInteger("cmine_lvl");
                 const dsa_lvl = interaction.options.getInteger("dsa_lvl");
                 if (cmine_lvl < 1 || cmine_lvl > 5 || dsa_lvl < 1 || dsa_lvl > 5) {
@@ -78,7 +78,7 @@ module.exports = {
                     return;
                 }
                 await sql.setCmineAndDsaLevels(guildId, cmine_lvl, dsa_lvl);
-                await interaction.reply({ content: `Scanner minimum levels updated: CMine Lv.${cmine_lvl}, DSA Lv.${dsa_lvl}`, ...ephemeral });
+                await interaction.reply({ content: `Scanner free for all max levels updated: CMine Lv.${cmine_lvl}, DSA Lv.${dsa_lvl}`, ...ephemeral });
                 break;
             }
             default:
