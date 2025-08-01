@@ -712,10 +712,13 @@ module.exports = {
                         
                         const targetUser = options.getUser("user");
                         
-                        // If checking another user's licenses, verify admin permissions
+                        // If checking another user's licenses, verify permissions
                         if (targetUser && targetUser.id !== user.id) {
-                            if (!interaction.member.permissions.has(PermissionFlagsBits.Administrator)) {
-                                await interaction.editReply({ content: "❌ You need administrator permissions to check other users' licenses." });
+                            const memberPerms = interaction.member.permissions;
+                            const hasKickApproveReject = memberPerms.has(PermissionFlagsBits.KickMembers)
+                            const hasBan = memberPerms.has(PermissionFlagsBits.BanMembers);
+                            if (!(hasKickApproveReject || hasBan)) {
+                                await interaction.editReply({ content: "❌ You need kick/approve/reject members permissions or ban members permission to check other users' licenses." });
                                 return;
                             }
                         }
