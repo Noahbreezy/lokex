@@ -1,12 +1,37 @@
 const { Client, GatewayIntentBits, EmbedBuilder } = require('discord.js');
 
+/**
+ * UpdateTransactions - Multi-network DST transaction monitor
+ * 
+ * Monitors DST token transfers on multiple blockchain networks:
+ * - Polygon: Original DST contract at 0x3b7e1ce09afe2bb3a23919afb65a38e627cfbe97
+ * - Arena-Z: DST contract at 0x05F4B14B7CA9BA5888ABAEd26bAF2186e62D906e
+ * 
+ * When DST tokens are sent to guild wallets, automatically awards points
+ * to verified Discord users and sends notifications to configured channels.
+ */
+
 class UpdateTransactions {
     constructor(sql, api) {
         this.sql = sql;
         this.api = api;
-        this.polygonRpcUrl = 'https://polygon-rpc.com';
-        this.dstContractAddress = '0x3b7e1ce09afe2bb3a23919afb65a38e627cfbe97';
-        this.lastCheckedBlock = null;
+        
+        // Network configurations
+        this.networks = {
+            polygon: {
+                rpcUrl: 'https://polygon-rpc.com',
+                dstContractAddress: '0x3b7e1ce09afe2bb3a23919afb65a38e627cfbe97',
+                lastCheckedBlock: null,
+                explorerUrl: 'https://polygonscan.com/tx/'
+            },
+            arenaZ: {
+                rpcUrl: 'https://rpc.arena-z.gg',
+                dstContractAddress: '0x05F4B14B7CA9BA5888ABAEd26bAF2186e62D906e',
+                lastCheckedBlock: null,
+                explorerUrl: 'https://explorer.arena-z.gg/tx/'
+            }
+        };
+        
         this.isRunning = false;
         this.checkInterval = 60000; // Check every minute
         
@@ -36,9 +61,9 @@ class UpdateTransactions {
             return;
         }
         
-        console.log('Starting DST transaction monitoring...');
+        console.log('Starting DST transaction monitoring on both Polygon and Arena-Z networks...');
         this.isRunning = true;
-        this.initializeLastBlock();
+        this.initializeLastBlocks();
         this.scheduleNextCheck();
     }
 
@@ -51,27 +76,34 @@ class UpdateTransactions {
         console.log('DST transaction monitoring stopped');
     }
 
-    // Initialize the last checked block
-    async initializeLastBlock() {
-        try {
-            // Get current block number if not set
-            if (!this.lastCheckedBlock) {
-                const response = await this.api.request(this.polygonRpcUrl, {
-                    jsonrpc: "2.0",
-                    method: "eth_blockNumber",
-                    params: [],
-                    id: 1
-                }, {
-                    'Content-Type': 'application/json'
-                });
-                
-                this.lastCheckedBlock = parseInt(response.data.result, 16) - 100; // Start from 100 blocks ago
-                console.log(`Starting DST monitoring from block: ${this.lastCheckedBlock}`);
+    // Initialize the last checked blocks for all networks
+    async initializeLastBlocks() {
+        for (const [networkName, network] of Object.entries(this.networks)) {
+            try {
+                // Get current block number if not set
+                if (!network.lastCheckedBlock) {
+                    const response = await this.api.request(network.rpcUrl, {
+                        jsonrpc: "2.0",
+                        method: "eth_blockNumber",
+                        params: [],
+                        id: 1
+                    }, {
+                        'Content-Type': 'application/json'
+                    });
+                    
+                    network.lastCheckedBlock = parseInt(response.data.result, 16) - 100; // Start from 100 blocks ago
+                    console.log(`Starting DST monitoring on ${networkName} from block: ${network.lastCheckedBlock}`);
+                }
+            } catch (error) {
+                console.error(`Error initializing last block for ${networkName}:`, error);
+                network.lastCheckedBlock = null;
             }
-        } catch (error) {
-            console.error('Error initializing last block:', error);
-            this.lastCheckedBlock = null;
         }
+    }
+
+    // Initialize the last checked block (legacy method for compatibility)
+    async initializeLastBlock() {
+        await this.initializeLastBlocks();
     }
 
     // Schedule the next check
@@ -86,7 +118,7 @@ class UpdateTransactions {
     // Main function to check for new DST transactions
     async checkForNewTransactions() {
         try {
-            console.log('Checking for new DST transactions...');
+            console.log('Checking for new DST transactions on all networks...');
             
             // Get all guild wallets
             const guildWallets = await this.getGuildWallets();
@@ -96,31 +128,43 @@ class UpdateTransactions {
                 return;
             }
 
-            // Get current block number
-            const currentBlock = await this.getCurrentBlock();
-            if (!currentBlock || !this.lastCheckedBlock) {
-                console.log('Unable to get block numbers');
-                this.scheduleNextCheck();
-                return;
+            // Check each network
+            for (const [networkName, network] of Object.entries(this.networks)) {
+                await this.checkNetworkTransactions(networkName, network, guildWallets);
             }
-
-            // Get DST transfer events since last check
-            const transfers = await this.getDSTTransfers(this.lastCheckedBlock, currentBlock);
-            
-            if (transfers.length > 0) {
-                console.log(`Found ${transfers.length} DST transfer events`);
-                await this.processTransfers(transfers, guildWallets);
-            } else {
-                console.log('No new DST transfers found');
-            }
-
-            this.lastCheckedBlock = currentBlock;
             
         } catch (error) {
             console.error('Error checking for transactions:', error);
         }
         
         this.scheduleNextCheck();
+    }
+
+    // Check transactions for a specific network
+    async checkNetworkTransactions(networkName, network, guildWallets) {
+        try {
+            // Get current block number
+            const currentBlock = await this.getCurrentBlock(network.rpcUrl);
+            if (!currentBlock || !network.lastCheckedBlock) {
+                console.log(`Unable to get block numbers for ${networkName}`);
+                return;
+            }
+
+            // Get DST transfer events since last check
+            const transfers = await this.getDSTTransfers(network, network.lastCheckedBlock, currentBlock);
+            
+            if (transfers.length > 0) {
+                console.log(`Found ${transfers.length} DST transfer events on ${networkName}`);
+                await this.processTransfers(transfers, guildWallets, networkName, network.explorerUrl);
+            } else {
+                console.log(`No new DST transfers found on ${networkName}`);
+            }
+
+            network.lastCheckedBlock = currentBlock;
+            
+        } catch (error) {
+            console.error(`Error checking transactions for ${networkName}:`, error);
+        }
     }
 
     // Get all guild wallets from database
@@ -135,9 +179,9 @@ class UpdateTransactions {
     }
 
     // Get current block number
-    async getCurrentBlock() {
+    async getCurrentBlock(rpcUrl = this.networks.polygon.rpcUrl) {
         try {
-            const response = await this.api.request(this.polygonRpcUrl, {
+            const response = await this.api.request(rpcUrl, {
                 jsonrpc: "2.0",
                 method: "eth_blockNumber",
                 params: [],
@@ -154,18 +198,18 @@ class UpdateTransactions {
     }
 
     // Get DST transfer events from blockchain
-    async getDSTTransfers(fromBlock, toBlock) {
+    async getDSTTransfers(network, fromBlock, toBlock) {
         try {
             // ERC20 Transfer event signature: Transfer(address,address,uint256)
             const transferTopic = '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef';
             
-            const response = await this.api.request(this.polygonRpcUrl, {
+            const response = await this.api.request(network.rpcUrl, {
                 jsonrpc: "2.0",
                 method: "eth_getLogs",
                 params: [{
                     fromBlock: `0x${fromBlock.toString(16)}`,
                     toBlock: `0x${toBlock.toString(16)}`,
-                    address: this.dstContractAddress,
+                    address: network.dstContractAddress,
                     topics: [transferTopic]
                 }],
                 id: 1
@@ -181,7 +225,7 @@ class UpdateTransactions {
     }
 
     // Process transfer events and award points
-    async processTransfers(transfers, guildWallets) {
+    async processTransfers(transfers, guildWallets, networkName, explorerUrl) {
         for (const transfer of transfers) {
             try {
                 const decodedTransfer = this.decodeTransferEvent(transfer);
@@ -193,7 +237,7 @@ class UpdateTransactions {
                 );
 
                 if (targetGuild) {
-                    await this.processGuildTransfer(decodedTransfer, targetGuild.guild_id, transfer.transactionHash);
+                    await this.processGuildTransfer(decodedTransfer, targetGuild.guild_id, transfer.transactionHash, networkName, explorerUrl);
                 }
             } catch (error) {
                 console.error('Error processing transfer:', error);
@@ -229,9 +273,9 @@ class UpdateTransactions {
     }
 
     // Process a transfer to a guild wallet
-    async processGuildTransfer(transfer, guildId, txHash) {
+    async processGuildTransfer(transfer, guildId, txHash, networkName = 'polygon', explorerUrl = 'https://polygonscan.com/tx/') {
         try {
-            console.log(`Processing DST transfer to guild ${guildId}: ${transfer.amount} DST from ${transfer.from}`);
+            console.log(`Processing DST transfer to guild ${guildId}: ${transfer.amount} DST from ${transfer.from} on ${networkName}`);
 
             // Check if we already processed this transaction
             if (await this.isTransactionProcessed(txHash, guildId)) {
@@ -243,7 +287,7 @@ class UpdateTransactions {
             const pointPrice = await this.sql.getGuildPointPrice(guildId);
             if (!pointPrice || pointPrice <= 0) {
                 console.log(`No valid point price set for guild ${guildId}`);
-                await this.logTransaction(txHash, guildId, transfer.from, transfer.amount, 0, 'No point price set');
+                await this.logTransaction(txHash, guildId, transfer.from, transfer.amount, 0, `No point price set (${networkName})`);
                 return;
             }
 
@@ -251,7 +295,7 @@ class UpdateTransactions {
             const pointsToAward = Math.floor(transfer.amount / pointPrice);
             if (pointsToAward <= 0) {
                 console.log(`Transfer amount too small to award points: ${transfer.amount} DST, price: ${pointPrice}`);
-                await this.logTransaction(txHash, guildId, transfer.from, transfer.amount, 0, 'Amount too small');
+                await this.logTransaction(txHash, guildId, transfer.from, transfer.amount, 0, `Amount too small (${networkName})`);
                 return;
             }
 
@@ -266,19 +310,19 @@ class UpdateTransactions {
                     `DST payment`
                 );
                 
-                console.log(`Awarded ${pointsToAward} points to Discord user ${userInfo.discordId} (${userInfo.name}) for ${transfer.amount} DST`);
-                await this.logTransaction(txHash, guildId, transfer.from, transfer.amount, pointsToAward, `Awarded to ${userInfo.discordId}`);
+                console.log(`Awarded ${pointsToAward} points to Discord user ${userInfo.discordId} (${userInfo.name}) for ${transfer.amount} DST on ${networkName}`);
+                await this.logTransaction(txHash, guildId, transfer.from, transfer.amount, pointsToAward, `Awarded to ${userInfo.discordId} (${networkName})`);
                 
                 // Send Discord notification
-                await this.sendDiscordNotification(guildId, userInfo, pointsToAward, transfer.amount, txHash);
+                await this.sendDiscordNotification(guildId, userInfo, pointsToAward, transfer.amount, txHash, networkName, explorerUrl);
             } else {
                 console.log(`No verified Discord account found for wallet ${transfer.from} in guild ${guildId}`);
-                await this.logTransaction(txHash, guildId, transfer.from, transfer.amount, 0, 'No verified Discord account');
+                await this.logTransaction(txHash, guildId, transfer.from, transfer.amount, 0, `No verified Discord account (${networkName})`);
             }
 
         } catch (error) {
             console.error('Error processing guild transfer:', error);
-            await this.logTransaction(txHash, guildId, transfer.from, transfer.amount, 0, `Error: ${error.message}`);
+            await this.logTransaction(txHash, guildId, transfer.from, transfer.amount, 0, `Error: ${error.message} (${networkName})`);
         }
     }
 
@@ -302,9 +346,15 @@ class UpdateTransactions {
     }
 
     // Method to manually check a specific transaction hash
-    async checkSpecificTransaction(txHash) {
+    async checkSpecificTransaction(txHash, networkName = 'polygon') {
         try {
-            const response = await this.api.request(this.polygonRpcUrl, {
+            const network = this.networks[networkName];
+            if (!network) {
+                console.log(`Unknown network: ${networkName}`);
+                return;
+            }
+
+            const response = await this.api.request(network.rpcUrl, {
                 jsonrpc: "2.0",
                 method: "eth_getTransactionReceipt",
                 params: [txHash],
@@ -321,20 +371,73 @@ class UpdateTransactions {
 
             // Filter for DST transfer events
             const dstTransfers = receipt.logs.filter(log => 
-                log.address.toLowerCase() === this.dstContractAddress.toLowerCase() &&
+                log.address.toLowerCase() === network.dstContractAddress.toLowerCase() &&
                 log.topics[0] === '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef'
             );
 
             const guildWallets = await this.getGuildWallets();
-            await this.processTransfers(dstTransfers, guildWallets);
+            await this.processTransfers(dstTransfers, guildWallets, networkName, network.explorerUrl);
             
         } catch (error) {
             console.error('Error checking specific transaction:', error);
         }
     }
 
+    // Method to check a transaction hash on all networks
+    async checkTransactionOnAllNetworks(txHash) {
+        console.log(`Checking transaction ${txHash} on all networks...`);
+        for (const networkName of Object.keys(this.networks)) {
+            console.log(`Checking on ${networkName}...`);
+            await this.checkSpecificTransaction(txHash, networkName);
+        }
+    }
+
+    // Get network information
+    getNetworkInfo() {
+        return this.networks;
+    }
+
+    // Set custom network configuration (for testing or additional networks)
+    addNetwork(name, config) {
+        this.networks[name] = {
+            rpcUrl: config.rpcUrl,
+            dstContractAddress: config.dstContractAddress,
+            lastCheckedBlock: null,
+            explorerUrl: config.explorerUrl || 'https://etherscan.io/tx/'
+        };
+    }
+
+    // Get monitoring status for all networks
+    async getNetworkStatus() {
+        const status = {};
+        for (const [networkName, network] of Object.entries(this.networks)) {
+            try {
+                const currentBlock = await this.getCurrentBlock(network.rpcUrl);
+                status[networkName] = {
+                    rpcUrl: network.rpcUrl,
+                    dstContract: network.dstContractAddress,
+                    lastCheckedBlock: network.lastCheckedBlock,
+                    currentBlock: currentBlock,
+                    isConnected: currentBlock !== null,
+                    explorerUrl: network.explorerUrl
+                };
+            } catch (error) {
+                status[networkName] = {
+                    rpcUrl: network.rpcUrl,
+                    dstContract: network.dstContractAddress,
+                    lastCheckedBlock: network.lastCheckedBlock,
+                    currentBlock: null,
+                    isConnected: false,
+                    error: error.message,
+                    explorerUrl: network.explorerUrl
+                };
+            }
+        }
+        return status;
+    }
+
     // Send Discord notification about points distribution
-    async sendDiscordNotification(guildId, userInfo, pointsAwarded, dstAmount, txHash) {
+    async sendDiscordNotification(guildId, userInfo, pointsAwarded, dstAmount, txHash, networkName = 'polygon', explorerUrl = 'https://polygonscan.com/tx/') {
         try {
             // Wait for Discord client to be ready
             await this.readyPromise;
@@ -357,10 +460,14 @@ class UpdateTransactions {
                 return;
             }
 
+            // Network-specific styling
+            const networkEmoji = networkName === 'arenaZ' ? '🏟️' : '🔷';
+            const networkDisplay = networkName === 'arenaZ' ? 'Arena-Z' : 'Polygon';
+
             // Create embed message using EmbedBuilder
             const embed = new EmbedBuilder()
-                .setTitle('💰 DST Payment Processed')
-                .setColor(0x00ff00) // Green color
+                .setTitle(`💰 DST Payment Processed (${networkDisplay})`)
+                .setColor(networkName === 'arenaZ' ? 0xff6b35 : 0x00ff00) // Orange for Arena-Z, Green for Polygon
                 .addFields(
                     {
                         name: '👤 User',
@@ -378,8 +485,13 @@ class UpdateTransactions {
                         inline: true
                     },
                     {
+                        name: `${networkEmoji} Network`,
+                        value: networkDisplay,
+                        inline: true
+                    },
+                    {
                         name: '🔗 Transaction Hash',
-                        value: `[${txHash.slice(0, 10)}...${txHash.slice(-8)}](https://polygonscan.com/tx/${txHash})`,
+                        value: `[${txHash.slice(0, 10)}...${txHash.slice(-8)}](${explorerUrl}${txHash})`,
                         inline: false
                     }
                 )
@@ -389,7 +501,7 @@ class UpdateTransactions {
             // Send the message
             await channel.send({ embeds: [embed] });
 
-            console.log(`Discord notification sent to channel ${channelId} for guild ${guildId}`);
+            console.log(`Discord notification sent to channel ${channelId} for guild ${guildId} (${networkName})`);
             
         } catch (error) {
             console.error('Error sending Discord notification:', error);
