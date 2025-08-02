@@ -1897,10 +1897,26 @@ class sqlFunctions {
         );
     }
 
-    // Remove a kingdom from the whitelist (set dsa and cmine to 0)
+    // Remove a kingdom from the whitelist completely (set dsa and cmine to 0)
     async removeFromWhitelist(kingdomId, continent, guild) {
         return this.query(
             `UPDATE whitelist SET dsa = '0', cmine = '0' WHERE kingdomid = ? AND continent = ? AND guild = ?`,
+            [kingdomId, continent, guild]
+        );
+    }
+
+    // remove a kingdom from the whitelist where no expiry is set (set dsa and cmine to 0)
+    async removeFromWhitelistNoExpiry(kingdomId, continent, guild) {
+        return this.query(
+            `UPDATE whitelist SET dsa = '0', cmine = '0' WHERE kingdomid = ? AND continent = ? AND guild = ? AND expiry IS NULL`,
+            [kingdomId, continent, guild]
+        );
+    }
+
+    // remove a kingdom from the whitelist where expiry is set (set dsa and cmine to 0)
+    async removeFromWhitelistWithExpiry(kingdomId, continent, guild) {
+        return this.query(
+            `UPDATE whitelist SET dsa = '0', cmine = '0' WHERE kingdomid = ? AND continent = ? AND guild = ? AND expiry IS NOT NULL`,
             [kingdomId, continent, guild]
         );
     }

@@ -200,6 +200,17 @@ module.exports = {
                         .setRequired(true)
                         .setAutocomplete(true)
                 )
+                .addStringOption((option) =>
+                    option
+                        .setName("license-type")
+                        .setDescription("Type of license to remove")
+                        .setRequired(true)
+                        .addChoices(
+                            { name: "All licenses", value: "all" },
+                            { name: "Permanent licenses only", value: "permanent" },
+                            { name: "Temporary licenses only", value: "temporary" }
+                        )
+                )
         )
         .addSubcommand((subcommand) =>
             subcommand
@@ -260,12 +271,34 @@ module.exports = {
             switch (options.getSubcommand()) {
                 case "remove": {
                     const kingdomId = options.getString("name");
+                    const licenseType = options.getString("license-type");
+                    
                     // Get the latest name for display
                     const nameResult = await sql.getKingdomName(kingdomId);
                     const displayName = (nameResult && nameResult[0] && nameResult[0].name) ? nameResult[0].name : kingdomId;
-                    await sql.removeFromWhitelist(kingdomId, continent, guild);
+                    
+                    let result;
+                    let message;
+                    
+                    switch (licenseType) {
+                        case "all":
+                            result = await sql.removeFromWhitelist(kingdomId, continent, guild);
+                            message = `All licenses for ${displayName} have been removed from the whitelist.`;
+                            break;
+                        case "permanent":
+                            result = await sql.removeFromWhitelistNoExpiry(kingdomId, continent, guild);
+                            message = `Permanent licenses for ${displayName} have been removed from the whitelist.`;
+                            break;
+                        case "temporary":
+                            result = await sql.removeFromWhitelistWithExpiry(kingdomId, continent, guild);
+                            message = `Temporary licenses for ${displayName} have been removed from the whitelist.`;
+                            break;
+                        default:
+                            message = `Invalid license type specified.`;
+                    }
+                    
                     await interaction.editReply({
-                        content: `${displayName} has been removed from the whitelist.`
+                        content: message
                     });
                     break;
                 }
