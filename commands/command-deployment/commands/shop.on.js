@@ -250,7 +250,7 @@ module.exports = {
             const currencyEmoji = await getCurrencyEmoji(guildId, sql);
 
             // Check admin permissions for admin-only commands
-            const adminOnlyCommands = ['add', 'edit', 'remove', 'list', 'refresh', 'history', 'addpoints'];
+            const adminOnlyCommands = ['add', 'edit', 'remove', 'refresh', 'history', 'addpoints'];
             const subcommand = options.getSubcommand();
             
             if (adminOnlyCommands.includes(subcommand)) {
@@ -422,7 +422,53 @@ module.exports = {
                             return;
                         }
 
-                        const embed = new EmbedBuilder()
+                        // Get conversion rates
+                        const pointPrice = await sql.getGuildPointPrice(guildId);
+                        const landPoint = await sql.getGuildLandPoint(guildId);
+                        const rallyPoint = await sql.getGuildRallyPoint(guildId);
+
+                        // Create conversion rates embed
+                        const ratesEmbed = new EmbedBuilder()
+                            .setColor(0x00AE86)
+                            .setTitle("💱 Point Conversion Rates")
+                            .setTimestamp();
+
+                        let ratesDescription = "";
+                        
+                        // DST to Points conversion
+                        if (pointPrice && pointPrice > 0) {
+                            const pointsPerDST = 1 / parseFloat(pointPrice);
+                            // Format to remove unnecessary trailing zeros
+                            const formattedPoints = Number(pointsPerDST.toFixed(2)).toString();
+                            ratesDescription += `🪙 **1 DST** = **${formattedPoints} ${currencyEmoji}**\n`;
+                        } else {
+                            ratesDescription += `🪙 **DST to Points:** *Not configured*\n`;
+                        }
+
+                        // Development Points to Points conversion
+                        if (landPoint && landPoint > 0) {
+                            const landPointNum = parseFloat(landPoint);
+                            // Format to remove unnecessary trailing zeros
+                            const formattedLandPoints = Number(landPointNum.toFixed(2)).toString();
+                            ratesDescription += `💎 **1 Development Point** = **${formattedLandPoints} ${currencyEmoji}**\n`;
+                        } else {
+                            ratesDescription += `💎 **Development Points:** *Not configured*\n`;
+                        }
+
+                        // Rally Points conversion
+                        if (rallyPoint && rallyPoint > 0) {
+                            const rallyPointNum = parseFloat(rallyPoint);
+                            // Format to remove unnecessary trailing zeros
+                            const formattedRallyPoints = Number(rallyPointNum.toFixed(2)).toString();
+                            ratesDescription += `⚔️ **1 Rally** = **${formattedRallyPoints} ${currencyEmoji}**\n`;
+                        } else {
+                            ratesDescription += `⚔️ **Rally Points:** *Not configured*\n`;
+                        }
+
+                        ratesEmbed.setDescription(ratesDescription);
+
+                        // Create shop items embed
+                        const shopEmbed = new EmbedBuilder()
                             .setColor(0xFFD700)
                             .setTitle(`🛒 ${guildName} Shop Items`)
                             .setDescription("List of all shop items:")
@@ -438,8 +484,10 @@ module.exports = {
                             description += `\n${item.description || 'No description'}\n\n`;
                         }
 
-                        embed.setDescription(description);
-                        await interaction.reply({ embeds: [embed], ...ephemeral });
+                        shopEmbed.setDescription(description);
+                        
+                        // Send both embeds
+                        await interaction.reply({ embeds: [ratesEmbed, shopEmbed], ...ephemeral });
                         break;
                     }
                 case "refresh":
