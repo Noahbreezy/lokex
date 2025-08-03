@@ -335,11 +335,50 @@ class Scanner {
       const safeValue = (typeof value === "number" && !isNaN(value)) ? value : 0;
 
       const channel = await this.discordClient.channels.fetch(channelId);
+      
+      // Get custom emoji based on mine type
+      const customEmoji = code === 20100105 ? '<:crystal:1400996986395688960>' : '<:dsa:1400996962827899101>';
+      
+      const embed = {
+        color: 0xff0000, // Red color for illegal mining
+        title: `${customEmoji} Illegal ${resource.type} Mining Detected`,
+        description: `**${discordTag || `[${allianceTag}] ${name}`} is illegally mining a ${resource.type} Mine Lv. ${level} at ${x}:${y} with ${safeValue.toLocaleString()} ${resource.typeb} inside**`,
+        fields: [
+          {
+            name: "Criminal",
+            value: `[${allianceTag}] ${name} ${discordTag}`,
+            inline: false
+          },
+          {
+            name: "Mining Started",
+            value: `<t:${miningStart}:F> (<t:${miningStart}:R>)`,
+            inline: false
+          },
+          {
+            name: "Location",
+            value: `${x}:${y}`,
+            inline: true
+          },
+          {
+            name: "Mine Level",
+            value: `${level}`,
+            inline: true
+          },
+          {
+            name: "Resources Inside",
+            value: `${safeValue.toLocaleString()} ${resource.typeb}`,
+            inline: true
+          }
+        ],
+        timestamp: new Date().toISOString(),
+        footer: {
+          text: `${resource.type} Mine Alert`
+        }
+      };
+
       await channel.send({
-        content: `## **${discordTag || `[${allianceTag}] ${name}`} is illegally mining a ${resource.type} Mine Lv. ${level} at ${x}:${y} with ${safeValue.toLocaleString()} ${resource.typeb} inside**\n\n` +
-          `Criminal: [${allianceTag}] ${name} ${discordTag}\n\n` +
-          `Mining started at: <t:${miningStart}:F> (<t:${miningStart}:R>)\n\n`,
-        files: [resource.img],
+        content: discordTag ? `${discordTag}` : null,
+        embeds: [embed],
       });
     } catch (error) {
       console.error(`Error sending Discord notification for guild ${this.currentGuild}:`, error);
