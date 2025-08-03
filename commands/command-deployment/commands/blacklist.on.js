@@ -30,7 +30,7 @@ async function handleNameAutocomplete(interaction, sql) {
 module.exports = {
     data: new SlashCommandBuilder()
         .setName("blacklist")
-        .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
+        .setDefaultMemberPermissions(PermissionFlagsBits.KickMembers)
         .setDescription("Manage Blacklist")
         .addSubcommand((subcommand) =>
             subcommand.setName("list").setDescription("List Blacklist")
