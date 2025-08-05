@@ -1437,6 +1437,28 @@ class sqlFunctions {
         return results.length > 0 ? results[0].count : 0;
     }
 
+    // Add a rally joiner to the database
+    async addRallyJoiner(rallyId, joinerKingdomId, guildId) {
+        const query = `
+            INSERT IGNORE INTO rally_joiners (rally_id, joiner_kingdom_id, guild_id)
+            VALUES (?, ?, ?);
+        `;
+        return this.query(query, [rallyId, joinerKingdomId, guildId]);
+    }
+
+    // Check if a rally joiner already exists
+    async checkRallyJoiner(rallyId, joinerKingdomId, guildId) {
+        const query = 'SELECT id FROM rally_joiners WHERE rally_id = ? AND joiner_kingdom_id = ? AND guild_id = ?';
+        const result = await this.query(query, [rallyId, joinerKingdomId, guildId]);
+        return result.length > 0;
+    }
+
+    // Get rally joiners for a specific rally
+    async getRallyJoiners(rallyId, guildId) {
+        const query = 'SELECT joiner_kingdom_id, timestamp FROM rally_joiners WHERE rally_id = ? AND guild_id = ?';
+        return this.query(query, [rallyId, guildId]);
+    }
+
     // Get player's rallies rank based on both startDate and endDate, using the most recent name from info
     async getRalliesRankByStartAndEndDate(guildId, startDate, endDate) {
         const query = `
@@ -1532,6 +1554,25 @@ class sqlFunctions {
             WHERE r.guild_id = ? AND r.timestamp >= ? AND r.timestamp <= ?
             GROUP BY r.by_kingdom_id, i.name
             ORDER BY rally_count DESC
+        `;
+        return this.query(query, [guildId, startDate, endDate]);
+    }
+
+    // Get rally joiner participation for a specific date range
+    async getRallyJoinerParticipationByDate(guildId, startDate, endDate) {
+        const query = `
+            SELECT rj.joiner_kingdom_id, i.name, COUNT(*) as join_count
+            FROM rally_joiners rj
+            LEFT JOIN (
+                SELECT kingdomId, name
+                FROM info
+                WHERE id IN (
+                    SELECT MAX(id) FROM info GROUP BY kingdomId
+                )
+            ) i ON rj.joiner_kingdom_id = i.kingdomId
+            WHERE rj.guild_id = ? AND rj.timestamp >= ? AND rj.timestamp <= ?
+            GROUP BY rj.joiner_kingdom_id, i.name
+            ORDER BY join_count DESC
         `;
         return this.query(query, [guildId, startDate, endDate]);
     }

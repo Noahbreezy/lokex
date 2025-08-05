@@ -81,8 +81,9 @@ class UpdateRalliesPoints {
                 return;
             }
 
-            // Get point value per rally
+            // Get point value per rally (used for both starting and joining)
             const pointsPerRally = await this.sql.getGuildRallyPoint(guildId);
+            
             if (!pointsPerRally || pointsPerRally <= 0) {
                 console.log(`No rally point value configured for guild ${guildId}`);
                 return;
@@ -96,11 +97,14 @@ class UpdateRalliesPoints {
             const today = new Date();
             const endDate = today.toISOString().slice(0, 19).replace('T', ' ');
 
-            // Get rally participation for yesterday
+            // Get rally participation for yesterday (starters)
             const rallyParticipation = await this.sql.getRallyParticipationByDate(guildId, startDate, endDate);
             
-            if (rallyParticipation.length === 0) {
-                console.log(`No rally starting found for guild ${guildId} on ${yesterday.toISOString().slice(0, 10)}`);
+            // Get rally joiner participation for yesterday
+            const rallyJoinerParticipation = await this.sql.getRallyJoinerParticipationByDate(guildId, startDate, endDate);
+            
+            if (rallyParticipation.length === 0 && rallyJoinerParticipation.length === 0) {
+                console.log(`No rally activity found for guild ${guildId} on ${yesterday.toISOString().slice(0, 10)}`);
                 return;
             }
 
@@ -108,7 +112,9 @@ class UpdateRalliesPoints {
             const distributionResults = [];
             let totalPointsDistributed = 0;
             let totalRallies = 0;
+            let totalJoins = 0;
 
+            // Process rally starters
             for (const participant of rallyParticipation) {
                 try {
                     // Get Discord ID for the kingdom
@@ -120,34 +126,78 @@ class UpdateRalliesPoints {
                         
                         if (shopPoints > 0) {
                             // Add shop points
-                            await this.sql.addUserPoints(discordId, guildId, shopPoints, `Rally participation`);
+                            await this.sql.addUserPoints(discordId, guildId, shopPoints, `Rally starting`);
                             
                             distributionResults.push({
                                 kingdomId: participant.by_kingdom_id,
                                 kingdomName: participant.name,
                                 discordId: discordId,
                                 rallyCount: participant.rally_count,
-                                shopPoints: shopPoints
+                                joinCount: 0,
+                                shopPoints: shopPoints,
+                                type: 'starter'
                             });
                             
                             totalPointsDistributed += shopPoints;
                             totalRallies += participant.rally_count;
                         }
-                    } else {
-                        // console.log(`Kingdom ${participant.by_kingdom_id} not verified in guild ${guildId}`);
                     }
                 } catch (error) {
-                    console.error(`Error processing kingdom ${participant.by_kingdom_id}:`, error);
+                    console.error(`Error processing rally starter kingdom ${participant.by_kingdom_id}:`, error);
+                }
+            }
+
+            // Process rally joiners
+            for (const joiner of rallyJoinerParticipation) {
+                try {
+                    // Get Discord ID for the kingdom
+                    const verifiedRows = await this.sql.getVerifiedDiscordId(joiner.joiner_kingdom_id, guildId);
+                    
+                    if (verifiedRows && verifiedRows.length > 0) {
+                        const discordId = verifiedRows[0].discordId;
+                        const shopPoints = Math.floor(joiner.join_count * pointsPerRally);
+                        
+                        if (shopPoints > 0) {
+                            // Check if this user already got points for starting rallies
+                            const existingResult = distributionResults.find(r => r.discordId === discordId);
+                            
+                            if (existingResult) {
+                                // Add joiner points to existing result
+                                existingResult.joinCount = joiner.join_count;
+                                existingResult.shopPoints += shopPoints;
+                                existingResult.type = 'both';
+                            } else {
+                                // Create new result for joiner only
+                                distributionResults.push({
+                                    kingdomId: joiner.joiner_kingdom_id,
+                                    kingdomName: joiner.name,
+                                    discordId: discordId,
+                                    rallyCount: 0,
+                                    joinCount: joiner.join_count,
+                                    shopPoints: shopPoints,
+                                    type: 'joiner'
+                                });
+                            }
+                            
+                            // Add shop points
+                            await this.sql.addUserPoints(discordId, guildId, shopPoints, `Rally joining`);
+                            
+                            totalPointsDistributed += shopPoints;
+                            totalJoins += joiner.join_count;
+                        }
+                    }
+                } catch (error) {
+                    console.error(`Error processing rally joiner kingdom ${joiner.joiner_kingdom_id}:`, error);
                 }
             }
 
             // Log the distribution results to Discord
             if (distributionResults.length > 0) {
                 console.log(`[${new Date().toISOString()}] Logging results for guild ${guildId}: ${distributionResults.length} results`);
-                await this.logDistributionResults(guildId, distributionResults, yesterday.toISOString().slice(0, 10), totalPointsDistributed, totalRallies);
+                await this.logDistributionResults(guildId, distributionResults, yesterday.toISOString().slice(0, 10), totalPointsDistributed, totalRallies, totalJoins);
             }
 
-            console.log(`[${new Date().toISOString()}] Rally points distribution completed for guild ${guildId}: ${totalPointsDistributed} points distributed to ${distributionResults.length} players for ${totalRallies} rallies`);
+            console.log(`[${new Date().toISOString()}] Rally points distribution completed for guild ${guildId}: ${totalPointsDistributed} points distributed to ${distributionResults.length} players for ${totalRallies} rallies started and ${totalJoins} rally joins`);
 
         } catch (error) {
             console.error(`[${new Date().toISOString()}] Error in distributePointsForGuild for guild ${guildId}:`, error);
@@ -155,7 +205,7 @@ class UpdateRalliesPoints {
     }
 
     // Log distribution results to Discord
-    async logDistributionResults(guildId, results, date, totalPointsDistributed, totalRallies) {
+    async logDistributionResults(guildId, results, date, totalPointsDistributed, totalRallies, totalJoins = 0) {
         try {
             await this.readyPromise; // Ensure Discord client is ready
 
@@ -186,7 +236,9 @@ class UpdateRalliesPoints {
                     { name: '📅 Date', value: date, inline: true },
                     { name: '👑 Players Rewarded', value: results.length.toString(), inline: true },
                     { name: `${emoji} Total Currency Distributed`, value: totalPointsDistributed.toString(), inline: true },
-                    { name: '⚔️ Total Rallies Started', value: totalRallies.toString(), inline: true }
+                    { name: '⚔️ Total Rallies Started', value: totalRallies.toString(), inline: true },
+                    { name: '🤝 Total Rally Joins', value: totalJoins.toString(), inline: true },
+                    { name: '📊 Total Rally Activity', value: (totalRallies + totalJoins).toString(), inline: true }
                 )
                 .setTimestamp();
 
@@ -204,7 +256,17 @@ class UpdateRalliesPoints {
                     userDisplay = `User ${result.discordId}`;
                 }
                 
-                const message = `${userDisplay} received **${result.shopPoints} shop points** for starting **${result.rallyCount} rally${result.rallyCount > 1 ? 's' : ''}** on ${date}`;
+                let message = `${userDisplay} received **${result.shopPoints} shop points** for `;
+                
+                if (result.type === 'starter') {
+                    message += `starting **${result.rallyCount} rally${result.rallyCount > 1 ? 's' : ''}**`;
+                } else if (result.type === 'joiner') {
+                    message += `joining **${result.joinCount} rally${result.joinCount > 1 ? 's' : ''}**`;
+                } else if (result.type === 'both') {
+                    message += `starting **${result.rallyCount} rally${result.rallyCount > 1 ? 's' : ''}** and joining **${result.joinCount} rally${result.joinCount > 1 ? 's' : ''}**`;
+                }
+                
+                message += ` on ${date}`;
                 
                 try {
                     await channel.send(message);

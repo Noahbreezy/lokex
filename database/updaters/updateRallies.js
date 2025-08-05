@@ -66,7 +66,7 @@ class RallyLogger {
                 const decodedData = await this.encryption.decodeGunzip(response.data?.payload);
                 const rallyData = JSON.parse(decodedData);
 
-                // console.log("Rally data: ", rallyData);
+                console.log("Rally data: ", rallyData);
 
                 // Process each rally if the request was successful
                 if (rallyData.result && rallyData.battles && rallyData.battles.length > 0) {
@@ -83,6 +83,9 @@ class RallyLogger {
                         ];
 
                         await this.sql.addRally(...values);
+
+                        // Get rally participants and record joiners
+                        await this.recordRallyJoiners(rally._id, guildId, token);
                     }
                     console.log(`Logged ${rallyData.battles.length} rallies at ${new Date().toISOString()} in ${this.allianceTag}`);
                 } else {
@@ -95,6 +98,53 @@ class RallyLogger {
             // Wait 4 minutes before the next request
             // console.log(`Waiting 4 minutes before the next rally check in ${this.allianceTag}...`);
             await new Promise(resolve => setTimeout(resolve, 4 * 60 * 1000));
+        }
+    }
+
+    async recordRallyJoiners(rallyId, guildId, token) {
+        try {
+            // Define the API request parameters for rally info
+            const url = 'https://api-lok-live.leagueofkingdoms.com/api/alliance/battle/info';
+            const headers = {
+                'x-access-token': token,
+                'Content-Type': 'application/x-www-form-urlencoded'
+            };
+            const body = `json=${encodeURIComponent(JSON.stringify({ rallyMoId: rallyId }))}`;
+
+            // Get rally participants using existing API method
+            const response = await this.api.request(url, body, headers);
+            
+            if (!response.data?.result || !response.data?.battle?.rallyTroops) {
+                console.log(`No rally participants found for rally ${rallyId}`);
+                return;
+            }
+
+            // Decode the gzip response if payload exists
+            let rallyInfo = response.data;
+            if (response.data.payload) {
+                const decodedData = await this.encryption.decodeGunzip(response.data.payload);
+                rallyInfo = JSON.parse(decodedData);
+            }
+
+            const rallyTroops = rallyInfo.battle?.rallyTroops || [];
+            
+            // Record each joiner
+            for (const troopData of rallyTroops) {
+                const joinerKingdomId = troopData.kingdomId;
+                
+                if (joinerKingdomId) {
+                    // Check if this joiner is already recorded for this rally
+                    const exists = await this.sql.checkRallyJoiner(rallyId, joinerKingdomId, guildId);
+                    
+                    if (!exists) {
+                        await this.sql.addRallyJoiner(rallyId, joinerKingdomId, guildId);
+                    }
+                }
+            }
+
+            console.log(`Recorded ${rallyTroops.length} joiners for rally ${rallyId} in ${this.allianceTag}`);
+        } catch (error) {
+            console.error(`Error recording rally joiners for rally ${rallyId}:`, error);
         }
     }
 }
