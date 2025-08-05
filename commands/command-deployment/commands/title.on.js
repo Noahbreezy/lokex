@@ -126,6 +126,11 @@ module.exports = {
         const [action, userId] = interaction.customId.split('_');
         const ephemeral = { flags: 64 };
 
+        // Handle admin titles (check for admin suffix)
+        if (interaction.customId.includes('admin') || ['duke', 'count', 'baron', 'general', 'minister'].includes(action)) {
+            return await this.handleAdminButtonInteraction(interaction);
+        }
+
         if (interaction.user.id !== userId && userId !== '') {
             await interaction.reply({ content: 'This button is not for you!', ...ephemeral });
             return;
@@ -154,6 +159,48 @@ module.exports = {
             }
         } catch (error) {
             console.error(`Error handling ${action} button:`, error);
+            await interaction.reply({ content: 'An error occurred.', ...ephemeral });
+        }
+    },
+
+    async handleAdminButtonInteraction(interaction) {
+        const sql = module.exports.sql;
+        const api = module.exports.api;
+        const ephemeral = { flags: 64 };
+
+        // Check if user has admin permissions
+        if (!interaction.member.permissions.has(PermissionFlagsBits.Administrator)) {
+            await interaction.reply({ content: '⚠️ Admin titles are restricted to administrators only!', ...ephemeral });
+            return;
+        }
+
+        const subscriptionFlagInfo = await sql.checkSubscriptionValid(interaction.guild.id, "2");
+        if (!subscriptionFlagInfo) {
+            await interaction.reply({ content: "Your continent needs to have a valid subscription to use this command. Use `/subscribe` to get a new subscription.", flags: 64 });
+            return;
+        }
+
+        const [action] = interaction.customId.split('_');
+        
+        const adminTitleMap = {
+            'duke': { id: 103, name: 'Duke' },
+            'count': { id: 104, name: 'Count' },
+            'baron': { id: 105, name: 'Baron' },
+            'general': { id: 106, name: 'General' },
+            'minister': { id: 107, name: 'Minister' }
+        };
+
+        try {
+            if (action === 'freetitle') {
+                await this.freeAdminTitle(interaction, sql);
+            } else if (adminTitleMap[action]) {
+                const title = adminTitleMap[action];
+                await this.handleAdminTitleRequest(interaction, title.id, title.name, sql, api);
+            } else if (action === 'add' && interaction.customId.includes('kingdom_admin')) {
+                await interaction.reply({ content: 'Please use the `/verify` command to add and verify new kingdoms.', ...ephemeral });
+            }
+        } catch (error) {
+            console.error(`Error handling admin ${action} button:`, error);
             await interaction.reply({ content: 'An error occurred.', ...ephemeral });
         }
     },
@@ -216,6 +263,61 @@ module.exports = {
         }
     },
 
+    async handleAdminTitleRequest(interaction, titleId, titleName, sql, api) {
+        const userId = interaction.user.id;
+        const kingdoms = await sql.checkVerifiedKingdoms(userId, interaction.guild.id);
+        if (!kingdoms) {
+            await interaction.reply({ content: 'No verified kingdoms found for this user. Use the "Add Kingdom" button to verify one.', flags: 64 });
+            return;
+        }
+
+        const lastRecord = await sql.getLastTitleUsers().then(records => records.find(r => r.titleId === titleId));
+        if (lastRecord && !lastRecord.free && (new Date() - new Date(lastRecord.date)) / 60000 <= 2) {
+            await interaction.reply({ content: `${titleName} is reserved. Please wait or free it if it's yours.`, flags: 64 });
+            return;
+        }
+
+        if (kingdoms.length === 1) {
+            await this.applyAdminTitle(interaction, titleId, kingdoms[0].kingdomId, kingdoms[0].kingdomName, titleName, sql, api);
+        } else {
+            const options = kingdoms.map(kingdom => ({
+                label: kingdom.kingdomName,
+                value: kingdom.kingdomId.toString(),
+            }));
+
+            const selectMenu = new StringSelectMenuBuilder()
+                .setCustomId(`select_admin_kingdom_${interaction.user.id}_${titleId}`)
+                .setPlaceholder('Select a kingdom for admin title')
+                .addOptions(options);
+
+            const row = new ActionRowBuilder().addComponents(selectMenu);
+
+            await interaction.reply({ content: `Please select a kingdom for the **${titleName}** title:`, components: [row], flags: 64 });
+
+            const filter = i => i.customId.startsWith(`select_admin_kingdom_${interaction.user.id}_${titleId}`) && i.user.id === interaction.user.id;
+            const collector = interaction.channel.createMessageComponentCollector({ filter, time: 60000 });
+
+            collector.on('collect', async i => {
+                const selectedKingdomId = i.values[0];
+                const selectedKingdom = kingdoms.find(k => k.kingdomId.toString() === selectedKingdomId);
+
+                if (selectedKingdom) {
+                    await this.applyAdminTitle(i, titleId, selectedKingdom.kingdomId, selectedKingdom.kingdomName, titleName, sql, api);
+                } else {
+                    await i.reply({ content: 'Invalid selection. Please try again.', flags: 64 });
+                }
+
+                collector.stop();
+            });
+
+            collector.on('end', collected => {
+                if (collected.size === 0) {
+                    interaction.followUp({ content: 'No selection was made. Please try again.', flags: 64 });
+                }
+            });
+        }
+    },
+
     async applyTitle(interaction, titleId, kingdomId, kingdomName, titleName, sql, api) {
         const userId = interaction.user.id;
         const guildId = interaction.guild.id;
@@ -244,6 +346,51 @@ module.exports = {
             await sql.freeTitle(guildId, userId);
             await interaction.reply({ content: 'Failed to apply title. Please try again.', flags: 64 });
             await this.updateTitlesEmbed(interaction, sql)
+        }
+    },
+
+    async applyAdminTitle(interaction, titleId, kingdomId, kingdomName, titleName, sql, api) {
+        const userId = interaction.user.id;
+        const guildId = interaction.guild.id;
+        const managerToken = await sql.getQueenToken(guildId);
+
+        if (!managerToken || !managerToken[0]?.token) {
+            await interaction.reply({ content: 'No manager token available for this kingdom.', flags: 64 });
+            return;
+        }
+
+        // Log the admin title request
+        await sql.logTitleRequest(titleId, kingdomId, userId, guildId);
+
+        // API call to apply the admin title
+        const data = qs.stringify({ code: titleId, targetKingdomId: kingdomId });
+        const headers = { 'x-access-token': managerToken[0].token, 'Content-Type': 'application/x-www-form-urlencoded' };
+        const response = await api.request('https://api-lok-live.leagueofkingdoms.com/api/shrine/title/change', data, headers);
+        console.log('Admin Title API response:', response.data);
+
+        if (response.data.result) {
+            await interaction.reply({ content: `👑 **${titleName}** has been applied to **${kingdomName}**! (Admin Title)`, flags: 64 });
+            const logChannel = await interaction.guild.channels.fetch((await sql.getGuildLogChannels(interaction.guild.id))[0]?.accept_log_channel);
+            if (logChannel) {
+                await logChannel.send(`👑 **Admin Title Applied:** ${titleName} has been applied to ${kingdomName} (<@${userId}>)`);
+            }
+            await this.updateAdminTitlesEmbed(interaction, sql);
+        } else {
+            await sql.freeTitle(userId, guildId);
+            await interaction.reply({ content: 'Failed to apply admin title. Please try again.', flags: 64 });
+            await this.updateAdminTitlesEmbed(interaction, sql);
+        }
+    },
+
+    async freeAdminTitle(interaction, sql) {
+        const userId = interaction.user.id;
+        const guildId = interaction.guild.id;
+        const result = await sql.freeTitle(userId, guildId);
+        if (result.affectedRows > 0) {
+            await interaction.reply({ content: '✅ You freed the admin title! Thank you!', flags: 64 });
+            await this.updateAdminTitlesEmbed(interaction, sql);
+        } else {
+            await interaction.reply({ content: 'You have no admin title applied to free!', flags: 64 });
         }
     },
 
@@ -296,6 +443,55 @@ module.exports = {
                 { name: "Architect status:", value: architectStatus, inline: true },
                 { name: "Titles applied today:", value: titlesAppliedToday.toString(), inline: false },
                 { name: "Titles applied from start:", value: titlesAppliedTotal.toString(), inline: false }
+            );
+
+        // Edit the existing message
+        await message.edit({ embeds: [updatedEmbed] });
+    },
+
+    async updateAdminTitlesEmbed(interaction, sql) {
+        const guildId = interaction.guild.id;
+        const managedChannels = await sql.getManagedChannels(guildId);
+        const adminTitlesChannelId = managedChannels[0]?.admin_titles_channel;
+        if (!adminTitlesChannelId) return;
+
+        const adminTitlesChannel = await interaction.guild.channels.fetch(adminTitlesChannelId);
+        if (!adminTitlesChannel) return;
+
+        // Fetch the latest message in the admin titles channel
+        const messages = await adminTitlesChannel.messages.fetch({ limit: 1 });
+        const message = messages.first();
+        if (!message || !message.embeds.length) return;
+
+        // Get current admin title statuses and counters
+        const dukeStatus = await this.getTitleStatus(103, sql); // 103 = Duke
+        const countStatus = await this.getTitleStatus(104, sql); // 104 = Count
+        const baronStatus = await this.getTitleStatus(105, sql); // 105 = Baron
+        const generalStatus = await this.getTitleStatus(106, sql); // 106 = General
+        const ministerStatus = await this.getTitleStatus(107, sql); // 107 = Minister
+        const adminTitlesAppliedToday = await sql.getAdminTitlesToday(guildId);
+        const adminTitlesAppliedTotal = await sql.getAdminTitlesTotal(guildId);
+
+        // Update the embed
+        const updatedEmbed = new EmbedBuilder()
+            .setColor(0xFF0000) // Red color for admin titles
+            .setTitle(`🔹 Admin Titles for ${interaction.guild.name}`)
+            .setDescription(
+                "Choose an admin title, then select the target kingdom. IF you have only one kingdom verified, the title will be delivered directly.\n\n" +
+                "1. Click on **Duke** 👑, **Count** 🎩, **Baron** ⚔️, **General** 🛡️, or **Minister** 📜\n" +
+                "2. Select the target kingdom for the title from the dropdown menu.\n" +
+                "3. If the target kingdom is not in the dropdown menu, please click **\"Add Kingdom\"** and follow the instructions to verify it. Once verified, start over at step 1.\n\n" +
+                "🚨 **PLEASE NOTE:** The title is reserved for **2 minutes ⏰** then someone else can take it from you. If you finish with the title more quickly, please click **\"Free the Title\"** ❌ so that the others can use it! 🙏\n\n" +
+                "⚠️ **ADMIN ONLY:** These titles are reserved for administrators."
+            )
+            .addFields(
+                { name: "Duke status:", value: dukeStatus, inline: true },
+                { name: "Count status:", value: countStatus, inline: true },
+                { name: "Baron status:", value: baronStatus, inline: true },
+                { name: "General status:", value: generalStatus, inline: true },
+                { name: "Minister status:", value: ministerStatus, inline: true },
+                { name: "Admin titles applied today:", value: adminTitlesAppliedToday[0].count.toString(), inline: false },
+                { name: "Admin titles applied from start:", value: adminTitlesAppliedTotal[0].count.toString(), inline: false }
             );
 
         // Edit the existing message

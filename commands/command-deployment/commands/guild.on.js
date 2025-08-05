@@ -621,6 +621,9 @@ async function createGuildChannels(interaction, guild, guildName, guildId, ephem
         if (!managedChannelsDB.titles_channel || !existingChannelIds.includes(managedChannelsDB.titles_channel)) {
             await createTitlesChannel(interaction, guild, guildName, guildId, ephemeral, sql);
         }
+        if (!managedChannelsDB.admin_titles_channel || !existingChannelIds.includes(managedChannelsDB.admin_titles_channel)) {
+            await createAdminTitlesChannel(interaction, guild, guildName, guildId, ephemeral, sql);
+        }
         if (!managedChannelsDB.pledgers_channel || !existingChannelIds.includes(managedChannelsDB.pledgers_channel)) {
             await createPledgersChannel(interaction, guild, guildName, guildId, ephemeral, sql);
         }
@@ -769,6 +772,103 @@ async function createTitlesChannel(interaction, guild, guildName, guildId, ephem
     } catch (error) {
         console.error(error);
         await interaction.followUp({ content: "There was an error while creating the titles channel.", flags: 64 });
+    }
+}
+
+async function createAdminTitlesChannel(interaction, guild, guildName, guildId, ephemeral, sql) {
+    try {
+        // Create the "admin-titles" channel with appropriate permissions
+        let adminTitlesChannel = await guild.channels.create({
+            name: "admin-titles",
+            type: ChannelType.GuildText,
+            permissionOverwrites: [
+                {
+                    id: guildId, // @everyone role
+                    allow: [PermissionFlagsBits.ViewChannel],
+                    deny: [PermissionFlagsBits.SendMessages],
+                }
+            ]
+        });
+
+        // Store the channel ID in the database
+        await sql.setGuildAdminTitlesChannel(adminTitlesChannel.id, guildId);
+
+        // Create the embed message for the admin titles panel
+        const embed = new EmbedBuilder()
+            .setColor(0xFF0000) // Red color for admin titles
+            .setTitle(`🔹 Admin Titles for ${guildName}`)
+            .setDescription(
+                "Choose an admin title, then select the target kingdom. IF you have only one kingdom verified, the title will be delivered directly.\n\n" +
+                "1. Click on **Duke** 👑, **Count** 🎩, **Baron** ⚔️, **General** 🛡️, or **Minister** 📜\n" +
+                "2. Select the target kingdom for the title from the dropdown menu.\n" +
+                "3. If the target kingdom is not in the dropdown menu, please click **\"Add Kingdom\"** and follow the instructions to verify it. Once verified, start over at step 1.\n\n" +
+                "🚨 **PLEASE NOTE:** The title is reserved for **2 minutes ⏰** then someone else can take it from you. If you finish with the title more quickly, please click **\"Free the Title\"** ❌ so that the others can use it! 🙏\n\n" +
+                "⚠️ **ADMIN ONLY:** These titles are reserved for administrators."
+            )
+            .addFields(
+                { name: "Duke status:", value: "Free", inline: true },
+                { name: "Count status:", value: "Free", inline: true },
+                { name: "Baron status:", value: "Free", inline: true },
+                { name: "General status:", value: "Free", inline: true },
+                { name: "Minister status:", value: "Free", inline: true },
+                { name: "Admin titles applied today:", value: "0", inline: false },
+                { name: "Admin titles applied from start:", value: "0", inline: false }
+            );
+
+        // Create the buttons for the admin titles panel
+        const row1 = new ActionRowBuilder().addComponents(
+            new ButtonBuilder()
+                .setCustomId("duke_")
+                .setLabel("Duke")
+                .setStyle(ButtonStyle.Primary)
+                .setEmoji("👑"),
+            new ButtonBuilder()
+                .setCustomId("count_")
+                .setLabel("Count")
+                .setStyle(ButtonStyle.Primary)
+                .setEmoji("🎩"),
+            new ButtonBuilder()
+                .setCustomId("baron_")
+                .setLabel("Baron")
+                .setStyle(ButtonStyle.Primary)
+                .setEmoji("⚔️")
+        );
+
+        const row2 = new ActionRowBuilder().addComponents(
+            new ButtonBuilder()
+                .setCustomId("general_")
+                .setLabel("General")
+                .setStyle(ButtonStyle.Primary)
+                .setEmoji("🛡️"),
+            new ButtonBuilder()
+                .setCustomId("minister_")
+                .setLabel("Minister")
+                .setStyle(ButtonStyle.Primary)
+                .setEmoji("📜"),
+            new ButtonBuilder()
+                .setCustomId("freetitle_admin_")
+                .setLabel("Free the Title")
+                .setStyle(ButtonStyle.Danger)
+                .setEmoji("❌")
+        );
+
+        // Create the "Add Kingdom" button in a separate row
+        const row3 = new ActionRowBuilder().addComponents(
+            new ButtonBuilder()
+                .setCustomId("add_kingdom_admin")
+                .setLabel("Add Kingdom")
+                .setStyle(ButtonStyle.Secondary)
+                .setEmoji("🏰")
+        );
+
+        // Send the message to the new admin titles channel
+        let message = await adminTitlesChannel.send({ embeds: [embed], components: [row1, row2, row3] });
+
+        // Respond to the interaction
+        await interaction.followUp({ content: `✅ Admin Titles channel created: ${adminTitlesChannel}`, ...ephemeral });
+    } catch (error) {
+        console.error(error);
+        await interaction.followUp({ content: "There was an error while creating the admin titles channel.", flags: 64 });
     }
 }
 

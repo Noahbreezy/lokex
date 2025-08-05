@@ -81,7 +81,14 @@ client.on(Events.InteractionCreate, async (interaction) => {
       }
     } else if (interaction.customId.startsWith('alchemist_') ||
                interaction.customId.startsWith('architect_') ||
-               interaction.customId.startsWith('freetitle_')) {
+               interaction.customId.startsWith('freetitle_') ||
+               interaction.customId.startsWith('duke_') ||
+               interaction.customId.startsWith('count_') ||
+               interaction.customId.startsWith('baron_') ||
+               interaction.customId.startsWith('general_') ||
+               interaction.customId.startsWith('minister_') ||
+               interaction.customId.startsWith('freetitle_admin_') ||
+               interaction.customId.startsWith('add_kingdom_admin')) {
       const command = client.commands.get('title');
       if (!command) return;
       try {

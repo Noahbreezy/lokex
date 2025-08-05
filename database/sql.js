@@ -422,6 +422,18 @@ class sqlFunctions {
         return this.query(query, [discordId, guildId]);
     }
 
+    // Get the amount of admin titles that were applied today in a guild
+    async getAdminTitlesToday(guild) {
+        const query = `SELECT COUNT(*) as count FROM titlelog WHERE titleId IN (103, 104, 105, 106, 107) AND date >= CURDATE() AND guild = ?;`;
+        return this.query(query, [guild]);
+    }
+
+    // Get the amount of admin titles that were ever applied in a guild
+    async getAdminTitlesTotal(guild) {
+        const query = `SELECT COUNT(*) as count FROM titlelog WHERE titleId IN (103, 104, 105, 106, 107) AND guild = ?;`;
+        return this.query(query, [guild]);
+    }
+
     // Blacklist functions
 
     // Check if a kingdom is blacklisted
@@ -533,7 +545,7 @@ class sqlFunctions {
 
     // Check if a discord user has one or more verified kingdoms
     async checkVerifiedKingdoms(discordId, guild) {
-        const query = 'SELECT kingdomId, kingdomName FROM verified WHERE discordId = ? AND guild = ?';
+        const query = 'SELECT kingdomId, kingdomName FROM verified WHERE discordId = ? AND guild = ? AND status = 1';
         const results = await this.query(query, [discordId, guild]);
         return results.length > 0 ? results : false;
     }
@@ -858,7 +870,7 @@ class sqlFunctions {
 
     // get channels managed by the bot
     async getManagedChannels(guild) {
-        const query = "SELECT verification_channel, titles_channel, pledgers_channel, buff_channel, drago_lookup_channel, shop_channel, ranking_channel, cmine_whitelist_channel, dsa_whitelist_channel, shop_log_channel, announcement_channel FROM guild_settings WHERE guild_id=?;";
+        const query = "SELECT verification_channel, titles_channel, admin_titles_channel, pledgers_channel, buff_channel, drago_lookup_channel, shop_channel, ranking_channel, cmine_whitelist_channel, dsa_whitelist_channel, shop_log_channel, announcement_channel FROM guild_settings WHERE guild_id=?;";
         return this.query(query, [guild]);
     }
 
@@ -913,6 +925,12 @@ class sqlFunctions {
     // Set guild titles channel
     async setGuildTitlesChannel(channel, guild) {
         const query = "UPDATE guild_settings SET titles_channel=? WHERE guild_id=?;";
+        return this.query(query, [channel, guild]);
+    }
+
+    // Set guild admin titles channel
+    async setGuildAdminTitlesChannel(channel, guild) {
+        const query = "UPDATE guild_settings SET admin_titles_channel=? WHERE guild_id=?;";
         return this.query(query, [channel, guild]);
     }
 
