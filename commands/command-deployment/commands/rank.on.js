@@ -216,7 +216,7 @@ async function handleChangeRank(interaction, sql, ephemeral) {
         
         const embed = new EmbedBuilder()
             .setTitle('Rank Changed Successfully')
-            .setDescription(`**${playerName}**'s rank has been changed from **${previousRankDisplayName}** to **${rankDisplayName}**`)
+            .setDescription(`**${playerName}**'s rank has been changed to **${rankDisplayName}**`)
             .setColor(0x00AE86)
             .addFields([
                 { name: 'Player', value: playerName, inline: true },
