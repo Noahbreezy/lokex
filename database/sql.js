@@ -1948,6 +1948,34 @@ class sqlFunctions {
         return results.length > 0 ? results : null;
     }
 
+    // Get whitelist licenses expiring within 24 hours
+    async getExpiringWhitelistLicenses() {
+        const query = `
+            SELECT DISTINCT 
+                w.kingdomid,
+                w.guild,
+                w.continent,
+                w.dsa,
+                w.cmine,
+                w.expiry,
+                v.discordId,
+                i.name as kingdomName
+            FROM whitelist w
+            LEFT JOIN verified v ON w.kingdomid = v.kingdomId AND w.guild = v.guild AND v.status = 1
+            LEFT JOIN (
+                SELECT kingdomId, name
+                FROM info
+                WHERE id IN (SELECT MAX(id) FROM info GROUP BY kingdomId)
+            ) i ON w.kingdomid = i.kingdomId
+            WHERE w.expiry IS NOT NULL 
+            AND w.expiry > NOW() 
+            AND w.expiry <= DATE_ADD(NOW(), INTERVAL 24 HOUR)
+            AND (w.dsa > '0' OR w.cmine > '0')
+            ORDER BY w.guild, w.expiry ASC
+        `;
+        return this.query(query);
+    }
+
     // Clean up expired licenses (removes expired temporary licenses)
     async cleanupExpiredLicenses() {
         return this.query(
