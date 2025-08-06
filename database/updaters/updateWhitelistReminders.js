@@ -28,7 +28,7 @@ class UpdateWhitelistReminders {
         await this.readyPromise; // Wait for Discord client to be ready
 
         // Run the check immediately on startup
-        await this.checkExpiringWhitelists();
+        // await this.checkExpiringWhitelists();
 
         // Schedule the next run at 8am UTC
         this.scheduleNextRun();
