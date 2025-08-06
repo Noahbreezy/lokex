@@ -545,7 +545,7 @@ module.exports = {
                         
                         // If checking another user's balance, verify admin permissions
                         if (targetUser && targetUser.id !== user.id) {
-                            if (!interaction.member.permissions.has(PermissionFlagsBits.Administrator)) {
+                            if (!interaction.member.permissions.has(PermissionFlagsBits.KickMembers)) {
                                 await interaction.reply({ content: "❌ You need administrator permissions to check other users' balances.", flags: 64 });
                                 return;
                             }
