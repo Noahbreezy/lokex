@@ -26,6 +26,52 @@ class UpdateVerified {
     async getChangesData() {
         const unverifiedPeriod = await this.sql.getUnverifiedPeriod();
         const changesNeeded = await this.sql.getUnlinkedKingdomsAndRoles(unverifiedPeriod);
+        
+        // Wait for Discord client to be ready
+        await this.readyPromise;
+        
+        // Enhance the changesNeeded data with unregistered users
+        for (const guildChanges of changesNeeded.guilds) {
+            const { guildId } = guildChanges;
+            
+            try {
+                // Check if this guild has unverify flag enabled
+                const unverifyFlag = await this.sql.getUnverifyFlag(guildId);
+                if (!unverifyFlag) continue;
+                
+                // Get the verified role for the guild
+                const roleResult = await this.sql.getGuildVerificationRole(guildId);
+                const verifiedRoleId = roleResult[0]?.verified_role;
+                if (!verifiedRoleId) continue;
+                
+                // Fetch the Discord guild and role members
+                const guild = await this.discordClient.guilds.fetch(guildId);
+                const role = await guild.roles.fetch(verifiedRoleId);
+                if (!role) continue;
+                
+                const membersWithRole = Array.from(role.members.keys());
+                if (membersWithRole.length === 0) continue;
+                
+                // Get unregistered users
+                const unregisteredUsers = await this.sql.getUnregisteredUsersWithRoles(guildId, membersWithRole);
+                
+                if (unregisteredUsers.length > 0) {
+                    console.log(`Found ${unregisteredUsers.length} unregistered users with verified role in guild ${guildId}`);
+                    
+                    // Add unregistered users to needChangeRole
+                    if (!guildChanges.needChangeRole) {
+                        guildChanges.needChangeRole = [];
+                    }
+                    guildChanges.needChangeRole.push(...unregisteredUsers);
+                    
+                    // Remove duplicates
+                    guildChanges.needChangeRole = [...new Set(guildChanges.needChangeRole)];
+                }
+            } catch (err) {
+                console.error(`Failed to check unregistered users for guild ${guildId}:`, err);
+            }
+        }
+        
         console.log(changesNeeded.guilds);
         return changesNeeded.guilds;
     }

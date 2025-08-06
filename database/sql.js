@@ -2196,6 +2196,23 @@ class sqlFunctions {
         }
         return null;
     }
+
+    // Get Discord users who have verified roles but no database entries
+    async getUnregisteredUsersWithRoles(guildId, allGuildMemberIds) {
+        // Get all Discord IDs that are verified in this guild
+        const query = `
+            SELECT DISTINCT discordId 
+            FROM verified 
+            WHERE guild = ? AND status = 1
+        `;
+        const verifiedUsers = await this.query(query, [guildId]);
+        const verifiedDiscordIds = new Set(verifiedUsers.map(user => user.discordId));
+        
+        // Filter out users who are in the database from the list of users with roles
+        const unregisteredUsers = allGuildMemberIds.filter(discordId => !verifiedDiscordIds.has(discordId));
+        
+        return unregisteredUsers;
+    }
 }
 
 module.exports = sqlFunctions;
