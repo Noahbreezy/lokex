@@ -14,6 +14,13 @@ module.exports = {
     async execute(interaction) {
         const sql = module.exports.sql;
         const api = module.exports.api;
+        if (!interaction.guild) {
+            await interaction.reply({
+                content: 'This command can only be used in a discord server.',
+                flags: 64
+            });
+            return;
+        }
         const guildId = interaction.guild.id;
         const userId = interaction.user.id;
         const ephemeralFlag = await sql.getEphemeral(guildId);
@@ -47,7 +54,7 @@ module.exports = {
                     'To verify your kingdom account:\n' +
                     `1. **Optionally verify your wallet below (it is not recommended skip)**\n` +
                     `2. Send the following code to the queen account in **mail body** "${queenInfo.name}" ${queenLocation}\n` +
-                    `**Code:**\n\`\`\`${code}\`\`\`\n` +
+                    `**Code (valid for 10 minutes only):**\n\`\`\`${code}\`\`\`\n` +
                     '   - *Desktop*: Copy the code above or from the message below.\n' +
                     '   - *Mobile*: Tap and hold the message below to copy the code.\n\n' +
                     '3. The bot will automatically verify your account once the code is received\n' +
@@ -123,7 +130,7 @@ module.exports = {
                 } else if (i.customId === 'skip_wallet') {
                     await i.reply({
                         content: 'Wallet verification skipped. Please send the code in the **_mail body_**. Starting kingdom verification process...',
-                        ephemeral: true
+                        flags: 64
                     });
                     
                     // Start verification process with '0' as wallet
@@ -133,13 +140,6 @@ module.exports = {
                 }
             });
 
-            collector.on('end', (collected, reason) => {
-                if (reason === 'time') {
-                    userDMChannel.send({
-                        content: 'You did not respond in time. Please try the verification process again.',
-                    });
-                }
-            });
         } catch (error) {
             console.error('Verification error:', error);
             await interaction.followUp({
