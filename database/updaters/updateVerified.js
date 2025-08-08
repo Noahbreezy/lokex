@@ -24,21 +24,39 @@ class UpdateVerified {
     }
 
     async getChangesData() {
-        const unverifiedPeriod = await this.sql.getUnverifiedPeriod();
-        const changesNeeded = await this.sql.getUnlinkedKingdomsAndRoles(unverifiedPeriod);
-        
+        const changesNeeded = await this.sql.getUnlinkedKingdomsAndRoles();
+
         // Wait for Discord client to be ready
         await this.readyPromise;
+
+        console.log(`Changes needed for ${changesNeeded.guilds.length} guilds.`);
         
-        // Enhance the changesNeeded data with unregistered users
+        // Get all guilds that have unverify flag enabled
+        const allGuildsWithUnverify = await this.sql.getAllGuildsWithUnverifyFlag();
+        
+        // Create a map of existing guild changes for easy lookup
+        const existingGuildChanges = new Map();
         for (const guildChanges of changesNeeded.guilds) {
-            const { guildId } = guildChanges;
+            existingGuildChanges.set(guildChanges.guildId, guildChanges);
+        }
+        
+        // Process all guilds with unverify flag (both existing and new)
+        for (const guildInfo of allGuildsWithUnverify) {
+            const guildId = guildInfo.guild_id;
+            
+            // Get or create guild changes object
+            let guildChanges = existingGuildChanges.get(guildId);
+            if (!guildChanges) {
+                guildChanges = {
+                    guildId: guildId,
+                    needChangeStatus: [],
+                    needChangeRole: []
+                };
+                changesNeeded.guilds.push(guildChanges);
+                existingGuildChanges.set(guildId, guildChanges);
+            }
             
             try {
-                // Check if this guild has unverify flag enabled
-                const unverifyFlag = await this.sql.getUnverifyFlag(guildId);
-                if (!unverifyFlag) continue;
-                
                 // Get the verified role for the guild
                 const roleResult = await this.sql.getGuildVerificationRole(guildId);
                 const verifiedRoleId = roleResult[0]?.verified_role;
@@ -49,7 +67,12 @@ class UpdateVerified {
                 const role = await guild.roles.fetch(verifiedRoleId);
                 if (!role) continue;
                 
+                // Fetch all guild members to ensure the cache is populated
+                await guild.members.fetch();
+                
                 const membersWithRole = Array.from(role.members.keys());
+                console.log(`Guild ${guildId} has ${membersWithRole.length} members with verified role.`);
+                console.log(membersWithRole);
                 if (membersWithRole.length === 0) continue;
                 
                 // Get unregistered users
@@ -72,8 +95,12 @@ class UpdateVerified {
             }
         }
         
-        console.log(changesNeeded.guilds);
-        return changesNeeded.guilds;
+    // Only return guilds that have unverify enabled
+    const allowedGuildIds = new Set(allGuildsWithUnverify.map(g => g.guild_id));
+    const filtered = changesNeeded.guilds.filter(g => allowedGuildIds.has(g.guildId));
+
+    console.log(filtered);
+    return filtered;
     }
 
     async updateVerified() {
@@ -88,9 +115,16 @@ class UpdateVerified {
                 for (const guildChanges of changesNeeded) {
                     const { guildId, needChangeStatus, needChangeRole } = guildChanges;
 
-                    const subscriptionFlagInfo = await sql.checkSubscriptionValid(guildId, "2");
+                    const subscriptionFlagInfo = await this.sql.checkSubscriptionValid(guildId, "2");
                     if (!subscriptionFlagInfo) {
                         console.log(`Subscription flag not valid for guild ${guildId}`);
+                        continue;
+                    }
+
+                    // Respect per-guild unverify setting: skip all actions when disabled
+                    const unverifyFlag = await this.sql.getUnverifyFlag(guildId);
+                    if (!unverifyFlag) {
+                        console.log(`Unverify disabled for guild ${guildId}; skipping status and role updates.`);
                         continue;
                     }
 
@@ -110,8 +144,7 @@ class UpdateVerified {
                     }
 
                     // Step 2: Remove roles for Discord users in needChangeRole
-                    const unverifyFlag = await this.sql.getUnverifyFlag(guildId);
-                    if (needChangeRole?.length > 0 && unverifyFlag) {
+                    if (needChangeRole?.length > 0) {
                         console.log(`Removing roles for users in guild ${guildId}:`, needChangeRole);
 
                         // Fetch the verified role for the guild

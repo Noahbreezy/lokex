@@ -580,47 +580,51 @@ class sqlFunctions {
     async checkWalletInUse(wallet, guild, excludeDiscordId = null) {
         let sql = `SELECT discordId, kingdomName FROM verified WHERE wallet = ? AND guild = ? AND status = 1`;
         let params = [wallet, guild];
-        
+
         if (excludeDiscordId) {
             sql += ` AND discordId != ?`;
             params.push(excludeDiscordId);
         }
-        
+
         return await this.query(sql, params);
     }
 
     // Get kingdoms and Discord users that need status/role changes
-    async getUnlinkedKingdomsAndRoles(days) {
+    async getUnlinkedKingdomsAndRoles() {
         // Increase GROUP_CONCAT limit to handle large lists
         await this.query("SET SESSION group_concat_max_len = 1000000;");
 
         const query = `
-            WITH UnlinkedKingdoms AS (
-                -- Identify kingdoms that are not linked to their guild within the time frame
+            WITH latest_info AS (
+                SELECT i.*
+                FROM info i
+                JOIN (
+                    SELECT kingdomId, MAX(id) AS max_id
+                    FROM info
+                    GROUP BY kingdomId
+                ) imax ON i.kingdomId = imax.kingdomId AND i.id = imax.max_id
+            ),
+            UnlinkedKingdoms AS (
+                -- Identify kingdoms that are unlinked or stale per each guild's unverified_period
                 SELECT 
                     v.guild,
                     v.kingdomId,
                     v.discordId
                 FROM 
                     verified v
-                    LEFT JOIN (
-                        SELECT kingdomId, continent
-                        FROM info i
-                        WHERE date >= DATE_SUB(NOW(), INTERVAL ? DAY)
-                        AND date = (
-                            SELECT MAX(date)
-                            FROM info i2
-                            WHERE i2.kingdomId = i.kingdomId
-                            AND i2.date >= DATE_SUB(NOW(), INTERVAL ? DAY)
-                        )
-                    ) i ON v.kingdomId = i.kingdomId
+                    JOIN guild_settings gs ON gs.guild_id = v.guild
+                    LEFT JOIN latest_info li ON li.kingdomId = v.kingdomId
                     LEFT JOIN guild_continent_link gcl 
-                        ON i.continent = gcl.continent 
+                        ON li.continent = gcl.continent 
                         AND v.guild = gcl.guild_id
                 WHERE 
-                    v.status = 1  -- Only consider kingdoms that are currently active
-                    AND v.date >= DATE_SUB(NOW(), INTERVAL ? DAY)  -- Filter verified records by date
-                    AND gcl.guild_id IS NULL  -- Kingdom's continent is not linked to the guild
+                    v.status = 1
+                    AND (
+                        li.kingdomId IS NULL -- no info ever
+                        OR li.date IS NULL -- no timestamp
+                        OR li.date < DATE_SUB(NOW(), INTERVAL COALESCE(gs.unverified_period, 7) DAY) -- stale info
+                        OR gcl.guild_id IS NULL -- not linked to this guild's continents
+                    )
             ),
             DiscordStatus AS (
                 -- Determine which Discord users need their role removed
@@ -632,21 +636,19 @@ class sqlFunctions {
                                                 WHEN uk.kingdomId IS NOT NULL THEN 1 
                                                 ELSE 0 
                                             END)
-                        THEN 1  -- All kingdoms for this discordId need status change due to being unlinked
+                        THEN 1  -- All kingdoms for this discordId need status change due to being unlinked/stale
                         WHEN SUM(CASE 
                                     WHEN v.status = 0 THEN 1 
                                     ELSE 0 
                                 END) = COUNT(*)
                         THEN 1  -- All kingdoms for this discordId already have status = 0
-                        ELSE 0  -- At least one kingdom is still linked or active
+                        ELSE 0  -- At least one kingdom is still linked and recent
                     END AS needsRoleRemoval
                 FROM 
                     verified v
                     LEFT JOIN UnlinkedKingdoms uk 
                         ON v.kingdomId = uk.kingdomId 
                         AND v.guild = uk.guild
-                WHERE 
-                    v.date >= DATE_SUB(NOW(), INTERVAL ? DAY)  -- Filter verified records by date
                 GROUP BY 
                     v.guild, v.discordId
                 HAVING 
@@ -674,8 +676,7 @@ class sqlFunctions {
                     ON v.kingdomId = uk.kingdomId 
                     AND v.guild = uk.guild
             WHERE 
-                v.date >= DATE_SUB(NOW(), INTERVAL ? DAY)
-                AND uk.kingdomId IS NULL  -- Exclude kingdoms that are unlinked (already handled above)
+                uk.kingdomId IS NULL  -- Exclude kingdoms that are unlinked (already handled above)
             GROUP BY 
                 v.guild, v.discordId
             HAVING 
@@ -684,7 +685,8 @@ class sqlFunctions {
         `;
 
         try {
-            const results = await this.query(query, [days, days, days, days, days]);
+            // No external parameters needed; per-guild window is read from guild_settings
+            const results = await this.query(query);
 
             // Transform the results into the desired JSON structure
             const formattedResult = {
@@ -729,6 +731,30 @@ class sqlFunctions {
     async setKingdomStatusToZero(kingdomId, guild) {
         const query = `UPDATE verified SET status = 0 WHERE kingdomId = ? AND guild = ?;`;
         return this.query(query, [kingdomId, guild]);
+    }
+
+    // Get Discord users who have verified roles but no database entries
+    async getUnregisteredUsersWithRoles(guildId, allGuildMemberIds) {
+        // Get all Discord IDs that are verified in this guild
+        const query = `
+            SELECT DISTINCT discordId 
+            FROM verified 
+            WHERE guild = ? AND status = 1
+        `;
+        const verifiedUsers = await this.query(query, [guildId]);
+        const verifiedDiscordIds = new Set(verifiedUsers.map(user => user.discordId));
+        console.log(`Verified Discord IDs in guild ${guildId}:`, verifiedDiscordIds);
+
+        // Filter out users who are in the database from the list of users with roles
+        const unregisteredUsers = allGuildMemberIds.filter(discordId => !verifiedDiscordIds.has(discordId));
+
+        return unregisteredUsers;
+    }
+
+    // Get all guilds that have the unverify flag enabled
+    async getAllGuildsWithUnverifyFlag() {
+        const query = `SELECT guild_id FROM guild_settings WHERE unverify = 1;`;
+        return this.query(query);
     }
 
     // Guild settings functions
@@ -1024,6 +1050,7 @@ class sqlFunctions {
     async getUnverifiedPeriod(guild) {
         const query = "SELECT unverified_period FROM guild_settings WHERE guild_id=?;";
         const results = await this.query(query, [guild]);
+        console.log(results);
         return results.length > 0 ? results[0].unverified_period : null;
     }
 
@@ -1136,7 +1163,7 @@ class sqlFunctions {
         const results = await this.query(query, [guildId]);
         return results.length > 0 ? results[0].ephemeral === 1 : false;
     }
-    
+
     // Lands management functions
 
     // Add a land ID to a guild
@@ -2197,22 +2224,6 @@ class sqlFunctions {
         return null;
     }
 
-    // Get Discord users who have verified roles but no database entries
-    async getUnregisteredUsersWithRoles(guildId, allGuildMemberIds) {
-        // Get all Discord IDs that are verified in this guild
-        const query = `
-            SELECT DISTINCT discordId 
-            FROM verified 
-            WHERE guild = ? AND status = 1
-        `;
-        const verifiedUsers = await this.query(query, [guildId]);
-        const verifiedDiscordIds = new Set(verifiedUsers.map(user => user.discordId));
-        
-        // Filter out users who are in the database from the list of users with roles
-        const unregisteredUsers = allGuildMemberIds.filter(discordId => !verifiedDiscordIds.has(discordId));
-        
-        return unregisteredUsers;
-    }
 }
 
 module.exports = sqlFunctions;
