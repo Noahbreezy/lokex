@@ -55,13 +55,13 @@ function parseExpiryDate(expiryString) {
 function formatExpiryForDisplay(expiry) {
     if (!expiry) return "No expiry";
     const date = new Date(expiry);
-    
+
     const day = String(date.getDate()).padStart(2, '0');
     const month = String(date.getMonth() + 1).padStart(2, '0');
     const year = date.getFullYear();
     const hours = String(date.getHours()).padStart(2, '0');
     const minutes = String(date.getMinutes()).padStart(2, '0');
-    
+
     return `${day}-${month}-${year} ${hours}:${minutes}`;
 }
 
@@ -231,6 +231,10 @@ module.exports = {
     async execute(interaction) {
         try {
             const sql = module.exports.sql;
+            if (!interaction.guild) {
+                await interaction.reply({ content: "This command can only be used in a server.", ephemeral: true });
+                return;
+            }
             const { options } = interaction;
             const guild = interaction.guild.id;
 
@@ -272,14 +276,14 @@ module.exports = {
                 case "remove": {
                     const kingdomId = options.getString("name");
                     const licenseType = options.getString("license-type");
-                    
+
                     // Get the latest name for display
                     const nameResult = await sql.getKingdomName(kingdomId);
                     const displayName = (nameResult && nameResult[0] && nameResult[0].name) ? nameResult[0].name : kingdomId;
-                    
+
                     let result;
                     let message;
-                    
+
                     switch (licenseType) {
                         case "all":
                             result = await sql.removeFromWhitelist(kingdomId, continent, guild);
@@ -296,7 +300,7 @@ module.exports = {
                         default:
                             message = `Invalid license type specified.`;
                     }
-                    
+
                     await interaction.editReply({
                         content: message
                     });

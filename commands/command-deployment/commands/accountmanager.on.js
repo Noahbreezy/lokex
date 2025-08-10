@@ -124,6 +124,10 @@ module.exports = {
         const api = module.exports.api;
         const accountInfo = new AccountInfo(sql, api);
         const r4Check = new R4Check(sql, api);
+        if (!interaction.guild) {
+            await interaction.reply({ content: "This command can only be used in a server.", ephemeral: true });
+            return;
+        }
         const { commandName, options, guildId, user } = interaction;
         const userId = user.id;
         const guildName = interaction.guild.name;

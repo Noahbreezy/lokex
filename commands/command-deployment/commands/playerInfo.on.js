@@ -19,6 +19,10 @@ module.exports = {
         const sql = module.exports.sql;
         const api = module.exports.api;
         const encryption = new Encryption();
+        if (!interaction.guild) {
+            await interaction.reply({ content: "This command can only be used in a server.", ephemeral: true });
+            return;
+        }
         const guildId = interaction.guild.id;
         const ephemeralFlag = await sql.getEphemeral(guildId);
         const ephemeral = ephemeralFlag ? { flags: 64 } : {};
