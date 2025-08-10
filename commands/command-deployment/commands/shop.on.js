@@ -1053,20 +1053,53 @@ module.exports = {
             await this.applyWhitelistPurchase(interaction, item, kingdoms[0].kingdomId, kingdoms[0].kingdomName, currencyEmoji, sql);
         } else {
             // Multiple kingdoms, show selection menu
-            const options = kingdoms.map(kingdom => ({
-                label: kingdom.kingdomName,
-                value: kingdom.kingdomId.toString(),
-            }));
+            // Deduplicate by kingdomId to avoid Discord duplicate option value error
+            const uniqueMap = new Map();
+            for (const k of kingdoms) {
+                const idStr = k.kingdomId.toString();
+                if (!uniqueMap.has(idStr)) {
+                    uniqueMap.set(idStr, k);
+                }
+            }
+            const uniqueKingdoms = Array.from(uniqueMap.values());
+
+            // If after de-duplication only one kingdom remains, proceed directly
+            if (uniqueKingdoms.length === 1) {
+                await this.applyWhitelistPurchase(interaction, item, uniqueKingdoms[0].kingdomId, uniqueKingdoms[0].kingdomName, currencyEmoji, sql);
+                return;
+            }
+
+            // Enforce Discord max 25 options
+            let truncated = false;
+            let displayKingdoms = uniqueKingdoms;
+            if (uniqueKingdoms.length > 25) {
+                displayKingdoms = uniqueKingdoms.slice(0, 25);
+                truncated = true;
+            }
+
+            const kingdomOptions = displayKingdoms.map(k => {
+                let label = k.kingdomName || `Kingdom ${k.kingdomId}`;
+                if (label.length > 100) label = label.slice(0, 97) + '...'; // Discord label length limit safeguard
+                return {
+                    label,
+                    value: k.kingdomId.toString(),
+                };
+            });
 
             const selectMenu = new StringSelectMenuBuilder()
                 .setCustomId(`select_kingdom_shop_${user.id}_${item.id}`)
                 .setPlaceholder('Select a kingdom for the whitelist')
-                .addOptions(options);
+                .addOptions(kingdomOptions);
 
             const row = new ActionRowBuilder().addComponents(selectMenu);
 
+            let contentMsg = `Please select which kingdom should receive the ${item.type.toUpperCase()} whitelist for **${item.name}**:`;
+            if (truncated) {
+                contentMsg += `\n⚠️ Showing first 25 of ${uniqueKingdoms.length} kingdoms.`;
+            }
+
             await interaction.reply({ 
-                content: `Please select which kingdom should receive the ${item.type.toUpperCase()} whitelist for **${item.name}**:`, 
+                content: contentMsg, 
                 components: [row], 
                 flags: 64 
             });
@@ -1077,7 +1110,7 @@ module.exports = {
 
             collector.on('collect', async i => {
                 const selectedKingdomId = i.values[0];
-                const selectedKingdom = kingdoms.find(k => k.kingdomId.toString() === selectedKingdomId);
+                const selectedKingdom = uniqueKingdoms.find(k => k.kingdomId.toString() === selectedKingdomId);
 
                 if (selectedKingdom) {
                     await this.applyWhitelistPurchase(i, item, selectedKingdom.kingdomId, selectedKingdom.kingdomName, currencyEmoji, sql);
