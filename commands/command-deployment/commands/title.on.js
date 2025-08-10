@@ -222,12 +222,34 @@ module.exports = {
         if (kingdoms.length === 1) {
             await this.applyTitle(interaction, titleId, kingdoms[0].kingdomId, kingdoms[0].kingdomName, titleName, sql, api);
         } else {
-            const options = kingdoms.map(kingdom => ({
-                label: kingdom.kingdomName,
-                value: kingdom.kingdomId.toString(),
+            // Deduplicate kingdoms by kingdomId (Discord requires unique option values)
+            const uniqueMap = new Map();
+            for (const k of kingdoms) {
+                if (!uniqueMap.has(k.kingdomId)) {
+                    uniqueMap.set(k.kingdomId, k);
+                }
+            }
+            let uniqueKingdoms = Array.from(uniqueMap.values());
+            const removedDuplicates = kingdoms.length - uniqueKingdoms.length;
+
+            // Discord max options per select menu is 25
+            let truncated = false;
+            if (uniqueKingdoms.length > 25) {
+                uniqueKingdoms = uniqueKingdoms.slice(0, 25);
+                truncated = true;
+            }
+
+            const options = uniqueKingdoms.map(k => ({
+                label: k.kingdomName.substring(0, 100), // safety trim
+                value: k.kingdomId.toString(),
             }));
 
-            console.log('Options:', options);
+            if (removedDuplicates > 0) {
+                console.log(`[title.on] Deduplicated ${removedDuplicates} duplicate kingdom entries for user ${userId}`);
+            }
+            if (truncated) {
+                console.warn(`[title.on] Truncated kingdom options list to 25 for user ${userId}`);
+            }
 
             const selectMenu = new StringSelectMenuBuilder()
                 .setCustomId(`select_kingdom_${interaction.user.id}_${titleId}`)
@@ -236,7 +258,10 @@ module.exports = {
 
             const row = new ActionRowBuilder().addComponents(selectMenu);
 
-            await interaction.reply({ content: 'Please select a kingdom from the dropdown below:', components: [row], flags: 64 });
+            let notice = 'Please select a kingdom from the dropdown below:';
+            if (removedDuplicates > 0) notice += ` (Removed ${removedDuplicates} duplicate${removedDuplicates > 1 ? 's' : ''})`;
+            if (truncated) notice += ' (Showing first 25 kingdoms)';
+            await interaction.reply({ content: notice, components: [row], flags: 64 });
 
             const filter = i => i.customId.startsWith(`select_kingdom_${interaction.user.id}_${titleId}`) && i.user.id === interaction.user.id;
             const collector = interaction.channel.createMessageComponentCollector({ filter, time: 60000 });
@@ -280,10 +305,34 @@ module.exports = {
         if (kingdoms.length === 1) {
             await this.applyAdminTitle(interaction, titleId, kingdoms[0].kingdomId, kingdoms[0].kingdomName, titleName, sql, api);
         } else {
-            const options = kingdoms.map(kingdom => ({
-                label: kingdom.kingdomName,
-                value: kingdom.kingdomId.toString(),
+            // Deduplicate kingdoms by kingdomId (Discord requires unique option values)
+            const uniqueMap = new Map();
+            for (const k of kingdoms) {
+                if (!uniqueMap.has(k.kingdomId)) {
+                    uniqueMap.set(k.kingdomId, k);
+                }
+            }
+            let uniqueKingdoms = Array.from(uniqueMap.values());
+            const removedDuplicates = kingdoms.length - uniqueKingdoms.length;
+
+            // Discord max options per select menu is 25
+            let truncated = false;
+            if (uniqueKingdoms.length > 25) {
+                uniqueKingdoms = uniqueKingdoms.slice(0, 25);
+                truncated = true;
+            }
+
+            const options = uniqueKingdoms.map(k => ({
+                label: k.kingdomName.substring(0, 100),
+                value: k.kingdomId.toString(),
             }));
+
+            if (removedDuplicates > 0) {
+                console.log(`[title.on] (Admin) Deduplicated ${removedDuplicates} duplicate kingdom entries for user ${userId}`);
+            }
+            if (truncated) {
+                console.warn(`[title.on] (Admin) Truncated kingdom options list to 25 for user ${userId}`);
+            }
 
             const selectMenu = new StringSelectMenuBuilder()
                 .setCustomId(`select_admin_kingdom_${interaction.user.id}_${titleId}`)
@@ -292,7 +341,10 @@ module.exports = {
 
             const row = new ActionRowBuilder().addComponents(selectMenu);
 
-            await interaction.reply({ content: `Please select a kingdom for the **${titleName}** title:`, components: [row], flags: 64 });
+            let notice = `Please select a kingdom for the **${titleName}** title:`;
+            if (removedDuplicates > 0) notice += ` (Removed ${removedDuplicates} duplicate${removedDuplicates > 1 ? 's' : ''})`;
+            if (truncated) notice += ' (Showing first 25 kingdoms)';
+            await interaction.reply({ content: notice, components: [row], flags: 64 });
 
             const filter = i => i.customId.startsWith(`select_admin_kingdom_${interaction.user.id}_${titleId}`) && i.user.id === interaction.user.id;
             const collector = interaction.channel.createMessageComponentCollector({ filter, time: 60000 });
