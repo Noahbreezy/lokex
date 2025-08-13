@@ -472,6 +472,54 @@ class sqlFunctions {
     }
 
     // Verification functions
+    
+    // Simplified helpers for new verification maintenance logic
+
+    // Get active verified kingdoms (status=1) for a guild
+    async getActiveVerifiedKingdoms(guildId) {
+        const sql = `SELECT kingdomId, discordId FROM verified WHERE guild = ? AND status = 1`;
+        return this.query(sql, [guildId]);
+    }
+
+    // Bulk set status=0 for kingdoms in a guild
+    async bulkDeactivateKingdoms(guildId, kingdomIds) {
+        if (!kingdomIds || kingdomIds.length === 0) return 0;
+        const placeholders = kingdomIds.map(() => '?').join(',');
+        const sql = `UPDATE verified SET status = 0 WHERE guild = ? AND status = 1 AND kingdomId IN (${placeholders})`;
+        const params = [guildId, ...kingdomIds];
+        return this.query(sql, params);
+    }
+
+    // Get active discord users (those with at least one status=1 kingdom) for a guild
+    async getActiveVerifiedDiscordIds(guildId) {
+        const sql = `SELECT DISTINCT discordId FROM verified WHERE guild = ? AND status = 1`;
+        return this.query(sql, [guildId]);
+    }
+
+    // After deactivation, find discordIds that no longer have active kingdoms
+    async getDiscordIdsFullyInactive(guildId) {
+        const sql = `SELECT discordId FROM verified WHERE guild = ? GROUP BY discordId HAVING SUM(status = 1) = 0`;
+        return this.query(sql, [guildId]);
+    }
+
+    // Get latest activity (info rows) for a set of kingdoms within last N days constrained to guild's linked continents
+    async getRecentlyActiveKingdoms(kingdomIds, guildId, days = 7) {
+        if (!kingdomIds || kingdomIds.length === 0) return [];
+        const continents = await this.getGuildContinent(guildId); // existing method returns rows with continent
+        const continentList = continents.map(r => r.continent).filter(c => c !== null && c !== undefined);
+        if (continentList.length === 0) return []; // no linked continents means none considered active
+        const kingdomPlaceholders = kingdomIds.map(() => '?').join(',');
+        const continentPlaceholders = continentList.map(() => '?').join(',');
+        const params = [...kingdomIds, ...continentList, days];
+        const sql = `
+            SELECT DISTINCT kingdomId
+            FROM info
+            WHERE kingdomId IN (${kingdomPlaceholders})
+              AND continent IN (${continentPlaceholders})
+              AND date >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL ? DAY)
+        `;
+        return this.query(sql, params);
+    }
 
     // Check if a kingdom is verified
     async isKingdomVerified(kingdomId, guild) {

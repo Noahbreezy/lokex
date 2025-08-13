@@ -24,83 +24,75 @@ class UpdateVerified {
     }
 
     async getChangesData() {
-        const changesNeeded = await this.sql.getUnlinkedKingdomsAndRoles();
-
         // Wait for Discord client to be ready
         await this.readyPromise;
 
-        console.log(`Changes needed for ${changesNeeded.guilds.length} guilds.`);
-        
-        // Get all guilds that have unverify flag enabled
-        const allGuildsWithUnverify = await this.sql.getAllGuildsWithUnverifyFlag();
-        
-        // Create a map of existing guild changes for easy lookup
-        const existingGuildChanges = new Map();
-        for (const guildChanges of changesNeeded.guilds) {
-            existingGuildChanges.set(guildChanges.guildId, guildChanges);
-        }
-        
-        // Process all guilds with unverify flag (both existing and new)
-        for (const guildInfo of allGuildsWithUnverify) {
-            const guildId = guildInfo.guild_id;
-            
-            // Get or create guild changes object
-            let guildChanges = existingGuildChanges.get(guildId);
-            if (!guildChanges) {
-                guildChanges = {
-                    guildId: guildId,
-                    needChangeStatus: [],
-                    needChangeRole: []
-                };
-                changesNeeded.guilds.push(guildChanges);
-                existingGuildChanges.set(guildId, guildChanges);
-            }
-            
-            try {
-                // Get the verified role for the guild
-                const roleResult = await this.sql.getGuildVerificationRole(guildId);
-                const verifiedRoleId = roleResult[0]?.verified_role;
-                if (!verifiedRoleId) continue;
-                
-                // Fetch the Discord guild and role members
-                const guild = await this.discordClient.guilds.fetch(guildId);
-                const role = await guild.roles.fetch(verifiedRoleId);
-                if (!role) continue;
-                
-                // Fetch all guild members to ensure the cache is populated
-                await guild.members.fetch();
-                
-                const membersWithRole = Array.from(role.members.keys());
-                console.log(`Guild ${guildId} has ${membersWithRole.length} members with verified role.`);
-                console.log(membersWithRole);
-                if (membersWithRole.length === 0) continue;
-                
-                // Get unregistered users
-                const unregisteredUsers = await this.sql.getUnregisteredUsersWithRoles(guildId, membersWithRole);
-                
-                if (unregisteredUsers.length > 0) {
-                    console.log(`Found ${unregisteredUsers.length} unregistered users with verified role in guild ${guildId}`);
-                    
-                    // Add unregistered users to needChangeRole
-                    if (!guildChanges.needChangeRole) {
-                        guildChanges.needChangeRole = [];
-                    }
-                    guildChanges.needChangeRole.push(...unregisteredUsers);
-                    
-                    // Remove duplicates
-                    guildChanges.needChangeRole = [...new Set(guildChanges.needChangeRole)];
-                }
-            } catch (err) {
-                console.error(`Failed to check unregistered users for guild ${guildId}:`, err);
-            }
-        }
-        
-    // Only return guilds that have unverify enabled
-    const allowedGuildIds = new Set(allGuildsWithUnverify.map(g => g.guild_id));
-    const filtered = changesNeeded.guilds.filter(g => allowedGuildIds.has(g.guildId));
+        // 1. Gather guilds with unverify enabled
+        const guildRows = await this.sql.getAllGuildsWithUnverifyFlag();
+        if (!guildRows || guildRows.length === 0) return [];
 
-    console.log(filtered);
-    return filtered;
+        const results = [];
+
+        for (const row of guildRows) {
+            const guildId = row.guild_id;
+
+            // Ensure subscription is valid (type contains '2')
+            const subscriptionFlagInfo = await this.sql.checkSubscriptionValid(guildId, "2");
+            if (!subscriptionFlagInfo) {
+                console.log(`Skip guild ${guildId} (no valid subscription)`);
+                continue;
+            }
+
+            // Step A: Identify Discord users who have the verification role but no active verified kingdoms
+            let needChangeRole = [];
+            let needChangeStatus = [];
+            try {
+                const roleRes = await this.sql.getGuildVerificationRole(guildId);
+                const verifiedRoleId = roleRes[0]?.verified_role;
+                if (verifiedRoleId) {
+                    const guild = await this.discordClient.guilds.fetch(guildId);
+                    await guild.members.fetch(); // populate cache
+                    const role = await guild.roles.fetch(verifiedRoleId);
+                    if (role) {
+                        const membersWithRole = Array.from(role.members.keys());
+                        // Get active verified discord IDs
+                        const activeDiscordRows = await this.sql.getActiveVerifiedDiscordIds(guildId);
+                        const activeSet = new Set(activeDiscordRows.map(r => r.discordId));
+                        // Users that have the role but no active verified kingdoms
+                        needChangeRole = membersWithRole.filter(did => !activeSet.has(did));
+                        if (needChangeRole.length) {
+                            console.log(`Guild ${guildId}: ${needChangeRole.length} users need role removed.`);
+                        }
+                    }
+                }
+            } catch (e) {
+                console.error(`Role scan failed for guild ${guildId}:`, e.message);
+            }
+
+            // Step B: For each active verified kingdom, check recent info presence (7d, in linked continents)
+            try {
+                const activeKingdomRows = await this.sql.getActiveVerifiedKingdoms(guildId);
+                const allKingdomIds = activeKingdomRows.map(r => r.kingdomId);
+                if (allKingdomIds.length) {
+                    const recentlyActiveRows = await this.sql.getRecentlyActiveKingdoms(allKingdomIds, guildId, 7);
+                    const recentSet = new Set(recentlyActiveRows.map(r => r.kingdomId));
+                    // Kingdoms with no recent info in linked continents
+                    needChangeStatus = allKingdomIds.filter(k => !recentSet.has(k));
+                    if (needChangeStatus.length) {
+                        console.log(`Guild ${guildId}: ${needChangeStatus.length} kingdoms inactive >7d.`);
+                    }
+                }
+            } catch (e) {
+                console.error(`Kingdom activity scan failed for guild ${guildId}:`, e.message);
+            }
+
+            // Only push if there is any work
+            if (needChangeRole.length || needChangeStatus.length) {
+                results.push({ guildId, needChangeRole, needChangeStatus });
+            }
+        }
+
+        return results;
     }
 
     async updateVerified() {
@@ -112,76 +104,70 @@ class UpdateVerified {
             if (!changesNeeded || changesNeeded.length === 0) {
                 console.log('No changes needed.');
             } else {
-                for (const guildChanges of changesNeeded) {
-                    const { guildId, needChangeStatus, needChangeRole } = guildChanges;
-
-                    const subscriptionFlagInfo = await this.sql.checkSubscriptionValid(guildId, "2");
-                    if (!subscriptionFlagInfo) {
-                        console.log(`Subscription flag not valid for guild ${guildId}`);
-                        continue;
-                    }
-
-                    // Respect per-guild unverify setting: skip all actions when disabled
+                for (const { guildId, needChangeStatus, needChangeRole } of changesNeeded) {
+                    // Double-check unverify flag still enabled before applying
                     const unverifyFlag = await this.sql.getUnverifyFlag(guildId);
                     if (!unverifyFlag) {
-                        console.log(`Unverify disabled for guild ${guildId}; skipping status and role updates.`);
+                        console.log(`Skip guild ${guildId} (unverify disabled at execution time)`);
                         continue;
                     }
 
-                    // Step 1: Update the status of kingdoms in needChangeStatus
-                    if (needChangeStatus?.length > 0) {
-                        console.log(`Updating status for kingdoms in guild ${guildId}:`, needChangeStatus);
-                        for (const kingdomId of needChangeStatus) {
-                            try {
-                                await this.sql.setKingdomStatusToZero(kingdomId, guildId);
-                                console.log(`Set status to 0 for kingdomId ${kingdomId} in guild ${guildId}`);
-                            } catch (err) {
-                                console.error(`Failed to update status for kingdomId ${kingdomId} in guild ${guildId}:`, err);
-                            }
-                        }
-                    } else {
-                        console.log(`No kingdoms need status updates in guild ${guildId}`);
+                    // Double-check subscription validity at execution time as well
+                    const subOk = await this.sql.checkSubscriptionValid(guildId, "2");
+                    if (!subOk) {
+                        console.log(`Skip guild ${guildId} (subscription invalid at execution time)`);
+                        continue;
                     }
 
-                    // Step 2: Remove roles for Discord users in needChangeRole
-                    if (needChangeRole?.length > 0) {
-                        console.log(`Removing roles for users in guild ${guildId}:`, needChangeRole);
-
-                        // Fetch the verified role for the guild
-                        let verifiedRoleId;
+                    // Deactivate kingdoms (status -> 0)
+                    if (needChangeStatus?.length) {
                         try {
-                            const roleResult = await this.sql.getGuildVerificationRole(guildId);
-                            verifiedRoleId = roleResult[0]?.verified_role;
+                            await this.sql.bulkDeactivateKingdoms(guildId, needChangeStatus);
+                            console.log(`Guild ${guildId}: Deactivated ${needChangeStatus.length} kingdoms.`);
+                        } catch (e) {
+                            console.error(`Guild ${guildId}: bulk deactivate failed`, e.message);
+                        }
+                    }
+
+                    // Remove roles: first those already without active entries, then those who became fully inactive after deactivation
+                    try {
+                        // Gather initial removal set from planning
+                        const initialRemovals = Array.isArray(needChangeRole) ? [...needChangeRole] : [];
+
+                        // After deactivation, find any discord IDs that now have zero active kingdoms
+                        let postDeactivationRemovals = [];
+                        try {
+                            const fullyInactiveRows = await this.sql.getDiscordIdsFullyInactive(guildId);
+                            const fullyInactiveIds = new Set(fullyInactiveRows.map(r => r.discordId));
+                            // exclude ones we already planned
+                            postDeactivationRemovals = [...fullyInactiveIds].filter(id => !initialRemovals.includes(id));
+                        } catch (scanErr) {
+                            console.error(`Guild ${guildId}: failed to compute post-deactivation removals`, scanErr.message);
+                        }
+
+                        const removals = [...new Set([...initialRemovals, ...postDeactivationRemovals])];
+                        if (removals.length === 0) {
+                            // nothing to remove
+                        } else {
+                            const roleRes = await this.sql.getGuildVerificationRole(guildId);
+                            const verifiedRoleId = roleRes[0]?.verified_role;
                             if (!verifiedRoleId) {
-                                console.error(`No verified role found for guild ${guildId}`);
-                                continue;
-                            }
-                        } catch (err) {
-                            console.error(`Failed to fetch verified role for guild ${guildId}:`, err);
-                            continue;
-                        }
-
-                        // Fetch the Discord guild
-                        let guild;
-                        try {
-                            guild = await this.discordClient.guilds.fetch(guildId);
-                        } catch (err) {
-                            console.error(`Failed to fetch guild ${guildId}:`, err);
-                            continue;
-                        }
-
-                        // Remove the role for each Discord user
-                        for (const discordId of needChangeRole) {
-                            try {
-                                const member = await guild.members.fetch(discordId);
-                                await member.roles.remove(verifiedRoleId);
-                                console.log(`Removed verified role from user ${discordId} in guild ${guildId}`);
-                            } catch (err) {
-                                console.error(`Failed to remove role for user ${discordId} in guild ${guildId}:`, err);
+                                console.log(`Guild ${guildId}: missing verified role id, skip role removals`);
+                            } else {
+                                const guild = await this.discordClient.guilds.fetch(guildId);
+                                for (const discordId of removals) {
+                                    try {
+                                        const member = await guild.members.fetch(discordId);
+                                        await member.roles.remove(verifiedRoleId);
+                                        console.log(`Guild ${guildId}: removed role from ${discordId}`);
+                                    } catch (er) {
+                                        console.error(`Guild ${guildId}: failed removing role from ${discordId}`, er.message);
+                                    }
+                                }
                             }
                         }
-                    } else {
-                        console.log(`No users need role updates in guild ${guildId}`);
+                    } catch (e) {
+                        console.error(`Guild ${guildId}: role removal phase failed`, e.message);
                     }
                 }
             }
