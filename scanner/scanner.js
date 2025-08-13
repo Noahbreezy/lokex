@@ -398,136 +398,135 @@ class Scanner {
     return new Promise((resolve, reject) => {
       const url = `${this.config.WEBSOCKET_URL}&token=${this.token}`;
 
-      this.api.connectWebSocket(url, {
-        onConnect: (connection) => {
-          this.wsConnection = connection;
-          this.reconnectAttempts = 0;
-          console.log(`WebSocket Client Connected for guild ${guild}, continent ${continent}`);
+      // Define handlers once so we can reuse the same closures across reconnects
+      const onConnect = (connection) => {
+        this.wsConnection = connection;
+        this.reconnectAttempts = 0;
+        console.log(`WebSocket Client Connected for guild ${guild}, continent ${continent}`);
 
-          this.encryption.createXorMessage(JSON.stringify({ token: this.token }), this.xorPassword)
-            .then(encoded => {
-              const message = `42["/field/enter/v3", "${encoded}"]`;
-              console.log(`Sending initial message: ${message}`);
-              connection.sendUTF(message);
-              // DO NOT resolve here! Wait until scan is finished.
-            })
-            .catch(error => {
-              console.error("Error encoding token:", error);
-              reject(error);
-            });
-        },
-        onMessage: async (message, connection) => {
+        this.encryption.createXorMessage(JSON.stringify({ token: this.token }), this.xorPassword)
+          .then(encoded => {
+            const message = `42["/field/enter/v3", "${encoded}"]`;
+            console.log(`Sending initial message: ${message}`);
+            connection.sendUTF(message);
+            // DO NOT resolve here! Wait until scan is finished.
+          })
+          .catch(error => {
+            console.error("Error encoding token:", error);
+            reject(error);
+          });
+      };
+
+      const onMessage = async (message, connection) => {
+        try {
+          // Only process utf8 messages
+          if (message.type !== "utf8") return;
+
+          // Only process messages that start with 42[
+          if (!message.utf8Data.startsWith("42[")) return;
+
+          let parsed;
           try {
-            // Only process utf8 messages
-            if (message.type !== "utf8") return;
+            parsed = JSON.parse(message.utf8Data.substring(2));
+          } catch (e) {
+            console.error("Failed to parse WebSocket message as JSON array:", message.utf8Data, e);
+            return;
+          }
 
-            // Only process messages that start with 42[
-            if (!message.utf8Data.startsWith("42[")) return;
+          const [event, data] = parsed;
 
-            let parsed;
+          if (event === "/field/objects/v4") {
+            let decompressed, decrypted, decoded;
             try {
-              parsed = JSON.parse(message.utf8Data.substring(2));
+              // 1. Gunzip the packs
+              decompressed = await this.encryption.decodeGunzip(data.packs);
+
+              // 2. Use decryptXorMessage on the base64 string
+              decrypted = await this.encryption.decryptXorMessage(decompressed.toString(), this.xorPassword);
+
+              // 3. Parse the decrypted JSON
+              decoded = JSON.parse(decrypted);
             } catch (e) {
-              console.error("Failed to parse WebSocket message as JSON array:", message.utf8Data, e);
+              console.error("Failed to decode/decrypt/parse /field/objects/v4:", e, { decompressed, decrypted, data });
               return;
             }
 
-            const [event, data] = parsed;
+            await this.processWebSocketData(decoded.objects);
 
-            if (event === "/field/objects/v4") {
-              let decompressed, decrypted, decoded;
-              try {
-                // 1. Gunzip the packs
-                decompressed = await this.encryption.decodeGunzip(data.packs);
-
-                // 2. Use decryptXorMessage on the base64 string
-                decrypted = await this.encryption.decryptXorMessage(decompressed.toString(), this.xorPassword);
-
-                // 3. Parse the decrypted JSON
-                decoded = JSON.parse(decrypted);
-              } catch (e) {
-                console.error("Failed to decode/decrypt/parse /field/objects/v4:", e, { decompressed, decrypted, data });
-                return;
-              }
-
-              await this.processWebSocketData(decoded.objects);
-
-              // --- NEW LOGIC: Only finish when all zones are processed ---
-              if (this.isFinished || this.zoneIndex >= this.config.ZONE_COUNT) {
-                console.log(`${continent}: 100%`);
-                await this.processAndSaveData(this.objects);
-                connection.close();
-                resolve();
-                return;
-              }
-
-              //await this.delay(200);
-              const zonesSubset = this.zoneNumbers.slice(this.zoneIndex, this.zoneIndex + this.config.BATCH_SIZE);
-              this.zoneIndex += this.config.BATCH_SIZE;
-              this.batchCount++;
-
-              if (zonesSubset.length < this.config.BATCH_SIZE || this.zoneIndex >= this.config.ZONE_COUNT) {
-                this.isFinished = true;
-              }
-
-              const payload = JSON.stringify({ world: this.currentContinent, zones: JSON.stringify(zonesSubset) });
-              const encoded = await this.encryption.createXorMessage(payload, this.xorPassword);
-              const message = `42["/zone/enter/list/v4", "${encoded}"]`;
-              // console.log(`Sending zone batch message: ${message}`);
-              connection.sendUTF(message);
-            } else if (event === "/field/enter/v3") {
-              this.batchCount = 1;
-              await this.delay(1000);
-              const zonesSubset = this.zoneNumbers.slice(this.zoneIndex, this.zoneIndex + this.config.BATCH_SIZE);
-              this.zoneIndex += this.config.BATCH_SIZE;
-
-              if (zonesSubset.length < this.config.BATCH_SIZE) this.isFinished = true;
-
-              const payload = JSON.stringify({ world: this.currentContinent, zones: JSON.stringify(zonesSubset) });
-              const encoded = await this.encryption.createXorMessage(payload, this.xorPassword);
-              const messageToSend = `42["/zone/enter/list/v4", "${encoded}"]`;
-              console.log(`Sending zone batch message after enter: ${messageToSend}`);
-              connection.sendUTF(messageToSend);
-            } else {
-              // Ignore other events, or log if you want
-              // console.log("Unhandled WebSocket event:", event);
+            // --- Only finish when all zones are processed ---
+            if (this.isFinished || this.zoneIndex >= this.config.ZONE_COUNT) {
+              console.log(`${continent}: 100%`);
+              await this.processAndSaveData(this.objects);
+              connection.close();
+              resolve();
+              return;
             }
-          } catch (error) {
-            console.error(`Error processing WebSocket message for guild ${guild}, continent ${continent}:`, error);
-          }
-        },
-        onError: (error) => {
-          console.error(`WebSocket Connect Error for guild ${guild}, continent ${continent}:`, error.message);
-          if (!this.isFinished && this.reconnectAttempts < this.maxReconnectAttempts) {
-            this.reconnectAttempts++;
-            setTimeout(() => {
-              this.api.connectWebSocket(url, {
-                onConnect: this.api.options?.onConnect,
-                onMessage: this.api.options?.onMessage,
-                onError: this.api.options?.onError,
-                onClose: this.api.options?.onClose,
-                useProxy: true,
-              }).catch(err => console.error(`Reconnect failed: ${err.message}`));
-            }, 2000);
+
+            const zonesSubset = this.zoneNumbers.slice(this.zoneIndex, this.zoneIndex + this.config.BATCH_SIZE);
+            this.zoneIndex += this.config.BATCH_SIZE;
+            this.batchCount++;
+
+            if (zonesSubset.length < this.config.BATCH_SIZE || this.zoneIndex >= this.config.ZONE_COUNT) {
+              this.isFinished = true;
+            }
+
+            const payload = JSON.stringify({ world: this.currentContinent, zones: JSON.stringify(zonesSubset) });
+            const encoded = await this.encryption.createXorMessage(payload, this.xorPassword);
+            const msg = `42["/zone/enter/list/v4", "${encoded}"]`;
+            connection.sendUTF(msg);
+          } else if (event === "/field/enter/v3") {
+            this.batchCount = 1;
+            await this.delay(1000);
+            const zonesSubset = this.zoneNumbers.slice(this.zoneIndex, this.zoneIndex + this.config.BATCH_SIZE);
+            this.zoneIndex += this.config.BATCH_SIZE;
+
+            if (zonesSubset.length < this.config.BATCH_SIZE) this.isFinished = true;
+
+            const payload = JSON.stringify({ world: this.currentContinent, zones: JSON.stringify(zonesSubset) });
+            const encoded = await this.encryption.createXorMessage(payload, this.xorPassword);
+            const messageToSend = `42["/zone/enter/list/v4", "${encoded}"]`;
+            console.log(`Sending zone batch message after enter: ${messageToSend}`);
+            connection.sendUTF(messageToSend);
           } else {
-            reject(error);
+            // Ignore other events
           }
-        },
-        onClose: () => {
-          console.log(`WebSocket Connection Closed for guild ${guild}, continent ${continent}`);
-          if (!this.isFinished && this.reconnectAttempts < this.maxReconnectAttempts) {
-            this.reconnectAttempts++;
-            setTimeout(() => {
-              this.api.connectWebSocket(url, {
-                onConnect: this.api.options?.onConnect,
-                onMessage: this.api.options?.onMessage,
-                onError: this.api.options?.onError,
-                onClose: this.api.options?.onClose,
-                useProxy: true,
-              }).catch(err => console.error(`Reconnect failed: ${err.message}`));
-            }, 2000);
-          }
-        },
+        } catch (error) {
+          console.error(`Error processing WebSocket message for guild ${guild}, continent ${continent}:`, error);
+        }
+      };
+
+      const tryReconnect = (reasonError) => {
+        if (!this.isFinished && this.reconnectAttempts < this.maxReconnectAttempts) {
+          this.reconnectAttempts++;
+          setTimeout(() => {
+            this.api.connectWebSocket(url, {
+              onConnect,
+              onMessage,
+              onError,
+              onClose,
+              useProxy: true,
+            }).catch(err => console.error(`Reconnect failed: ${err.message}`));
+          }, 2000);
+        } else if (reasonError) {
+          reject(reasonError);
+        }
+      };
+
+      const onError = (error) => {
+        console.error(`WebSocket Connect Error for guild ${guild}, continent ${continent}:`, error.message);
+        tryReconnect(error);
+      };
+
+      const onClose = () => {
+        console.log(`WebSocket Connection Closed for guild ${guild}, continent ${continent}`);
+        tryReconnect();
+      };
+
+      this.api.connectWebSocket(url, {
+        onConnect,
+        onMessage,
+        onError,
+        onClose,
         useProxy: true,
       }).catch(error => {
         console.error(`WebSocket Connection Failed for guild ${guild}, continent ${continent}:`, error);
@@ -539,7 +538,8 @@ class Scanner {
   async scanContinent(guild, continent) {
     console.log("scanning continent:", continent);
     try {
-      this.zoneNumbers = Array.from({ length: this.config.ZONE_COUNT + 1 }, (_, i) => i);
+  // Generate valid zone indices [0, ZONE_COUNT-1]; including ZONE_COUNT would be out-of-range
+  this.zoneNumbers = Array.from({ length: this.config.ZONE_COUNT }, (_, i) => i);
       this.objects = [];
       this.zoneIndex = 0;
       this.batchCount = 0;
