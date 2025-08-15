@@ -75,6 +75,8 @@ class UpdateVerified {
                 const allKingdomIds = activeKingdomRows.map(r => r.kingdomId);
                 if (allKingdomIds.length) {
                     const recentlyActiveRows = await this.sql.getRecentlyActiveKingdoms(allKingdomIds, guildId, 7);
+                    console.log(`Guild ${guildId}: ${recentlyActiveRows.length} kingdoms active in last 7d.`);
+                    console.log('active:', recentlyActiveRows);
                     const recentSet = new Set(recentlyActiveRows.map(r => r.kingdomId));
                     // Kingdoms with no recent info in linked continents
                     needChangeStatus = allKingdomIds.filter(k => !recentSet.has(k));

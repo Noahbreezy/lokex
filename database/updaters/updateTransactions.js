@@ -157,7 +157,7 @@ class UpdateTransactions {
                 console.log(`Found ${transfers.length} DST transfer events on ${networkName}`);
                 await this.processTransfers(transfers, guildWallets, networkName, network.explorerUrl);
             } else {
-                console.log(`No new DST transfers found on ${networkName}`);
+                // console.log(`No new DST transfers found on ${networkName}`);
             }
 
             network.lastCheckedBlock = currentBlock;
