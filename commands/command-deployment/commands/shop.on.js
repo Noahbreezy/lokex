@@ -1026,36 +1026,7 @@ module.exports = {
                 return;
             }
 
-            // Enforce mincastle requirement if present
-            if (item.mincastle) {
-                try {
-                    const latestInfo = await sql.getLatestKingdomInfo ? await sql.getLatestKingdomInfo(item.mincastle) : null; // fallback not really applicable
-                    // User must have at least one verified kingdom meeting the level requirement
-                    const kingdoms = await sql.checkVerifiedKingdoms(user.id, guildId);
-                    let meetsLevel = false;
-                    if (kingdoms && kingdoms.length > 0) {
-                        for (const k of kingdoms) {
-                            const levelRow = await sql.getKingdomLevel(k.kingdomId);
-                            if (levelRow && levelRow.length) {
-                                const level = levelRow[0].level || levelRow.level; // handle different return shapes
-                                if (parseInt(level) >= item.mincastle) {
-                                    meetsLevel = true;
-                                    break;
-                                }
-                            } else if (levelRow && levelRow.level && parseInt(levelRow.level) >= item.mincastle) {
-                                meetsLevel = true;
-                                break;
-                            }
-                        }
-                    }
-                    if (!meetsLevel) {
-                        await interaction.reply({ content: `❌ You need at least one verified kingdom with castle level ${item.mincastle}+ to purchase this item.`, flags: 64 });
-                        return;
-                    }
-                } catch (e) {
-                    console.error('Error checking mincastle requirement:', e);
-                }
-            }
+            // mincastle requirement will be enforced on the specific selected kingdom (handled later for whitelist items)
 
             // Check if item is in stock
             if (item.stock <= 0) {
@@ -1109,6 +1080,20 @@ module.exports = {
 
         if (kingdoms.length === 1) {
             // Only one kingdom, proceed directly
+            // Enforce mincastle on this single kingdom (if required)
+            if (item.mincastle) {
+                const levelRows = await sql.getKingdomLevel(kingdoms[0].kingdomId);
+                let level = null;
+                if (Array.isArray(levelRows)) {
+                    if (levelRows.length > 0 && levelRows[0].level !== undefined) level = parseInt(levelRows[0].level);
+                } else if (levelRows && levelRows.level !== undefined) {
+                    level = parseInt(levelRows.level);
+                }
+                if (level === null || level < item.mincastle) {
+                    await interaction.reply({ content: `❌ Kingdom **${kingdoms[0].kingdomName}** does not meet the required castle level ${item.mincastle}+ (current: ${level ?? 'unknown'}).`, flags: 64 });
+                    return;
+                }
+            }
             await this.applyWhitelistPurchase(interaction, item, kingdoms[0].kingdomId, kingdoms[0].kingdomName, currencyEmoji, sql);
         } else {
             // Multiple kingdoms, show selection menu
@@ -1172,6 +1157,21 @@ module.exports = {
                 const selectedKingdom = uniqueKingdoms.find(k => k.kingdomId.toString() === selectedKingdomId);
 
                 if (selectedKingdom) {
+                    // Enforce mincastle on the specifically selected kingdom
+                    if (item.mincastle) {
+                        const levelRows = await sql.getKingdomLevel(selectedKingdom.kingdomId);
+                        let level = null;
+                        if (Array.isArray(levelRows)) {
+                            if (levelRows.length > 0 && levelRows[0].level !== undefined) level = parseInt(levelRows[0].level);
+                        } else if (levelRows && levelRows.level !== undefined) {
+                            level = parseInt(levelRows.level);
+                        }
+                        if (level === null || level < item.mincastle) {
+                            await i.reply({ content: `❌ Kingdom **${selectedKingdom.kingdomName}** does not meet the required castle level ${item.mincastle}+ (current: ${level ?? 'unknown'}).`, flags: 64 });
+                            collector.stop();
+                            return;
+                        }
+                    }
                     await this.applyWhitelistPurchase(i, item, selectedKingdom.kingdomId, selectedKingdom.kingdomName, currencyEmoji, sql);
                 } else {
                     await i.reply({ content: '❌ Invalid selection. Please try again.', flags: 64 });
