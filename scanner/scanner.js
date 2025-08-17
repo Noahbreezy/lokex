@@ -350,6 +350,11 @@ class Scanner {
             inline: false
           },
           {
+            name: "Kingdom ID",
+            value: `${id || 'Unknown'}`,
+            inline: true
+          },
+          {
             name: "Mining Started",
             value: `<t:${miningStart}:F> (<t:${miningStart}:R>)`,
             inline: false
