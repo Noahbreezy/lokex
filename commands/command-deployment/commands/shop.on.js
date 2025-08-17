@@ -75,6 +75,14 @@ module.exports = {
                         .setRequired(false)
                         .setMinValue(1)
                 )
+                .addIntegerOption((option) =>
+                    option
+                        .setName("mincastle")
+                        .setDescription("Minimum castle level required to purchase")
+                        .setRequired(false)
+                        .setMinValue(1)
+                        .setMaxValue(50)
+                )
         )
         .addSubcommand((subcommand) =>
             subcommand
@@ -135,6 +143,14 @@ module.exports = {
                         .setDescription("New duration in weeks")
                         .setRequired(false)
                         .setMinValue(1)
+                )
+                .addIntegerOption((option) =>
+                    option
+                        .setName("mincastle")
+                        .setDescription("New minimum castle level required to purchase (use 0 to clear)")
+                        .setRequired(false)
+                        .setMinValue(0)
+                        .setMaxValue(50)
                 )
         )
         .addSubcommand((subcommand) =>
@@ -270,6 +286,7 @@ module.exports = {
                         const type = options.getString("type") || null;
                         const level = options.getInteger("level") || null;
                         const duration = options.getInteger("duration") || null;
+                        const mincastle = options.getInteger("mincastle") || null;
 
                         // Validate that dsa and cmine items have required level and duration
                         if (type && (type.toLowerCase() === 'dsa' || type.toLowerCase() === 'cmine')) {
@@ -283,7 +300,7 @@ module.exports = {
                             }
                         }
 
-                        await sql.addShopItem(guildId, name, price, stock, description, type, level, duration);
+                        await sql.addShopItem(guildId, name, price, stock, description, type, level, duration, mincastle);
                         const items = await sql.getShopItems(guildId);
                         const addedItem = items.find(i => i.name === name && i.price === price && i.stock === stock);
                         const itemIdMsg = addedItem ? ` (ID: ${addedItem.id})` : '';
@@ -299,7 +316,8 @@ module.exports = {
                                 description,
                                 type,
                                 level,
-                                duration
+                                duration,
+                                mincastle
                             });
                         }
                         
@@ -325,6 +343,7 @@ module.exports = {
                         const type = options.getString("type");
                         const level = options.getInteger("level");
                         const duration = options.getInteger("duration");
+                        const mincastle = options.getInteger("mincastle");
 
                         // Get current item data
                         const currentItem = await sql.getShopItem(itemId, guildId);
@@ -342,6 +361,13 @@ module.exports = {
                         const updatedType = type !== null ? type : currentItem.type;
                         const updatedLevel = level !== null ? level : currentItem.level;
                         const updatedDuration = duration !== null ? duration : currentItem.duration;
+                        // mincastle: allow explicit 0 to clear
+                        let updatedMincastle;
+                        if (mincastle !== null) {
+                            updatedMincastle = mincastle === 0 ? null : mincastle; // store NULL when clearing
+                        } else {
+                            updatedMincastle = currentItem.mincastle;
+                        }
 
                         // Validate that dsa and cmine items have required level and duration
                         if (updatedType && (updatedType.toLowerCase() === 'dsa' || updatedType.toLowerCase() === 'cmine')) {
@@ -355,7 +381,7 @@ module.exports = {
                             }
                         }
 
-                        await sql.updateShopItem(itemId, guildId, updatedName, updatedPrice, updatedStock, updatedDescription, updatedType, updatedLevel, updatedDuration);
+                        await sql.updateShopItem(itemId, guildId, updatedName, updatedPrice, updatedStock, updatedDescription, updatedType, updatedLevel, updatedDuration, updatedMincastle);
                         
                         let responseMessage = `✅ Item "${updatedName}" (ID: ${itemId}) updated successfully.`;
                         if (description === "CLEAR") {
@@ -373,7 +399,8 @@ module.exports = {
                             description: updatedDescription,
                             type: updatedType,
                             level: updatedLevel,
-                            duration: updatedDuration
+                            duration: updatedDuration,
+                            mincastle: updatedMincastle
                         });
                         
                         // Refresh shop channel if it exists
@@ -481,6 +508,7 @@ module.exports = {
                             if (item.type) description += ` | Type: ${item.type}`;
                             if (item.level) description += ` | Level: ${item.level}`;
                             if (item.duration) description += ` | Duration: ${item.duration} weeks`;
+                            if (item.mincastle) description += ` | Min Castle: ${item.mincastle}`;
                             description += `\n${item.description || 'No description'}\n\n`;
                         }
 
@@ -996,6 +1024,37 @@ module.exports = {
             if (!item) {
                 await interaction.reply({ content: "❌ Item not found.", flags: 64 });
                 return;
+            }
+
+            // Enforce mincastle requirement if present
+            if (item.mincastle) {
+                try {
+                    const latestInfo = await sql.getLatestKingdomInfo ? await sql.getLatestKingdomInfo(item.mincastle) : null; // fallback not really applicable
+                    // User must have at least one verified kingdom meeting the level requirement
+                    const kingdoms = await sql.checkVerifiedKingdoms(user.id, guildId);
+                    let meetsLevel = false;
+                    if (kingdoms && kingdoms.length > 0) {
+                        for (const k of kingdoms) {
+                            const levelRow = await sql.getKingdomLevel(k.kingdomId);
+                            if (levelRow && levelRow.length) {
+                                const level = levelRow[0].level || levelRow.level; // handle different return shapes
+                                if (parseInt(level) >= item.mincastle) {
+                                    meetsLevel = true;
+                                    break;
+                                }
+                            } else if (levelRow && levelRow.level && parseInt(levelRow.level) >= item.mincastle) {
+                                meetsLevel = true;
+                                break;
+                            }
+                        }
+                    }
+                    if (!meetsLevel) {
+                        await interaction.reply({ content: `❌ You need at least one verified kingdom with castle level ${item.mincastle}+ to purchase this item.`, flags: 64 });
+                        return;
+                    }
+                } catch (e) {
+                    console.error('Error checking mincastle requirement:', e);
+                }
             }
 
             // Check if item is in stock
@@ -1618,6 +1677,9 @@ async function refreshShopChannel(guildId, sql, guild) {
                 // Add duration if it exists
                 if (item.duration) {
                     itemValue += `\n:clock3: **Duration:** ${item.duration} weeks`;
+                }
+                if (item.mincastle) {
+                    itemValue += `\n🏰 **Min Castle lvl:** ${item.mincastle}`;
                 }
                 
                 // Add description only if it exists

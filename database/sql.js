@@ -2133,16 +2133,16 @@ class sqlFunctions {
         return results.length > 0 ? results[0] : null;
     }
 
-    // Add a new shop item
-    async addShopItem(guildId, name, price, stock, description = null, type = null, level = null, duration = null) {
-        const query = "INSERT INTO shop_items (guild_id, name, price, stock, description, type, level, duration) VALUES (?, ?, ?, ?, ?, ?, ?, ?);";
-        return this.query(query, [guildId, name, price, stock, description, type, level, duration]);
+    // Add a new shop item (now supports mincastle)
+    async addShopItem(guildId, name, price, stock, description = null, type = null, level = null, duration = null, mincastle = null) {
+        const query = "INSERT INTO shop_items (guild_id, name, price, stock, description, type, level, duration, mincastle) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);";
+        return this.query(query, [guildId, name, price, stock, description, type, level, duration, mincastle]);
     }
 
-    // Update shop item
-    async updateShopItem(itemId, guildId, name, price, stock, description = null, type = null, level = null, duration = null) {
-        const query = "UPDATE shop_items SET name = ?, price = ?, stock = ?, description = ?, type = ?, level = ?, duration = ? WHERE id = ? AND guild_id = ?;";
-        return this.query(query, [name, price, stock, description, type, level, duration, itemId, guildId]);
+    // Update shop item (now supports mincastle)
+    async updateShopItem(itemId, guildId, name, price, stock, description = null, type = null, level = null, duration = null, mincastle = null) {
+        const query = "UPDATE shop_items SET name = ?, price = ?, stock = ?, description = ?, type = ?, level = ?, duration = ?, mincastle = ? WHERE id = ? AND guild_id = ?;";
+        return this.query(query, [name, price, stock, description, type, level, duration, mincastle, itemId, guildId]);
     }
 
     // Delete shop item
