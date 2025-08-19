@@ -1342,7 +1342,7 @@ class sqlFunctions {
 
     // Get a kingdom name by Id
     async getKingdomName(kingdomId) {
-        const query = "SELECT name FROM info WHERE kingdomId=? ORDER BY id DESC";
+        const query = "SELECT name FROM latest_info WHERE kingdomId = ?;";
         return this.query(query, [kingdomId]);
     }
 
@@ -1390,7 +1390,7 @@ class sqlFunctions {
 
     // search for a kingdom by name
     async searchKingdomName(name) {
-        const query = "SELECT kingdomId, name FROM info WHERE name LIKE ? AND id IN (SELECT MAX(id) FROM info GROUP BY kingdomId) ORDER BY id DESC";
+        const query = "SELECT kingdomId, name FROM latest_info WHERE name LIKE ? ORDER BY id DESC;";
         return this.query(query, [`%${name}%`]);
     }
 
