@@ -180,11 +180,12 @@ client.on(Events.InteractionCreate, async (interaction) => {
       try {
         await command.modals(interaction);
       } catch (error) {
-        console.error(error);
-        await interaction.reply({
-          content: "There was an error while executing this command!",
-          flags: 64,
-        });
+        console.error("Blacklist modal error:", error);
+        if (!interaction.replied && !interaction.deferred) {
+          try { await interaction.reply({ content: "There was an error while executing this command!", flags: 64 }); } catch (e) { console.error("Blacklist error reply failed:", e); }
+        } else {
+          try { await interaction.followUp({ content: "There was an error while executing this command!", flags: 64 }); } catch (e) { console.error("Blacklist error followUp failed:", e); }
+        }
       }
     } else if (interaction.customId === "payment_submission") {
       const command = client.commands.get("subscription");
@@ -291,6 +292,13 @@ process.on('SIGTERM', () => {
 });
 
 process.on('uncaughtException', (err) => {
-  console.error('Uncaught Exception:', err);
+  const msg = err?.message || '';
+  const code = err?.code;
+  const benign = code === 'InteractionAlreadyReplied' || code === 10062 || /Unknown interaction/i.test(msg) || /InteractionAlreadyReplied/i.test(msg);
+  if (benign) {
+    console.error('Non-fatal interaction error suppressed:', err);
+    return;
+  }
+  console.error('Uncaught Exception (fatal):', err);
   process.exit(1);
 });

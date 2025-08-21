@@ -73,7 +73,8 @@ module.exports = {
         const { commandName, options } = interaction;
         const guild = interaction.guild.id;
         const ephemeralFlag = await sql.getEphemeral(guild);
-        const ephemeral = ephemeralFlag ? { flags: 64 } : {};
+        // Use the supported "ephemeral" boolean instead of raw flags to ensure compatibility
+        const ephemeral = ephemeralFlag ? { ephemeral: true } : {};
 
         let logChannel;
         try {
@@ -224,59 +225,72 @@ module.exports = {
                 break;
             }
             case "list": {
-                const blacklisted = await sql.getBlacklistedFromGuild(guild);
-                const maxMessageLength = 2000; // Discord message character limit
+                // Defer early to avoid the interaction expiring for large lists / slow queries
+                if (!interaction.deferred && !interaction.replied) {
+                    try {
+                        await interaction.deferReply({ ...ephemeral });
+                    } catch (e) {
+                        // If defer failed because we already responded somehow, continue
+                        console.error("Failed to defer blacklist list reply:", e);
+                    }
+                }
+
                 let messages = [];
-                let currentMessage = "";
+                try {
+                    const blacklisted = await sql.getBlacklistedFromGuild(guild);
+                    const maxMessageLength = 2000; // Discord message character limit
+                    let currentMessage = "";
 
-                if (blacklisted.length > 0) {
-                    for (let i = 0; i < blacklisted.length; i++) {
-                        let blacklistMessage = "";
-                        let ex = blacklisted[i].expiration;
+                    if (blacklisted.length > 0) {
+                        for (let i = 0; i < blacklisted.length; i++) {
+                            let ex = blacklisted[i].expiration;
+                            const permanent = new Date(ex) > new Date("2030-01-01");
+                            const blacklistMessage = permanent
+                                ? "**PERMANENT BLACKLISTED**"
+                                : "**BLACKLISTED UNTIL " + formatDateTime(ex) + "**";
 
-                        if (new Date(ex) > new Date("01-01-2030")) {
-                            blacklistMessage = "**PERMANENT BLACKLISTED**";
-                        } else {
-                            blacklistMessage = "**BLACKLISTED UNTIL " + formatDateTime(ex) + "**";
+                            const rowMessage =
+                                `${i + 1}. ${blacklisted[i].name ? blacklisted[i].name : ""} (${blacklisted[i].kingdomid}) is ${blacklistMessage} by <@${blacklisted[i].discordid}> ` +
+                                `on: ${formatDateTime(blacklisted[i].date)} for: ${blacklisted[i].description}\n`;
+
+                            if ((currentMessage + rowMessage).length > maxMessageLength) {
+                                messages.push(currentMessage);
+                                currentMessage = rowMessage;
+                            } else {
+                                currentMessage += rowMessage;
+                            }
                         }
-
-                        let rowMessage =
-                            `${i + 1}. ${(blacklisted[i].name) ? (blacklisted[i].name) : ""} (${(blacklisted[i].kingdomid)}) is ${blacklistMessage} by <@${blacklisted[i].discordid
-                            }> ` +
-                            `on: ${formatDateTime(blacklisted[i].date)} for: ${blacklisted[i].description
-                            }\n`;
-
-                        if ((currentMessage + rowMessage).length > maxMessageLength) {
-                            messages.push(currentMessage);
-                            currentMessage = rowMessage;
-                        } else {
-                            currentMessage += rowMessage;
-                        }
+                        if (currentMessage.length > 0) messages.push(currentMessage);
+                    } else {
+                        messages.push("Blacklist is empty");
                     }
-
-                    if (currentMessage.length > 0) {
-                        messages.push(currentMessage);
-                    }
-                } else {
-                    messages.push("Blacklist is empty");
+                } catch (err) {
+                    console.error("Error building blacklist list:", err);
+                    messages = ["There was an error fetching the blacklist."];
                 }
 
-                // Send the first message as a reply
-                if (messages.length > 0) {
-                    await interaction.reply({
-                        content: messages[0],
-                        ...ephemeral,
-                    });
-
-                    // Send the rest of the messages as follow-ups
+                // Send messages: first via editReply (after defer) then followUps
+                if (messages.length) {
+                    try {
+                        if (interaction.deferred && !interaction.replied) {
+                            await interaction.editReply({ content: messages[0] });
+                        } else if (!interaction.replied) {
+                            await interaction.reply({ content: messages[0], ...ephemeral });
+                        } else {
+                            await interaction.followUp({ content: messages[0], ...ephemeral });
+                        }
+                    } catch (e) {
+                        console.error("Failed initial blacklist list response:", e);
+                    }
                     for (let i = 1; i < messages.length; i++) {
-                        await interaction.followUp({
-                            content: messages[i],
-                            ...ephemeral,
-                        });
+                        try {
+                            await interaction.followUp({ content: messages[i], ...ephemeral });
+                        } catch (e) {
+                            console.error("Failed followUp blacklist list message", i + 1, e);
+                            break; // Prevent spamming errors
+                        }
                     }
                 }
-
                 break;
             }
         }
@@ -286,7 +300,7 @@ module.exports = {
         const api = module.exports.api;
         const guild = interaction.guild.id;
         const ephemeralFlag = await sql.getEphemeral(guild);
-        const ephemeral = ephemeralFlag ? { flags: 64 } : {};
+        const ephemeral = ephemeralFlag ? { ephemeral: true } : {};
         await handleBlacklistModal(interaction, sql, api, ephemeral);
     },
     async autocomplete(interaction) {
@@ -451,68 +465,47 @@ async function handleBlacklistModal(interaction, sql, api, ephemeral) {
             }
         }
 
-        if (nameList.length > 0 || nameList[0]?.allianceId) {
-            // console.log("namelist: ", nameList);
+        if (nameList.length > 0 && nameList[0]?.allianceId) {
             let allianceId = nameList[0].allianceId;
             let allianceTag = nameList[0].allianceTag;
-            if (!allianceId) {
+            if (!allianceId) return; // nothing to do
+            console.log("alliance ID:", allianceId);
+            let managerToken;
+            try {
+                managerToken = await sql.getManagerToken(allianceId);
+            } catch (e) {
+                console.error("Error fetching manager token:", e);
+            }
+            if (!Array.isArray(managerToken) || managerToken.length === 0 || !managerToken[0]?.token) {
+                try { await interaction.followUp({ content: "Can't kick from alliance " + (allianceTag || "") + " (no manager bot) or user is not in an alliance.", ephemeral: true }); } catch (e) { console.error("FollowUp failed (no manager bot):", e); }
                 return;
             }
-            console.log("alliance ID: ", allianceId);
-            const managerToken = (await sql.getManagerToken(allianceId));
-            console.log("token: ", managerToken[0].token);
-            if (!managerToken.length > 0) {
-                return await interaction.followUp({
-                    content: "Can't kick from alliance " + (allianceTag ? allianceTag : "") + " (no manager bot) or user is not in an alliance.",
-                    flags: 64,
-                });
-            }
-
-            let token11 = managerToken[0].token;
+            const token11 = managerToken[0].token;
             try {
-                var response = await api.request(
+                const response = await api.request(
                     "https://api-lok-live.leagueofkingdoms.com/api/alliance/member/disband",
                     { memberKingdomId: kingdomId },
-                    {
-                        "x-access-token": token11,
-                        "Content-Type": "application/json",
-                    }
+                    { "x-access-token": token11, "Content-Type": "application/json" }
                 );
-                if (response.data.result) {
-                    await interaction.followUp({
-                        content: "Kicked successfully",
-                        ...ephemeral,
-                    });
-                    await interaction.client.channels.cache
-                        .get(logChannel)
-                        .send(
-                            "**" +
-                            allianceTag +
-                            "**\n" +
+                if (response?.data?.result) {
+                    try { await interaction.followUp({ content: "Kicked successfully", ...ephemeral }); } catch (e) { console.error("Kick success followUp failed:", e); }
+                    try {
+                        await interaction.client.channels.cache.get(logChannel)?.send(
+                            `**${allianceTag || ""}**\n` +
                             name + (kingdomId ? " (" + kingdomId + ")" : "") + ` from ` + (discordId ? `<@${discordId}>` : `<Unknown User>`) +
-                            " has been kicked by <@" +
-                            interaction.user.id +
-                            "> (blacklisted)"
+                            " has been kicked by <@" + interaction.user.id + "> (blacklisted)"
                         );
+                    } catch (e) { console.error("Kick log send failed:", e); }
                 } else {
-                    console.error(response);
-                    return await interaction.followUp({
-                        content: "Couldn't kick player, manual kick needed",
-                        flags: 64,
-                    });
+                    console.error("Kick API negative response:", response?.data || response);
+                    try { await interaction.followUp({ content: "Couldn't kick player, manual kick needed", ephemeral: true }); } catch (e) { console.error("Manual kick message failed:", e); }
                 }
             } catch (error) {
-                console.log(error);
-                return await interaction.followUp({
-                    content: "There has been an error",
-                    flags: 64,
-                });
+                console.error("Kick API error:", error);
+                try { await interaction.followUp({ content: "There has been an error", ephemeral: true }); } catch (e) { console.error("Generic error followUp failed:", e); }
             }
         } else {
-            return await interaction.followUp({
-                content: "User needs manual kick.",
-                flags: 64,
-            });
+            try { await interaction.followUp({ content: "User needs manual kick.", ephemeral: true }); } catch (e) { console.error("Manual kick followUp failed:", e); }
         }
     }
 }
