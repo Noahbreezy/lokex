@@ -34,7 +34,7 @@ class UpdatePlayers {
 
             return kingdomIds;
         } catch (error) {
-            console.error('Error fetching alliance members:', error);
+            console.error(`Error fetching alliance members for alliance ${allianceId}:`, error);
             throw error;
         }
     }
