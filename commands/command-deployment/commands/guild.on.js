@@ -504,6 +504,7 @@ module.exports = {
                             'announcement_channel',
                             'verification_channel',
                             'titles_channel',
+                            'admin_titles_channel',
                             'pledgers_channel',
                             'buff_channel',
                             'drago_lookup_channel',
