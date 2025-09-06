@@ -543,7 +543,7 @@ class sqlFunctions {
 
     // Get verified kingdom discordId
     async getVerifiedDiscordId(kingdomId, guild) {
-        const query = "SELECT discordId FROM verified WHERE kingdomId=? AND guild=?";
+        const query = "SELECT discordId FROM verified WHERE kingdomId=? AND guild=? AND status=1";
         return this.query(query, [kingdomId, guild]);
     }
 
