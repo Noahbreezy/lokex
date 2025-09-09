@@ -15,36 +15,33 @@ module.exports = {
         const sql = module.exports.sql;
         const api = module.exports.api;
         if (!interaction.guild) {
-            await interaction.reply({
-                content: 'This command can only be used in a discord server.',
-                flags: 64
-            });
+            await interaction.reply({ content: 'This command can only be used in a discord server.', flags: 64 });
             return;
         }
         const guildId = interaction.guild.id;
         const userId = interaction.user.id;
         const ephemeralFlag = await sql.getEphemeral(guildId);
-        const ephemeral = ephemeralFlag ? { flags: 64 } : {};
+        // Using legacy flags:64 instead of ephemeral:true per project convention
+        try {
+            await interaction.deferReply({ flags: 64 });
+        } catch (e) {
+            console.error('Defer failed:', e);
+        }
 
         try {
             const code = await this.generateUniqueCode(interaction, sql);
             await this.saveCodeToDatabase(code, userId, guildId, sql);
             const queenInfo = (await sql.getQueenInfo(guildId))[0];
-            // console.log('Queen info:', queenInfo);
-            let queenLocation = await sql.getKingdomLocation(queenInfo.kingdomId);
-            console.log('Queen location:', queenLocation);
-            if (queenLocation.length > 0) {
-                queenLocation = `**_located at coordinates ${queenLocation[0].x}:${queenLocation[0].y}_**`;
-            } else {
-                queenLocation = '';
-            }
 
             if (!queenInfo?.name) {
-                await interaction.reply({
-                    content: 'Queen account not set. Please ask your continent admin to set the queen account using the `/account editrole:QUEEN` command.',
-                    ...ephemeral
-                });
+                await interaction.editReply({ content: 'Queen account not set. Please ask your continent admin to set the queen account using the `/account editrole:QUEEN` command.' });
                 return;
+            }
+
+            let queenLocationData = await sql.getKingdomLocation(queenInfo.kingdomId);
+            let queenLocation = '';
+            if (Array.isArray(queenLocationData) && queenLocationData.length > 0) {
+                queenLocation = `**_located at coordinates ${queenLocationData[0].x}:${queenLocationData[0].y}_**`;
             }
 
             const embed = new EmbedBuilder()
@@ -52,7 +49,7 @@ module.exports = {
                 .setTitle('🔹 Kingdom Verification')
                 .setDescription(
                     'To verify your kingdom account:\n' +
-                    `1. **Optionally verify your wallet below (it is not recommended skip)**\n` +
+                    '1. **Optionally verify your wallet below (it is not recommended skip)**\n' +
                     `2. Send the following code to the queen account in **mail body** "${queenInfo.name}" ${queenLocation}\n` +
                     `**Code (valid for 10 minutes only):**\n\`\`\`${code}\`\`\`\n` +
                     '   - *Desktop*: Copy the code above or from the message below.\n' +
@@ -65,47 +62,39 @@ module.exports = {
 
             let userDMChannel;
             try {
-                await interaction.reply({
-                    content: 'Verification instructions are being sent to your DMs!',
-                    flags: 64
-                });
                 userDMChannel = await interaction.user.createDM();
                 await userDMChannel.send({ embeds: [embed] });
                 await userDMChannel.send(`\`\`\`\n${code}\n\`\`\``);
-            } catch (dmError) {
-                await interaction.followUp({
-                    content: 'Unable to send DM. Please enable DMs from server members and try again.',
-                    flags: 64
-                });
+                await interaction.editReply({ content: 'Verification instructions sent to your DMs. Follow the steps there.' });
+            } catch (dmErr) {
+                await interaction.editReply({ content: 'Unable to send DM. Please enable DMs from server members and try again.' });
                 return;
             }
 
-            const guildSettings = await sql.getGuildLogChannels(guildId);
-            if (guildSettings[0]?.accept_log_channel) {
-                const verificationLogChannel = await interaction.guild.channels.fetch(guildSettings[0].accept_log_channel);
-                await verificationLogChannel.send(`<@${userId}> requested verification code: **${code}**`);
+            const logChannelSettings = await sql.getGuildLogChannels(guildId);
+            if (logChannelSettings[0]?.accept_log_channel) {
+                try {
+                    const verificationLogChannel = await interaction.guild.channels.fetch(logChannelSettings[0].accept_log_channel);
+                    if (verificationLogChannel) {
+                        await verificationLogChannel.send(`<@${userId}> requested verification code: **${code}**`);
+                    }
+                } catch (logErr) {
+                    console.error('Failed to write verification request log:', logErr);
+                }
             }
 
+            // Wallet step (optional)
             const walletPrompt = new EmbedBuilder()
                 .setColor(0x5865F2)
                 .setTitle('🔹 Wallet Verification (Optional)')
                 .setDescription('You can enter your wallet address or skip this step. If skipped, your wallet will be set to "0" in the database.');
 
             const walletInput = new ActionRowBuilder().addComponents(
-                new ButtonBuilder()
-                    .setCustomId('wallet_input')
-                    .setLabel('Enter Wallet Address')
-                    .setStyle(ButtonStyle.Primary),
-                new ButtonBuilder()
-                    .setCustomId('skip_wallet')
-                    .setLabel('Skip Wallet')
-                    .setStyle(ButtonStyle.Secondary)
+                new ButtonBuilder().setCustomId('wallet_input').setLabel('Enter Wallet Address').setStyle(ButtonStyle.Primary),
+                new ButtonBuilder().setCustomId('skip_wallet').setLabel('Skip Wallet').setStyle(ButtonStyle.Secondary)
             );
 
-            await userDMChannel.send({
-                embeds: [walletPrompt],
-                components: [walletInput]
-            });
+            await userDMChannel.send({ embeds: [walletPrompt], components: [walletInput] });
 
             const walletModal = new ModalBuilder()
                 .setCustomId('wallet_modal')
@@ -128,24 +117,16 @@ module.exports = {
                 if (i.customId === 'wallet_input') {
                     await i.showModal(walletModal);
                 } else if (i.customId === 'skip_wallet') {
-                    await i.reply({
-                        content: 'Wallet verification skipped. Please send the code in the **_mail body_**. Starting kingdom verification process...',
-                        flags: 64
-                    });
-                    
-                    // Start verification process with '0' as wallet
-                    const storedCode = code;
-                    await this.checkVerification(interaction, storedCode, guildId, '0', 0, this.sql, this.api);
+                    await i.reply({ content: 'Wallet verification skipped. Please send the code in the mail body. Starting verification...' });
+                    await this.checkVerification(interaction, code, guildId, '0', 0, this.sql, this.api);
                     collector.stop('wallet_skipped');
                 }
             });
-
-        } catch (error) {
-            console.error('Verification error:', error);
-            await interaction.followUp({
-                content: 'There was an error starting the verification process.',
-                flags: 64
-            });
+        } catch (err) {
+            console.error('Verification start error:', err);
+            try {
+                await interaction.editReply({ content: 'There was an error starting the verification process.' });
+            } catch (_) {}
         }
     },
 
@@ -353,7 +334,12 @@ module.exports = {
 
     async handleModalSubmit(interaction, sql) {
         try {
-            await interaction.deferReply({ flags: 64 });
+            const ephemeral = !!interaction.guildId;
+            if (ephemeral) {
+                await interaction.deferReply({ flags: 64 });
+            } else {
+                await interaction.deferReply();
+            }
 
             const walletInput = interaction.fields.getTextInputValue('wallet_address');
             const walletAddress = walletInput.trim() === '' ? '0' : walletInput;
