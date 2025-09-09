@@ -246,6 +246,13 @@ module.exports = {
                         .setDescription("Check another user's licenses (admin only)")
                         .setRequired(false)
                 )
+                .addStringOption((option) =>
+                    option
+                        .setName("kingdom")
+                        .setDescription("Specify a kingdom (name or ID) to view its owner's licenses")
+                        .setRequired(false)
+                        .setAutocomplete(true)
+                )
         ),
     async execute(interaction) {
         const sql = module.exports.sql;
@@ -785,11 +792,27 @@ module.exports = {
                     {
                         // Defer reply immediately to prevent timeout
                         await interaction.deferReply(ephemeral);
-                        
                         const targetUser = options.getUser("user");
-                        
-                        // If checking another user's licenses, verify permissions
-                        if (targetUser && targetUser.id !== user.id) {
+                        const kingdomOption = options.getString("kingdom");
+                        let derivedUserId = null;
+                        let derivedUsername = null;
+                        let fromKingdom = false;
+
+                        if (kingdomOption) {
+                            console.log('Kingdom option provided:', kingdomOption);
+                            const discordIdFound = await sql.getVerifiedDiscordId(kingdomOption, guildId);
+                            console.log('Discord ID found for kingdom:', discordIdFound);
+                            if (discordIdFound && Array.isArray(discordIdFound) && discordIdFound.length > 0 && discordIdFound[0].discordId) {
+                                derivedUserId = discordIdFound[0].discordId;
+                                console.log('Derived user ID from kingdom:', derivedUserId);
+                                fromKingdom = true;
+                            } else {
+                                await interaction.editReply({ content: `❌ Could not resolve a verified Discord user for kingdom ID ${kingdomOption}.` });
+                                return;
+                            }
+                        }
+
+                        if (!fromKingdom && targetUser && targetUser.id !== user.id) {
                             const memberPerms = interaction.member.permissions;
                             const hasKickApproveReject = memberPerms.has(PermissionFlagsBits.KickMembers)
                             const hasBan = memberPerms.has(PermissionFlagsBits.BanMembers);
@@ -798,15 +821,14 @@ module.exports = {
                                 return;
                             }
                         }
+
+                        console.log(derivedUserId);
+
+                        const checkUserId = derivedUserId || (targetUser ? targetUser.id : user.id);
+                        const checkUsername = derivedUsername || (targetUser ? targetUser.username : user.username);
                         
-                        const checkUserId = targetUser ? targetUser.id : user.id;
-                        const checkUsername = targetUser ? targetUser.username : user.username;
-                        
-                        // Get user's verified kingdoms for this guild
-                        const verifiedKingdoms = await sql.query(
-                            `SELECT kingdomId, kingdomName FROM verified WHERE discordId = ? AND guild = ?`,
-                            [checkUserId, guildId]
-                        );
+                        // Get user's verified kingdoms for this guild using helper
+                        const verifiedKingdoms = await sql.checkVerifiedKingdoms(checkUserId, guildId);
                         
                         if (!verifiedKingdoms || verifiedKingdoms.length === 0) {
                             const embed = new EmbedBuilder()
@@ -814,7 +836,9 @@ module.exports = {
                                 .setTitle("📜 Whitelist Licenses")
                                 .setTimestamp();
                                 
-                            if (targetUser) {
+                            if (fromKingdom) {
+                                embed.setDescription(`Licenses for kingdoms owned by <@${checkUserId}> (${checkUsername || 'Unknown User'})`);
+                            } else if (targetUser) {
                                 embed.setThumbnail(targetUser.displayAvatarURL());
                                 embed.setDescription(`**${checkUsername}**'s available whitelist licenses:`);
                             } else {
@@ -896,7 +920,9 @@ module.exports = {
                                 .setTitle("📜 Whitelist Licenses")
                                 .setTimestamp();
                                 
-                            if (targetUser) {
+                            if (fromKingdom) {
+                                currentEmbed.setDescription(`Licenses for kingdoms owned by <@${checkUserId}> (${checkUsername || 'Unknown User'})`);
+                            } else if (targetUser) {
                                 currentEmbed.setThumbnail(targetUser.displayAvatarURL());
                                 currentEmbed.setDescription(`**${checkUsername}**'s available whitelist licenses:`);
                             } else {
@@ -1434,6 +1460,20 @@ module.exports = {
             );
             
             await interaction.respond(filteredChoices);
+        } else if (focusedOption.name === 'kingdom') {
+            try {
+                const search = focusedOption.value;
+                // Reuse existing sql method analogous to blacklist autocomplete
+                const names = await sql.searchKingdomName(search);
+                const choices = names.slice(0,25).map(n => ({
+                    name: n.name ? `${n.name} (${n.kingdomId})` : n.kingdomId,
+                    value: n.kingdomId.toString()
+                }));
+                await interaction.respond(choices);
+            } catch (e) {
+                console.error('Error in kingdom autocomplete:', e);
+                await interaction.respond([]);
+            }
         }
     },
     refreshShopChannel,
