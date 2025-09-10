@@ -906,7 +906,9 @@ class sqlFunctions {
         ON 
             gs.guild_id = gcl.guild_id
         WHERE 
-            gcl.continent IS NOT NULL AND LENGTH(gs.pledgers_channel) > 2;
+            gcl.continent IS NOT NULL 
+            AND LENGTH(gs.pledgers_channel) > 2
+            AND gcl.subscription_type LIKE '%2%';
     `;
         return this.query(query);
     }
@@ -1449,6 +1451,43 @@ class sqlFunctions {
         ORDER BY total_amount DESC;
     `;
         return this.query(query);
+    }
+
+    // Sept 1 2025 continent merge + display multiplier logic
+    // Returns totals per NEW continent (101-108) applying:
+    //  - Pre-Sept 1 2025 transactions: map old continents to new groups and multiply amount by 20
+    //  - Post-Sept 1 2025 transactions: continents 1..8 map to 101..108, no multiplier
+    async getMergedNetStaking() {
+        // Cutoff: 2025-09-01 00:00:00 UTC
+        const cutoff = Math.floor(Date.UTC(2025, 8, 1) / 1000); // months 0-based
+        const query = `
+            SELECT new_continent AS continent, SUM(adjusted_amount) AS total_amount
+            FROM (
+                SELECT
+                    CASE
+                        WHEN timestamp < ? AND continent IN (69,35,64,45,70,13,7) THEN 101
+                        WHEN timestamp < ? AND continent IN (41,54,43,61,15,46,9) THEN 102
+                        WHEN timestamp < ? AND continent IN (53,23,40,42,66,57,27,48) THEN 103
+                        WHEN timestamp < ? AND continent IN (8,10,38,65,33,68,32,56) THEN 104
+                        WHEN timestamp < ? AND continent IN (5,63,51,50,62,16,58,39) THEN 105
+                        WHEN timestamp < ? AND continent IN (44,1,29,12,67,28,34,36) THEN 106
+                        WHEN timestamp < ? AND continent IN (30,18,11,14,6,21,4,49) THEN 107
+                        WHEN timestamp < ? AND continent IN (26,31,47,3,55,37,22,52) THEN 108
+                        WHEN timestamp >= ? AND continent BETWEEN 1 AND 8 THEN continent + 100
+                        ELSE NULL
+                    END AS new_continent,
+                    CASE
+                        WHEN timestamp < ? THEN amount * 20
+                        ELSE amount
+                    END AS adjusted_amount
+                FROM staking_transactions
+            ) t
+            WHERE new_continent IS NOT NULL
+            GROUP BY new_continent
+            ORDER BY total_amount DESC;
+        `;
+        const params = [cutoff,cutoff,cutoff,cutoff,cutoff,cutoff,cutoff,cutoff,cutoff,cutoff];
+        return this.query(query, params);
     }
 
     // Update the comment for a specific address

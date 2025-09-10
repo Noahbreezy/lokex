@@ -8,7 +8,8 @@ class UpdateStakers {
     constructor(sqlInstance, api) {
         this.sql = sqlInstance;
         this.api = api;
-        this.stakingAddress = '0x196a26eF25Beea61f9199e3F9d4C5C03377DF786'; // Default staking address
+        // Updated Sept 1 2025: new staking contract address
+        this.stakingAddress = '0x32c245E8aD0396d570ae4c6e93e97F5CB20B33F5';
         this.discordClient = new Client({
             intents: [
                 GatewayIntentBits.Guilds,
@@ -149,6 +150,8 @@ class UpdateStakers {
 
         let newTransactionsFound = false;
 
+        console.log(`Fetched ${transactions.length} transactions. Latest stored timestamp: ${latestTimestamp}`);
+
         for (const tx of transactions) {
             if (tx.isError === '1') continue; // Skip failed transactions
             if (tx.timeStamp <= latestTimestamp) continue; // Skip old transactions
@@ -157,19 +160,26 @@ class UpdateStakers {
             let continent = 0;
             let amount = 0;
 
-            // Determine if it's a staking or unstaking transaction
-            if (tx.functionName === 'stake(uint256 caveId, uint256 tokenId)') {
+            // Updated Sept 1 2025: Method IDs & param mapping changed.
+            // stake(uint256 _submissionId, uint256 _amount) => methodID 0x7b0472f0
+            // unstake(uint256 _tokens, uint256 dayType) BUT first param represents submissionId (continent) per new spec
+            // methodID 0x9e2c8a5b
+            const input = tx.input || '';
+            if (!input || input.length < 10 + 64 * 2) {
+                continue; // malformed input
+            }
+            const methodId = input.slice(0, 10);
+            if (methodId === '0x7b0472f0') {
                 isStaking = true;
-            } else if (tx.functionName === 'unstake(uint256 caveId, uint256 tokenId)') {
+            } else if (methodId === '0x9e2c8a5b') {
                 isStaking = false;
             } else {
-                continue; // Skip irrelevant transactions
+                continue; // Not a staking/unstaking tx we care about
             }
 
-            // Parse transaction input
-            const input = tx.input;
-            const continentHex = input.substring(10, 74); // caveId (continent)
-            const tokenIdHex = input.substring(74, 138); // tokenId (amount)
+            // Parameter extraction remains positional: first 32 bytes = continent (submissionId), second 32 bytes = amount
+            const continentHex = input.substring(10, 74); // _submissionId (continent)
+            const amountHex = input.substring(74, 138); // _amount (stake) or tokens (unstake) per new mapping
 
             continent = parseInt(continentHex, 16);
 
@@ -179,19 +189,27 @@ class UpdateStakers {
                 continue; // Skip this transaction
             }
 
-            amount = parseInt(tokenIdHex, 16) / 1000000000000000000; // Convert from wei to LOKA
+            amount = parseInt(amountHex, 16) / 1000000000000000000; // Convert from wei to A2Z
             amount = isStaking ? amount : -amount; // Negative for unstaking
 
             newTransactionsFound = true;
 
+            // Normalize continent for storage according to Sept 1 merge rules.
+            // Post-Sept 1 (timestamp >= cutoff) continents arrive as 1..8 -> store 101..108
+            // Pre-Sept 1 keep original legacy continent (will be mapped during aggregation)
+            const cutoff = Math.floor(Date.UTC(2025, 8, 1) / 1000); // 2025-09-01 UTC
+            let storedContinent = continent;
+            if (Number(tx.timeStamp) >= cutoff && continent >= 1 && continent <= 8) {
+                storedContinent = continent + 100; // 1->101 etc
+            }
+
             // Fetch comment (staker's name)
             const comment = await this.getComment(tx.from);
 
-            // Insert into database
             await this.sql.insertStakingTransaction(
                 tx.hash,
                 tx.from,
-                continent,
+                storedContinent,
                 amount,
                 tx.timeStamp,
                 comment,
@@ -199,7 +217,7 @@ class UpdateStakers {
             );
 
             // Log to Discord
-            await this.logToDiscord(tx, continent, amount, comment, isStaking);
+            await this.logToDiscord(tx, storedContinent, amount, comment, isStaking);
 
             // Update channel name
             await this.updateChannelName();
@@ -234,16 +252,20 @@ class UpdateStakers {
                     continue;
                 }
 
+                // Emoji decision should use mapped continents for 101..108
+                const mappedEventCont = this.mapContinentForEmoji(Number(continent));
+                const mappedGuildCont = this.mapContinentForEmoji(Number(guildContinent));
+
                 // Format the message
-                let emoji = (continent === guildContinent && isStaking) || (continent !== guildContinent && !isStaking)
+                let emoji = (mappedEventCont === mappedGuildCont && isStaking) || (mappedEventCont !== mappedGuildCont && !isStaking)
                     ? '<a:8697pepehyped:1352775694287110185>'
                     : '<a:1314kekwholup:1352775612389003396>';
 
                 const action = isStaking ? 'New staking' : 'New unstaking';
                 const formattedAmount = this.formatNumberWithSuffix(Math.abs(amount));
                 const message = comment
-                    ? `${emoji} **${action}** on **C${continent}** from **${this.cleanAndEscapeDiscordString(comment)}** Amount: **${formattedAmount}** LOKA`
-                    : `${emoji} **${action}** on **C${continent}** Amount: **${formattedAmount}** LOKA`;
+                    ? `${emoji} **${action}** on **C${continent}** from **${this.cleanAndEscapeDiscordString(comment)}** Amount: **${formattedAmount}** A2Z`
+                    : `${emoji} **${action}** on **C${continent}** Amount: **${formattedAmount}** A2Z`;
 
                 await channel.send(message);
             } catch (err) {
@@ -252,9 +274,25 @@ class UpdateStakers {
         }
     }
 
+    // Map new continents (101-108) to legacy equivalents for emoji decision logic only
+    mapContinentForEmoji(cont) {
+        const mapping = {
+            101: 19,
+            102: 20,
+            103: 60,
+            104: 24,
+            105: 59,
+            106: 17,
+            107: 25,
+            108: 2,
+        };
+        return mapping[cont] || cont;
+    }
+
     // Update the pledgers channel name based on net staking for continent guildContinent
     async updateChannelName() {
-        const netStaking = await this.sql.getNetStakingByContinent();
+        // Use merged aggregation which applies legacy mapping and multiplier
+        const netStaking = await this.sql.getMergedNetStaking();
         const guilds = await this.sql.getAllContinentPledgeChannels();
 
         for (const guild of guilds) {
