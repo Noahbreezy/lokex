@@ -9,6 +9,8 @@ class Scanner {
       WEBSOCKET_URL: "wss://socf-lok-live.leagueofkingdoms.com/socket.io/?EIO=4&transport=websocket",
       ZONE_COUNT: 4096,
       BATCH_SIZE: 9,
+      // Delay between each batch request to avoid rate limits (in ms)
+      BATCH_DELAY_MS: 1000,
     };
 
     this.shrines = [
@@ -74,7 +76,7 @@ class Scanner {
     const zonesProcessed = Math.min(this.zoneIndex, this.config.ZONE_COUNT);
     const percent = ((zonesProcessed / this.config.ZONE_COUNT) * 100).toFixed(1);
     console.log(
-        `Processing ${data.length} objects from ${this.currentContinent} websocket (${percent}% done)`
+      `Processing ${data.length} objects from ${this.currentContinent} websocket (${percent}% done)`
     );
     this.objects.push(...data);
   }
@@ -184,7 +186,7 @@ class Scanner {
 
       const whitelistRows = await this.sql.getWhitelist(this.currentGuild, this.currentContinent);
       console.log(`Found ${whitelistRows.length} whitelist entries for guild ${this.currentGuild}, continent ${this.currentContinent}`);
-      
+
       // Build whitelist object with highest valid license levels per kingdom
       const whitelist = whitelistRows.reduce((acc, row) => {
         acc[row.kingdomid] = {
@@ -217,7 +219,7 @@ class Scanner {
         if (
           record.occupied?.name &&
           ((record.code === 20100105 && record.level > minCmine) ||
-           (record.code === 20100106 && record.level > minDsa))
+            (record.code === 20100106 && record.level > minDsa))
         ) {
           // console.log(`levels: ${record.code} - ${record.level}, minCmine: ${minCmine}, minDsa: ${minDsa}`);
           const whitelistEntry = whitelist[record.occupied?.id];
@@ -335,10 +337,10 @@ class Scanner {
       const safeValue = (typeof value === "number" && !isNaN(value)) ? value : 0;
 
       const channel = await this.discordClient.channels.fetch(channelId);
-      
+
       // Get custom emoji based on mine type
       const customEmoji = code === 20100105 ? '<:crystal:1400996986395688960>' : '<:dsa:1400996962827899101>';
-      
+
       const embed = {
         color: 0xff0000, // Red color for illegal mining
         title: `${customEmoji} Illegal ${resource.type} Mining Detected`,
@@ -478,10 +480,13 @@ class Scanner {
             const payload = JSON.stringify({ world: this.currentContinent, zones: JSON.stringify(zonesSubset) });
             const encoded = await this.encryption.createXorMessage(payload, this.xorPassword);
             const msg = `42["/zone/enter/list/v4", "${encoded}"]`;
+            // Delay between batch requests to mitigate rate limits
+            await this.delay(this.config.BATCH_DELAY_MS);
             connection.sendUTF(msg);
           } else if (event === "/field/enter/v3") {
             this.batchCount = 1;
-            await this.delay(1000);
+            // Initial delay before sending the first batch to mitigate rate limits
+            await this.delay(this.config.BATCH_DELAY_MS);
             const zonesSubset = this.zoneNumbers.slice(this.zoneIndex, this.zoneIndex + this.config.BATCH_SIZE);
             this.zoneIndex += this.config.BATCH_SIZE;
 
@@ -543,8 +548,8 @@ class Scanner {
   async scanContinent(guild, continent) {
     console.log("scanning continent:", continent);
     try {
-  // Generate valid zone indices [0, ZONE_COUNT-1]; including ZONE_COUNT would be out-of-range
-  this.zoneNumbers = Array.from({ length: this.config.ZONE_COUNT }, (_, i) => i);
+      // Generate valid zone indices [0, ZONE_COUNT-1]; including ZONE_COUNT would be out-of-range
+      this.zoneNumbers = Array.from({ length: this.config.ZONE_COUNT }, (_, i) => i);
       this.objects = [];
       this.zoneIndex = 0;
       this.batchCount = 0;
