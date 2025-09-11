@@ -822,7 +822,7 @@ module.exports = {
                             }
                         }
 
-                        console.log(derivedUserId);
+                        console.log(`userid: ${derivedUserId}`);
 
                         const checkUserId = derivedUserId || (targetUser ? targetUser.id : user.id);
                         const checkUsername = derivedUsername || (targetUser ? targetUser.username : user.username);
@@ -871,8 +871,52 @@ module.exports = {
                         // Filter to only include the user's verified kingdoms
                         const verifiedKingdomIds = new Set(verifiedKingdoms.map(k => k.kingdomId));
                         const licensedKingdoms = allWhitelistKingdoms.filter(kingdom => {
-                            return verifiedKingdomIds.has(kingdom.kingdomid) && (kingdom.dsa > 0 || kingdom.cmine > 0);
+                            return verifiedKingdomIds.has(kingdom.kingdomid) && (
+                                (kingdom.dsa > 0 || kingdom.cmine > 0) ||
+                                kingdom.expiry === null
+                            );
                         });
+                        
+                        // Group licenses by kingdom and find the highest valid level for each type
+                        const kingdomLicenses = {};
+                        const currentDate = new Date();
+                        
+                        for (const kingdom of licensedKingdoms) {
+                            const kingdomId = kingdom.kingdomid;
+                            if (!kingdomLicenses[kingdomId]) {
+                                kingdomLicenses[kingdomId] = {
+                                    name: kingdom.name,
+                                    kingdomid: kingdom.kingdomid,
+                                    dsa: { level: 0, expiry: null },
+                                    cmine: { level: 0, expiry: null }
+                                };
+                            }
+                            
+                            // Check if this license record is still valid
+                            const isExpired = kingdom.expiry && new Date(kingdom.expiry) < currentDate;
+                            if (isExpired) continue; // Skip expired licenses
+                            
+                            // Update DSA level if this record has a higher DSA level
+                            if (kingdom.dsa > kingdomLicenses[kingdomId].dsa.level) {
+                                kingdomLicenses[kingdomId].dsa = {
+                                    level: kingdom.dsa,
+                                    expiry: kingdom.expiry
+                                };
+                            }
+                            
+                            // Update C-Mine level if this record has a higher C-Mine level
+                            if (kingdom.cmine > kingdomLicenses[kingdomId].cmine.level) {
+                                kingdomLicenses[kingdomId].cmine = {
+                                    level: kingdom.cmine,
+                                    expiry: kingdom.expiry
+                                };
+                            }
+                        }
+                        
+                        // Convert back to array for display
+                        const aggregatedKingdoms = Object.values(kingdomLicenses).filter(kingdom => 
+                            kingdom.dsa.level > 0 || kingdom.cmine.level > 0
+                        );
                         
                         // Debug logging for MIYAVI
                         const miyaviKingdom = licensedKingdoms.find(k => k.name === 'MIYAVI');
@@ -880,8 +924,7 @@ module.exports = {
                             console.log(`Debug MIYAVI whitelist data:`, {
                                 dsa: miyaviKingdom.dsa,
                                 cmine: miyaviKingdom.cmine,
-                                dsa_expiry: miyaviKingdom.dsa_expiry,
-                                cmine_expiry: miyaviKingdom.cmine_expiry,
+                                expiry: miyaviKingdom.expiry,
                                 license_count: miyaviKingdom.license_count
                             });
                         }
@@ -899,7 +942,7 @@ module.exports = {
                             embed.setDescription("Your available whitelist licenses:");
                         }
                         
-                        if (!licensedKingdoms || licensedKingdoms.length === 0) {
+                        if (!aggregatedKingdoms || aggregatedKingdoms.length === 0) {
                             embed.addFields({
                                 name: "No Licenses Found",
                                 value: targetUser ? 
@@ -930,19 +973,19 @@ module.exports = {
                                 currentEmbed.setDescription("Your available whitelist licenses:");
                             }
                             
-                            for (let i = 0; i < licensedKingdoms.length; i++) {
-                                const kingdom = licensedKingdoms[i];
+                            for (let i = 0; i < aggregatedKingdoms.length; i++) {
+                                const kingdom = aggregatedKingdoms[i];
                                 
                                 const licenses = [];
                                 
                                 // Add DSA license info if exists
-                                if (kingdom.dsa > 0) {
-                                    licenses.push(`DSA Level ${kingdom.dsa}`);
+                                if (kingdom.dsa.level > 0) {
+                                    licenses.push(`DSA Level ${kingdom.dsa.level}`);
                                 }
                                 
                                 // Add C-Mine license info if exists
-                                if (kingdom.cmine > 0) {
-                                    licenses.push(`C-Mine Level ${kingdom.cmine}`);
+                                if (kingdom.cmine.level > 0) {
+                                    licenses.push(`C-Mine Level ${kingdom.cmine.level}`);
                                 }
                                 
                                 // Use kingdom name or kingdomid as fallback
@@ -950,17 +993,17 @@ module.exports = {
                                 let kingdomInfo = `**${kingdomName}** (ID: ${kingdom.kingdomid})\n`;
                                 kingdomInfo += `└ **Licenses:** ${licenses.join(', ')}\n`;
                                 
-                                // Show expiry information - handle different expiry dates properly using the separate fields
-                                if (kingdom.dsa > 0 && kingdom.cmine > 0) {
+                                // Show expiry information - handle different expiry dates properly using the separate expiry fields
+                                if (kingdom.dsa.level > 0 && kingdom.cmine.level > 0) {
                                     // Both licenses exist - show separate expiry dates
-                                    kingdomInfo += `└ **DSA Expires:** ${kingdom.dsa_expiry ? `<t:${Math.floor(new Date(kingdom.dsa_expiry).getTime() / 1000)}:F> (<t:${Math.floor(new Date(kingdom.dsa_expiry).getTime() / 1000)}:R>)` : 'Never (Permanent)'}\n`;
-                                    kingdomInfo += `└ **C-Mine Expires:** ${kingdom.cmine_expiry ? `<t:${Math.floor(new Date(kingdom.cmine_expiry).getTime() / 1000)}:F> (<t:${Math.floor(new Date(kingdom.cmine_expiry).getTime() / 1000)}:R>)` : 'Never (Permanent)'}\n`;
-                                } else if (kingdom.dsa > 0) {
+                                    kingdomInfo += `└ **DSA Expires:** ${kingdom.dsa.expiry ? `<t:${Math.floor(new Date(kingdom.dsa.expiry).getTime() / 1000)}:F> (<t:${Math.floor(new Date(kingdom.dsa.expiry).getTime() / 1000)}:R>)` : 'Never (Permanent)'}\n`;
+                                    kingdomInfo += `└ **C-Mine Expires:** ${kingdom.cmine.expiry ? `<t:${Math.floor(new Date(kingdom.cmine.expiry).getTime() / 1000)}:F> (<t:${Math.floor(new Date(kingdom.cmine.expiry).getTime() / 1000)}:R>)` : 'Never (Permanent)'}\n`;
+                                } else if (kingdom.dsa.level > 0) {
                                     // Only DSA license
-                                    kingdomInfo += `└ **Expires:** ${kingdom.dsa_expiry ? `<t:${Math.floor(new Date(kingdom.dsa_expiry).getTime() / 1000)}:F> (<t:${Math.floor(new Date(kingdom.dsa_expiry).getTime() / 1000)}:R>)` : 'Never (Permanent)'}\n`;
-                                } else if (kingdom.cmine > 0) {
+                                    kingdomInfo += `└ **Expires:** ${kingdom.dsa.expiry ? `<t:${Math.floor(new Date(kingdom.dsa.expiry).getTime() / 1000)}:F> (<t:${Math.floor(new Date(kingdom.dsa.expiry).getTime() / 1000)}:R>)` : 'Never (Permanent)'}\n`;
+                                } else if (kingdom.cmine.level > 0) {
                                     // Only C-Mine license
-                                    kingdomInfo += `└ **Expires:** ${kingdom.cmine_expiry ? `<t:${Math.floor(new Date(kingdom.cmine_expiry).getTime() / 1000)}:F> (<t:${Math.floor(new Date(kingdom.cmine_expiry).getTime() / 1000)}:R>)` : 'Never (Permanent)'}\n`;
+                                    kingdomInfo += `└ **Expires:** ${kingdom.cmine.expiry ? `<t:${Math.floor(new Date(kingdom.cmine.expiry).getTime() / 1000)}:F> (<t:${Math.floor(new Date(kingdom.cmine.expiry).getTime() / 1000)}:R>)` : 'Never (Permanent)'}\n`;
                                 }
                                 kingdomInfo += "\n";
                                 
@@ -969,7 +1012,7 @@ module.exports = {
                                     // Add current field to embed and start a new one
                                     if (currentDescription.length > 0) {
                                         const fieldName = embeds.length === 0 
-                                            ? `Active Licenses (${licensedKingdoms.length} kingdom${licensedKingdoms.length === 1 ? '' : 's'})`
+                                            ? `Active Licenses (${aggregatedKingdoms.length} kingdom${aggregatedKingdoms.length === 1 ? '' : 's'})`
                                             : "Continued...";
                                         currentEmbed.addFields({
                                             name: fieldName,
@@ -994,7 +1037,7 @@ module.exports = {
                             // Add the final field and embed
                             if (currentDescription.length > 0) {
                                 const fieldName = embeds.length === 0 
-                                    ? `Active Licenses (${licensedKingdoms.length} kingdom${licensedKingdoms.length === 1 ? '' : 's'})`
+                                    ? `Active Licenses (${aggregatedKingdoms.length} kingdom${aggregatedKingdoms.length === 1 ? '' : 's'})`
                                     : "Continued...";
                                 currentEmbed.addFields({
                                     name: fieldName,
