@@ -1458,22 +1458,65 @@ class sqlFunctions {
     //  - Pre-Sept 1 2025 transactions: map old continents to new groups and multiply amount by 20
     //  - Post-Sept 1 2025 transactions: continents 1..8 map to 101..108, no multiplier
     async getMergedNetStaking() {
-        // Cutoff: 2025-09-01 00:00:00 UTC
-        const cutoff = Math.floor(Date.UTC(2025, 8, 1) / 1000); // months 0-based
+        // Cutoff: default 2025-09-01 00:00:00 UTC; override with env STAKING_CUTOFF_TS (unix seconds)
+        const cutoff = Number(process.env.STAKING_CUTOFF_TS) || Math.floor(Date.UTC(2025, 8, 1) / 1000);
+
         const query = `
-            SELECT new_continent AS continent, SUM(adjusted_amount) AS total_amount
-            FROM (
+        WITH mapped AS (
+            SELECT
+                CASE
+                    WHEN st.timestamp < ? THEN
+                        CASE
+                            WHEN st.continent IN (69,35,64,45,70,13,7,19) THEN 101
+                            WHEN st.continent IN (41,54,43,61,15,46,9,20) THEN 102
+                            WHEN st.continent IN (53,23,40,42,66,57,27,48,60) THEN 103
+                            WHEN st.continent IN (8,10,38,65,33,68,32,56,24) THEN 104
+                            WHEN st.continent IN (5,63,51,50,62,16,58,39,59) THEN 105
+                            WHEN st.continent IN (44,1,29,12,67,28,34,36,17) THEN 106
+                            WHEN st.continent IN (30,18,11,14,6,21,4,49,25) THEN 107
+                            WHEN st.continent IN (26,31,47,3,55,37,22,52,2) THEN 108
+                            ELSE NULL
+                        END
+                    ELSE
+                        CASE
+                            WHEN st.continent BETWEEN 101 AND 108 THEN st.continent
+                            ELSE NULL
+                        END
+                END AS new_continent,
+                CASE
+                    WHEN st.timestamp < ? THEN st.amount * 20
+                    ELSE st.amount
+                END AS adjusted_amount
+            FROM staking_transactions st
+        )
+        SELECT new_continent AS continent, SUM(adjusted_amount) AS total_amount
+        FROM mapped
+        WHERE new_continent IS NOT NULL
+        GROUP BY new_continent
+        ORDER BY total_amount DESC;
+        `;
+        return this.query(query, [cutoff, cutoff]);
+    }
+
+    // Get individual pledgers totals for a guild's continent using merged continent rules
+    async getIndividualPledgeTotalMerged(guildId) {
+        const cutoff = Number(process.env.STAKING_CUTOFF_TS) || Math.floor(Date.UTC(2025, 8, 1) / 1000);
+
+        const query = `
+            WITH mapped AS (
                 SELECT
+                    from_address,
+                    comment,
                     CASE
-                        WHEN timestamp < ? AND continent IN (69,35,64,45,70,13,7) THEN 101
-                        WHEN timestamp < ? AND continent IN (41,54,43,61,15,46,9) THEN 102
-                        WHEN timestamp < ? AND continent IN (53,23,40,42,66,57,27,48) THEN 103
-                        WHEN timestamp < ? AND continent IN (8,10,38,65,33,68,32,56) THEN 104
-                        WHEN timestamp < ? AND continent IN (5,63,51,50,62,16,58,39) THEN 105
-                        WHEN timestamp < ? AND continent IN (44,1,29,12,67,28,34,36) THEN 106
-                        WHEN timestamp < ? AND continent IN (30,18,11,14,6,21,4,49) THEN 107
-                        WHEN timestamp < ? AND continent IN (26,31,47,3,55,37,22,52) THEN 108
-                        WHEN timestamp >= ? AND continent BETWEEN 1 AND 8 THEN continent + 100
+                        WHEN continent IN (69,35,64,45,70,13,7,19) THEN 101
+                        WHEN continent IN (41,54,43,61,15,46,9,20) THEN 102
+                        WHEN continent IN (53,23,40,42,66,57,27,48,60) THEN 103
+                        WHEN continent IN (8,10,38,65,33,68,32,56,24) THEN 104
+                        WHEN continent IN (5,63,51,50,62,16,58,39,59) THEN 105
+                        WHEN continent IN (44,1,29,12,67,28,34,36,17) THEN 106
+                        WHEN continent IN (30,18,11,14,6,21,4,49,25) THEN 107
+                        WHEN continent IN (26,31,47,3,55,37,22,52,2) THEN 108
+                        WHEN continent BETWEEN 101 AND 108 THEN continent
                         ELSE NULL
                     END AS new_continent,
                     CASE
@@ -1481,13 +1524,34 @@ class sqlFunctions {
                         ELSE amount
                     END AS adjusted_amount
                 FROM staking_transactions
-            ) t
-            WHERE new_continent IS NOT NULL
-            GROUP BY new_continent
-            ORDER BY total_amount DESC;
+            ),
+            target AS (
+                SELECT
+                    CASE
+                        WHEN gcl.continent BETWEEN 101 AND 108 THEN gcl.continent
+                        WHEN gcl.continent IN (69,35,64,45,70,13,7,19) THEN 101
+                        WHEN gcl.continent IN (41,54,43,61,15,46,9,20) THEN 102
+                        WHEN gcl.continent IN (53,23,40,42,66,57,27,48,60) THEN 103
+                        WHEN gcl.continent IN (8,10,38,65,33,68,32,56,24) THEN 104
+                        WHEN gcl.continent IN (5,63,51,50,62,16,58,39,59) THEN 105
+                        WHEN gcl.continent IN (44,1,29,12,67,28,34,36,17) THEN 106
+                        WHEN gcl.continent IN (30,18,11,14,6,21,4,49,25) THEN 107
+                        WHEN gcl.continent IN (26,31,47,3,55,37,22,52,2) THEN 108
+                        ELSE COALESCE(gcl.new_continent, gcl.continent)
+                    END AS continent
+                FROM guild_continent_link gcl
+                WHERE gcl.guild_id = ?
+                LIMIT 1
+            )
+            SELECT m.from_address, m.comment, SUM(m.adjusted_amount) AS sum
+            FROM mapped m
+            JOIN target t ON 1=1
+            WHERE m.new_continent = t.continent
+            GROUP BY m.from_address
+            HAVING SUM(m.adjusted_amount) > 0.1
+            ORDER BY sum DESC;
         `;
-        const params = [cutoff,cutoff,cutoff,cutoff,cutoff,cutoff,cutoff,cutoff,cutoff,cutoff];
-        return this.query(query, params);
+        return this.query(query, [cutoff, guildId]);
     }
 
     // Update the comment for a specific address

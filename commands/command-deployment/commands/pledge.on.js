@@ -7,7 +7,7 @@ module.exports = {
         .addSubcommand((subcommand) =>
             subcommand
                 .setName("continents")
-                .setDescription("Show the ranking of continents by total pledged LOKA")
+                .setDescription("Show the ranking of continents by total pledged A2Z")
         )
         .addSubcommand((subcommand) =>
             subcommand
@@ -32,8 +32,8 @@ module.exports = {
 
             switch (options.getSubcommand()) {
                 case "continents": {
-                    // Fetch continent totals from the local database
-                    const continentData = await sql.getNetStakingByContinent();
+                    // Fetch continent totals using merged mapping (pre/post Sept 1 rules)
+                    const continentData = await sql.getMergedNetStaking();
 
                     if (!continentData || continentData.length === 0) {
                         await interaction.editReply({
@@ -43,27 +43,24 @@ module.exports = {
                         return;
                     }
 
-                    // Filter continents with at least 40,000 LOKA and sort by total amount (already sorted DESC by SQL)
+                    // Filter continents with at least 40,000 A2Z and sort by total amount (already sorted DESC by SQL)
                     const filteredContinents = continentData.filter(
                         (continent) => continent.total_amount >= 0
                     );
 
                     if (filteredContinents.length === 0) {
                         await interaction.editReply({
-                            content: "No continents have pledged at least 40,000 LOKA.",
+                            content: "No continents have pledged at least 40,000 A2Z.",
                             ...ephemeral,
                         });
                         return;
                     }
 
-                    let rankingMessage = "**Top Continents by Net Pledged LOKA**\n\n";
+                    let rankingMessage = "**Top Continents by Net Pledged A2Z**\n\n";
                     filteredContinents.forEach((continent, index) => {
                         const rank = index + 1;
-                        const formattedValue = continent.total_amount.toLocaleString("en-US", {
-                            minimumFractionDigits: 2,
-                            maximumFractionDigits: 2,
-                        });
-                        rankingMessage += `#${rank} - C${continent.continent} pledged ${formattedValue} LOKA\n`;
+                        const formattedValue = formatNumberWithSuffix(continent.total_amount);
+                        rankingMessage += `#${rank} - C${continent.continent} pledged ${formattedValue} A2Z\n`;
                     });
 
                     const embed = new EmbedBuilder()
@@ -90,7 +87,7 @@ module.exports = {
                     const continent = guildContinents[0].continent;
 
                     // Step 2: Query the staking_transactions table
-                    const individualPledgers = await sql.getIndividualPledgeTotal(guildId);
+                    const individualPledgers = await sql.getIndividualPledgeTotalMerged(guildId);
 
                     if (individualPledgers.length === 0) {
                         await interaction.editReply({
@@ -162,7 +159,7 @@ function createEmbeds(rows, continent) {
         if (rankDisplay === 1) entry += "👑 ";
         else if (rankDisplay === 2) entry += "🥈 ";
         else if (rankDisplay === 3) entry += "🥉 ";
-        entry += `#${rankDisplay} - ${name} - ${formatNumberWithSuffix(amount)} LOKA`;
+        entry += `#${rankDisplay} - ${name} - ${formatNumberWithSuffix(amount)} A2Z`;
 
         // Add the entry to the current embed
         if (fieldCount % 25 === 0) {
