@@ -8,6 +8,9 @@ class Api {
     constructor(sql) {
 
         this.sql = sql;
+        this.usedIPs = new Map();
+        this.connectionToIP = new Map();
+
     }
 
     async request(url, body, header) {
@@ -96,16 +99,23 @@ class Api {
             onMessage = () => {},
             onError = () => {},
             onClose = () => {},
-            useProxy = true
+            useProxy = true,
+            guild
         } = options;
 
         // Fetch proxies from the database if using proxy
         let proxyUrl = null;
         if (useProxy) {
             const proxies = await this.sql.getProxies();
-            // proxies.push({ ip: null }); // Add a null option to possibly make a request without a proxy
-            const randomIndex = Math.floor(Math.random() * proxies.length);
-            proxyUrl = proxies[randomIndex].ip;
+            const used = this.usedIPs.get(guild) || new Set();
+            const availableProxies = proxies.filter(p => !used.has(p.ip));
+            availableProxies.push({ ip: null }); // Add a null option to possibly make a request without a proxy
+            const randomIndex = Math.floor(Math.random() * availableProxies.length);
+            proxyUrl = availableProxies[randomIndex].ip;
+            if (proxyUrl) {
+                used.add(proxyUrl);
+                this.usedIPs.set(guild, used);
+            }
             // console.log(`Using proxy for WebSocket: ${proxyUrl}`);
         }
 
@@ -126,12 +136,22 @@ class Api {
 
             // Handle successful connection
             wsClient.on('connect', (connection) => {
-                onConnect(connection);
+                this.connectionToIP.set(connection, proxyUrl);
+                onConnect(connection, proxyUrl);
 
                 // Set up event handlers
                 connection.on('message', (message) => onMessage(message, connection));
                 connection.on('error', (error) => onError(error, connection));
-                connection.on('close', () => onClose(connection));
+                const wrappedOnClose = () => {
+                    const ip = this.connectionToIP.get(connection);
+                    if (ip) {
+                        const used = this.usedIPs.get(guild);
+                        if (used) used.delete(ip);
+                        this.connectionToIP.delete(connection);
+                    }
+                    onClose(connection);
+                };
+                connection.on('close', wrappedOnClose);
 
                 resolve(connection);
             });

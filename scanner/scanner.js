@@ -10,30 +10,8 @@ class Scanner {
       ZONE_COUNT: 4096,
       BATCH_SIZE: 9,
       // Delay between each batch request to avoid rate limits (in ms)
-      BATCH_DELAY_MS: 1000,
+      BATCH_DELAY_MS: 500,
     };
-
-    this.shrines = [
-      { type: "A Shrine", fromx: 872, fromy: 1128, tox: 920, toy: 1176, tag: "R2NG" },
-      { type: "A Shrine", fromx: 1128, fromy: 1128, tox: 1176, toy: 1176, tag: "R4NG" },
-      { type: "B Shrine", fromx: 1384, fromy: 1128, tox: 1432, toy: 1176, tag: "R2NG" },
-      { type: "B Shrine", fromx: 1128, fromy: 1384, tox: 1176, toy: 1432, tag: "R2NG" },
-      { type: "B Shrine", fromx: 872, fromy: 1384, tox: 920, toy: 1432, tag: "R4NG" },
-      { type: "B Shrine", fromx: 616, fromy: 1384, tox: 664, toy: 1432, tag: "VEKS" },
-      { type: "B Shrine", fromx: 1384, fromy: 1384, tox: 1432, toy: 1432, tag: "LGD$" },
-      { type: "B Shrine", fromx: 616, fromy: 1128, tox: 664, toy: 1176, tag: "VEKL" },
-      { type: "C Shrine", fromx: 1640, fromy: 1128, tox: 1688, toy: 1176, tag: "R4NG" },
-      { type: "C Shrine", fromx: 872, fromy: 1640, tox: 920, toy: 1688, tag: "R4NG" },
-      { type: "C Shrine", fromx: 360, fromy: 1640, tox: 408, toy: 1688, tag: "VEKS" },
-      { type: "C Shrine", fromx: 360, fromy: 1384, tox: 408, toy: 1432, tag: "LGD$" },
-      { type: "C Shrine", fromx: 616, fromy: 1640, tox: 664, toy: 1688, tag: "LGD$" },
-      { type: "C Shrine", fromx: 1128, fromy: 1640, tox: 1176, toy: 1688, tag: "GuHg" },
-      { type: "C Shrine", fromx: 1384, fromy: 1640, tox: 1432, toy: 1688, tag: "GuHg" },
-      { type: "C Shrine", fromx: 1640, fromy: 1384, tox: 1688, toy: 1432, tag: "VEKL" },
-      { type: "C Shrine", fromx: 1640, fromy: 1640, tox: 1688, toy: 1688, tag: "VEKL" },
-      { type: "C Shrine", fromx: 360, fromy: 1128, tox: 408, toy: 1176, tag: "VEKS" },
-      { type: "Congress", fromx: 1000, fromy: 1000, tox: 1048, toy: 1048, tag: "R1NG" },
-    ];
 
     this.discordClient = new Client({
       intents: [GatewayIntentBits.Guilds],
@@ -60,15 +38,6 @@ class Scanner {
     this.logChannels = new Map();
     this.reconnectAttempts = 0;
     this.maxReconnectAttempts = 3;
-  }
-
-  async getLocation(x, y) {
-    const shrine = this.shrines.find(
-      (item) => x >= item.fromx && x <= item.tox && y >= item.fromy && y <= item.toy
-    );
-    if (shrine) return `${shrine.tag} ${shrine.type}`;
-    if (x >= 1800 || y > 1800 || x < 250 || y < 250) return "Green Zone";
-    return "";
   }
 
   async processWebSocketData(data) {
@@ -406,10 +375,10 @@ class Scanner {
       const url = `${this.config.WEBSOCKET_URL}&token=${this.token}`;
 
       // Define handlers once so we can reuse the same closures across reconnects
-      const onConnect = (connection) => {
+      const onConnect = (connection, proxyUrl) => {
         this.wsConnection = connection;
         this.reconnectAttempts = 0;
-        console.log(`WebSocket Client Connected for guild ${guild}, continent ${continent}`);
+        console.log(`WebSocket Client Connected for guild ${guild}, continent ${continent} using proxy: ${proxyUrl || 'none'}`);
 
         this.encryption.createXorMessage(JSON.stringify({ token: this.token }), this.xorPassword)
           .then(encoded => {
@@ -515,6 +484,7 @@ class Scanner {
               onError,
               onClose,
               useProxy: true,
+              guild: this.currentGuild,
             }).catch(err => console.error(`Reconnect failed: ${err.message}`));
           }, 2000);
         } else if (reasonError) {
@@ -538,6 +508,7 @@ class Scanner {
         onError,
         onClose,
         useProxy: true,
+        guild: this.currentGuild,
       }).catch(error => {
         console.error(`WebSocket Connection Failed for guild ${guild}, continent ${continent}:`, error);
         reject(error);
