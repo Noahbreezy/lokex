@@ -212,7 +212,11 @@ module.exports = {
             embed.setImage('attachment://' + path.basename(filePath));
             await interaction.editReply({ embeds: [embed], files: [attachment], components });
         } catch (error) {
-            console.error('Error downloading image:', error);
+            if (error.response) {
+                console.error(`Failed to download player image: ${error.response.status} ${error.response.statusText}`);
+            } else {
+                console.error('Failed to download player image: Network error');
+            }
             await interaction.editReply({ embeds: [embed], components });
         } finally {
             if (fs.existsSync(filePath)) {
