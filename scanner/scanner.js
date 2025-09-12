@@ -1,5 +1,6 @@
 const { Client, Events, GatewayIntentBits } = require("discord.js");
 const Encryption = require("../encryption/encryption.js");
+const AccountInfo = require("../general/accountInfo.js");
 const base64 = require("base64-js");
 require('dotenv').config();
 
@@ -24,15 +25,18 @@ class Scanner {
     });
     this.api = api;
     this.encryption = new Encryption();
+    this.accountInfo = new AccountInfo(sql, api);
     this.sql = sql;
     this.wsConnection = null;
     this.token = null;
+    this.scannerKingdomId = null;
     this.xorPassword = options.xorPassword || "";
     this.zoneNumbers = [];
     this.objects = [];
     this.zoneIndex = 0;
     this.batchCount = 0;
     this.isFinished = false;
+    this.tokenRefreshed = false;
     this.currentGuild = options.guildId || null;
     this.currentContinent = options.continent || null;
     this.logChannels = new Map();
@@ -372,25 +376,14 @@ class Scanner {
     console.log(`Setting up WebSocket for guild ${guild}, continent ${continent}`);
 
     return new Promise((resolve, reject) => {
-      const url = `${this.config.WEBSOCKET_URL}&token=${this.token}`;
+      const getUrl = () => `${this.config.WEBSOCKET_URL}&token=${this.token}`;
 
       // Define handlers once so we can reuse the same closures across reconnects
       const onConnect = (connection, proxyUrl) => {
         this.wsConnection = connection;
         this.reconnectAttempts = 0;
         console.log(`WebSocket Client Connected for guild ${guild}, continent ${continent} using proxy: ${proxyUrl || 'none'}`);
-
-        this.encryption.createXorMessage(JSON.stringify({ token: this.token }), this.xorPassword)
-          .then(encoded => {
-            const message = `42["/field/enter/v3", "${encoded}"]`;
-            console.log(`Sending initial message: ${message}`);
-            connection.sendUTF(message);
-            // DO NOT resolve here! Wait until scan is finished.
-          })
-          .catch(error => {
-            console.error("Error encoding token:", error);
-            reject(error);
-          });
+        this._enterSent = false;
       };
 
       const onMessage = async (message, connection) => {
@@ -398,14 +391,42 @@ class Scanner {
           // Only process utf8 messages
           if (message.type !== "utf8") return;
 
-          // Only process messages that start with 42[
-          if (!message.utf8Data.startsWith("42[")) return;
+          const dataStr = message.utf8Data;
+
+          // Handle Socket.IO Engine.IO heartbeat
+          // '2' = ping from server, must reply with '3' pong to keep connection alive
+          if (dataStr === '2') {
+            connection.sendUTF('3');
+            return;
+          }
+
+          // On Socket.IO open ('40'), send the enter message once
+          if (dataStr.startsWith('40')) {
+            if (!this._enterSent) {
+              try {
+                const encoded = await this.encryption.createXorMessage(JSON.stringify({ token: this.token }), this.xorPassword);
+                const messageToSend = `42["/field/enter/v3", "${encoded}"]`;
+                console.log(`Sending initial message after open: ${messageToSend}`);
+                connection.sendUTF(messageToSend);
+                this._enterSent = true;
+              } catch (e) {
+                console.error('Error encoding/sending initial enter:', e);
+              }
+            }
+            return;
+          }
+
+          // Ignore pongs and handshake info
+          if (dataStr === '3' || dataStr.startsWith('0')) return;
+
+          // Only process Socket.IO event packets
+          if (!dataStr.startsWith("42[")) return;
 
           let parsed;
           try {
-            parsed = JSON.parse(message.utf8Data.substring(2));
+            parsed = JSON.parse(dataStr.substring(2));
           } catch (e) {
-            console.error("Failed to parse WebSocket message as JSON array:", message.utf8Data, e);
+            console.error("Failed to parse WebSocket message as JSON array:", dataStr, e);
             return;
           }
 
@@ -433,6 +454,7 @@ class Scanner {
             if (this.isFinished || this.zoneIndex >= this.config.ZONE_COUNT) {
               console.log(`${continent}: 100%`);
               await this.processAndSaveData(this.objects);
+              this.isFinished = true;
               connection.close();
               resolve();
               return;
@@ -474,11 +496,25 @@ class Scanner {
         }
       };
 
-      const tryReconnect = (reasonError) => {
-        if (!this.isFinished && this.reconnectAttempts < this.maxReconnectAttempts) {
+      const tryReconnect = async (reasonError) => {
+        if (this.isFinished) {
+          return; // do not reconnect after successful finish
+        }
+        if (this.reconnectAttempts < this.maxReconnectAttempts) {
           this.reconnectAttempts++;
+          // Attempt token refresh once before the first reconnect
+          if (!this.tokenRefreshed) {
+            try {
+              const refreshed = await this.refreshTokenIfNeeded(reasonError);
+              if (refreshed) {
+                console.log(`Token refreshed for guild ${guild}.`);
+              }
+            } catch (e) {
+              console.error('Token refresh failed:', e);
+            }
+          }
           setTimeout(() => {
-            this.api.connectWebSocket(url, {
+            this.api.connectWebSocket(getUrl(), {
               onConnect,
               onMessage,
               onError,
@@ -502,17 +538,33 @@ class Scanner {
         tryReconnect();
       };
 
-      this.api.connectWebSocket(url, {
-        onConnect,
-        onMessage,
-        onError,
-        onClose,
-        useProxy: true,
-        guild: this.currentGuild,
-      }).catch(error => {
-        console.error(`WebSocket Connection Failed for guild ${guild}, continent ${continent}:`, error);
-        reject(error);
-      });
+      const doConnect = async (hasRetried = false) => {
+        try {
+          await this.api.connectWebSocket(getUrl(), {
+            onConnect,
+            onMessage,
+            onError,
+            onClose,
+            useProxy: true,
+            guild: this.currentGuild,
+          });
+        } catch (error) {
+          console.error(`WebSocket Connection Failed for guild ${guild}, continent ${continent}:`, error);
+          if (!hasRetried) {
+            try {
+              const refreshed = await this.refreshTokenIfNeeded(error);
+              if (refreshed) {
+                return doConnect(true);
+              }
+            } catch (e) {
+              console.error('Token refresh on initial connect failed:', e);
+            }
+          }
+          reject(error);
+        }
+      };
+
+      doConnect();
     });
   }
 
@@ -532,6 +584,8 @@ class Scanner {
         throw new Error(`No scanner token found for guild ${guild}`);
       }
       this.token = tokens[0].token;
+      this.scannerKingdomId = tokens[0].kingdomId || null;
+      this.tokenRefreshed = false;
 
       const xorPass = (await this.sql.getXORPass())[0]?.value || ".0d172qwfg634.";
       if (xorPass) this.xorPassword = xorPass;
@@ -541,6 +595,31 @@ class Scanner {
     } catch (error) {
       console.error(`Error scanning continent ${continent} for guild ${guild}:`, error);
       throw error;
+    }
+  }
+
+  async refreshTokenIfNeeded(reasonError) {
+    try {
+      if (this.tokenRefreshed) return false;
+      if (!this.scannerKingdomId) return false;
+
+      console.log(`Attempting token refresh for kingdom ${this.scannerKingdomId}${reasonError ? ` due to: ${reasonError.message || reasonError}` : ''}`);
+      await this.accountInfo.updateSingleBotToken(this.scannerKingdomId);
+      // Reload fresh token and XOR pass from DB
+      const tokens = await this.sql.getScannerTokens(this.currentGuild);
+      if (tokens && tokens.length > 0) {
+        this.token = tokens[0].token;
+      }
+      const xorPassRow = await this.sql.getXORPass();
+      if (xorPassRow && xorPassRow[0]?.value) {
+        this.xorPassword = xorPassRow[0].value;
+      }
+      this._enterSent = false;
+      this.tokenRefreshed = true;
+      return true;
+    } catch (e) {
+      console.error('Error during token refresh:', e);
+      return false;
     }
   }
 
