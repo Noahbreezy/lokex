@@ -148,9 +148,10 @@ class AccountInfo {
 
   async updateSingleBotToken(kingdomId) {
     const account = (await this.sql.getAccountLogin(kingdomId))[0];
-    const token = (await this.login(account.email, account.password)).token;
+    const { token, xorPass } = (await this.login(account.email, account.password));
     if (token) {
       await this.sql.updateBotToken(token, kingdomId);
+      await this.sql.updateXORPass(xorPass);
     }
   }
 
