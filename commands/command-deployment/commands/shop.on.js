@@ -822,7 +822,7 @@ module.exports = {
                             }
                         }
 
-                        console.log(`userid: ${derivedUserId}`);
+                        // console.log(`userid: ${derivedUserId}`);
 
                         const checkUserId = derivedUserId || (targetUser ? targetUser.id : user.id);
                         const checkUsername = derivedUsername || (targetUser ? targetUser.username : user.username);
@@ -876,6 +876,8 @@ module.exports = {
                                 kingdom.expiry === null
                             );
                         });
+
+                        console.log(`Found ${licensedKingdoms.length} licensed kingdoms for user ${checkUserId}: `, licensedKingdoms.map(k => ({ id: k.kingdomid, name: k.name, dsa: k.dsa, cmine: k.cmine, dsa_expiry: k.dsa_expiry, cmine_expiry: k.cmine_expiry })));
                         
                         // Group licenses by kingdom and find the highest valid level for each type
                         const kingdomLicenses = {};
@@ -891,25 +893,44 @@ module.exports = {
                                     cmine: { level: 0, expiry: null }
                                 };
                             }
-                            
+
                             // Check if this license record is still valid
-                            const isExpired = kingdom.expiry && new Date(kingdom.expiry) < currentDate;
+                            const isExpired = (kingdom.dsa_expiry && new Date(kingdom.dsa_expiry) < currentDate) || 
+                                            (kingdom.cmine_expiry && new Date(kingdom.cmine_expiry) < currentDate);
                             if (isExpired) continue; // Skip expired licenses
-                            
-                            // Update DSA level if this record has a higher DSA level
+
+                            // For DSA: if this record grants a higher level, update both level and expiry
                             if (kingdom.dsa > kingdomLicenses[kingdomId].dsa.level) {
-                                kingdomLicenses[kingdomId].dsa = {
-                                    level: kingdom.dsa,
-                                    expiry: kingdom.expiry
-                                };
+                                kingdomLicenses[kingdomId].dsa.level = kingdom.dsa;
+                                kingdomLicenses[kingdomId].dsa.expiry = kingdom.dsa_expiry;
+                            } else if (kingdom.dsa === kingdomLicenses[kingdomId].dsa.level && kingdom.dsa > 0) {
+                                // If same level, prefer permanent (expiry=null), otherwise prefer latest expiry
+                                const prevExpiry = kingdomLicenses[kingdomId].dsa.expiry;
+                                if (prevExpiry !== null && kingdom.dsa_expiry === null) {
+                                    kingdomLicenses[kingdomId].dsa.expiry = null;
+                                } else if (prevExpiry !== null && kingdom.dsa_expiry !== null) {
+                                    // Pick the latest expiry
+                                    if (new Date(kingdom.dsa_expiry) > new Date(prevExpiry)) {
+                                        kingdomLicenses[kingdomId].dsa.expiry = kingdom.dsa_expiry;
+                                    }
+                                }
                             }
-                            
-                            // Update C-Mine level if this record has a higher C-Mine level
+
+                            // For C-Mine: if this record grants a higher level, update both level and expiry
                             if (kingdom.cmine > kingdomLicenses[kingdomId].cmine.level) {
-                                kingdomLicenses[kingdomId].cmine = {
-                                    level: kingdom.cmine,
-                                    expiry: kingdom.expiry
-                                };
+                                kingdomLicenses[kingdomId].cmine.level = kingdom.cmine;
+                                kingdomLicenses[kingdomId].cmine.expiry = kingdom.cmine_expiry;
+                            } else if (kingdom.cmine === kingdomLicenses[kingdomId].cmine.level && kingdom.cmine > 0) {
+                                // If same level, prefer permanent (expiry=null), otherwise prefer latest expiry
+                                const prevExpiry = kingdomLicenses[kingdomId].cmine.expiry;
+                                if (prevExpiry !== null && kingdom.cmine_expiry === null) {
+                                    kingdomLicenses[kingdomId].cmine.expiry = null;
+                                } else if (prevExpiry !== null && kingdom.cmine_expiry !== null) {
+                                    // Pick the latest expiry
+                                    if (new Date(kingdom.cmine_expiry) > new Date(prevExpiry)) {
+                                        kingdomLicenses[kingdomId].cmine.expiry = kingdom.cmine_expiry;
+                                    }
+                                }
                             }
                         }
                         
