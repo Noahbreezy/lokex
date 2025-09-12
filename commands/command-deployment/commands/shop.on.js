@@ -804,7 +804,15 @@ module.exports = {
                             console.log('Discord ID found for kingdom:', discordIdFound);
                             if (discordIdFound && Array.isArray(discordIdFound) && discordIdFound.length > 0 && discordIdFound[0].discordId) {
                                 derivedUserId = discordIdFound[0].discordId;
-                                console.log('Derived user ID from kingdom:', derivedUserId);
+                                // Get the username for the derived user
+                                try {
+                                    const derivedUser = await interaction.guild.members.fetch(derivedUserId);
+                                    derivedUsername = derivedUser.user.username;
+                                } catch (error) {
+                                    console.log('Could not fetch derived user, using ID as fallback:', derivedUserId);
+                                    derivedUsername = `User ${derivedUserId}`;
+                                }
+                                console.log('Derived user ID and username:', derivedUserId, derivedUsername);
                                 fromKingdom = true;
                             } else {
                                 await interaction.editReply({ content: `❌ Could not resolve a verified Discord user for kingdom ID ${kingdomOption}.` });
