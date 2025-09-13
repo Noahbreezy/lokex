@@ -1467,8 +1467,8 @@ class sqlFunctions {
                 CASE
                     WHEN st.timestamp < ? THEN
                         CASE
-                            WHEN st.continent IN (69,35,64,45,70,13,7,19) THEN 101
-                            WHEN st.continent IN (41,54,43,61,15,46,9,20) THEN 102
+                            WHEN st.continent IN (69,35,64,45,70,13,7,20) THEN 101
+                            WHEN st.continent IN (41,54,43,61,15,46,9,19) THEN 102
                             WHEN st.continent IN (53,23,40,42,66,57,27,48,60) THEN 103
                             WHEN st.continent IN (8,10,38,65,33,68,32,56,24) THEN 104
                             WHEN st.continent IN (5,63,51,50,62,16,58,39,59) THEN 105
@@ -1508,8 +1508,8 @@ class sqlFunctions {
                     from_address,
                     comment,
                     CASE
-                        WHEN continent IN (69,35,64,45,70,13,7,19) THEN 101
-                        WHEN continent IN (41,54,43,61,15,46,9,20) THEN 102
+                        WHEN continent IN (69,35,64,45,70,13,7,20) THEN 101
+                        WHEN continent IN (41,54,43,61,15,46,9,19) THEN 102
                         WHEN continent IN (53,23,40,42,66,57,27,48,60) THEN 103
                         WHEN continent IN (8,10,38,65,33,68,32,56,24) THEN 104
                         WHEN continent IN (5,63,51,50,62,16,58,39,59) THEN 105
@@ -1529,8 +1529,8 @@ class sqlFunctions {
                 SELECT
                     CASE
                         WHEN gcl.continent BETWEEN 101 AND 108 THEN gcl.continent
-                        WHEN gcl.continent IN (69,35,64,45,70,13,7,19) THEN 101
-                        WHEN gcl.continent IN (41,54,43,61,15,46,9,20) THEN 102
+                        WHEN gcl.continent IN (69,35,64,45,70,13,7,20) THEN 101
+                        WHEN gcl.continent IN (41,54,43,61,15,46,9,19) THEN 102
                         WHEN gcl.continent IN (53,23,40,42,66,57,27,48,60) THEN 103
                         WHEN gcl.continent IN (8,10,38,65,33,68,32,56,24) THEN 104
                         WHEN gcl.continent IN (5,63,51,50,62,16,58,39,59) THEN 105
@@ -1552,6 +1552,43 @@ class sqlFunctions {
             ORDER BY sum DESC;
         `;
         return this.query(query, [cutoff, guildId]);
+    }
+
+    // Get individual pledgers totals for a specific merged continent (101-108)
+    async getIndividualPledgeTotalMergedByContinent(continent) {
+        const cutoff = Number(process.env.STAKING_CUTOFF_TS) || Math.floor(Date.UTC(2025, 8, 1) / 1000);
+
+        const query = `
+            WITH mapped AS (
+                SELECT
+                    from_address,
+                    comment,
+                    CASE
+                        WHEN continent IN (69,35,64,45,70,13,7,20) THEN 101
+                        WHEN continent IN (41,54,43,61,15,46,9,19) THEN 102
+                        WHEN continent IN (53,23,40,42,66,57,27,48,60) THEN 103
+                        WHEN continent IN (8,10,38,65,33,68,32,56,24) THEN 104
+                        WHEN continent IN (5,63,51,50,62,16,58,39,59) THEN 105
+                        WHEN continent IN (44,1,29,12,67,28,34,36,17) THEN 106
+                        WHEN continent IN (30,18,11,14,6,21,4,49,25) THEN 107
+                        WHEN continent IN (26,31,47,3,55,37,22,52,2) THEN 108
+                        WHEN continent BETWEEN 101 AND 108 THEN continent
+                        ELSE NULL
+                    END AS new_continent,
+                    CASE
+                        WHEN timestamp < ? THEN amount * 20
+                        ELSE amount
+                    END AS adjusted_amount
+                FROM staking_transactions
+            )
+            SELECT m.from_address, m.comment, SUM(m.adjusted_amount) AS sum
+            FROM mapped m
+            WHERE m.new_continent = ?
+            GROUP BY m.from_address
+            HAVING SUM(m.adjusted_amount) > 0.1
+            ORDER BY sum DESC;
+        `;
+        return this.query(query, [cutoff, continent]);
     }
 
     // Update the comment for a specific address

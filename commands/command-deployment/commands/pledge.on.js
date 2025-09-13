@@ -12,7 +12,23 @@ module.exports = {
         .addSubcommand((subcommand) =>
             subcommand
                 .setName("players")
-                .setDescription("Show the ranking of individual pledgers for the guild's continent")
+                .setDescription("Show the ranking of individual pledgers for the guild's continent or a selected continent")
+                .addIntegerOption((option) =>
+                    option
+                        .setName("continent")
+                        .setDescription("Select merged continent (101-108); defaults to guild's")
+                        .addChoices(
+                            { name: "101", value: 101 },
+                            { name: "102", value: 102 },
+                            { name: "103", value: 103 },
+                            { name: "104", value: 104 },
+                            { name: "105", value: 105 },
+                            { name: "106", value: 106 },
+                            { name: "107", value: 107 },
+                            { name: "108", value: 108 },
+                        )
+                        .setRequired(false)
+                )
         ),
 
     async execute(interaction) {
@@ -74,20 +90,27 @@ module.exports = {
                 }
 
                 case "players": {
-                    // Step 1: Get the continent associated with the guild
-                    const guildContinents = await sql.getGuildContinent(guildId);
-                    if (!guildContinents || guildContinents.length === 0) {
-                        await interaction.editReply({
-                            content: "This guild is not linked to any continent.",
-                            ...ephemeral,
-                        });
-                        return;
+                    // Optional continent override (101-108) for merged mapping
+                    const selectedContinent = options.getInteger("continent");
+                    let continent;
+                    let individualPledgers;
+
+                    if (selectedContinent) {
+                        continent = selectedContinent;
+                        individualPledgers = await sql.getIndividualPledgeTotalMergedByContinent(continent);
+                    } else {
+                        // Fallback to guild-linked continent
+                        const guildContinents = await sql.getGuildContinent(guildId);
+                        if (!guildContinents || guildContinents.length === 0) {
+                            await interaction.editReply({
+                                content: "This guild is not linked to any continent.",
+                                ...ephemeral,
+                            });
+                            return;
+                        }
+                        continent = guildContinents[0].continent;
+                        individualPledgers = await sql.getIndividualPledgeTotalMerged(guildId);
                     }
-
-                    const continent = guildContinents[0].continent;
-
-                    // Step 2: Query the staking_transactions table
-                    const individualPledgers = await sql.getIndividualPledgeTotalMerged(guildId);
 
                     if (individualPledgers.length === 0) {
                         await interaction.editReply({
