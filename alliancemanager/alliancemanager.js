@@ -418,9 +418,10 @@ class AllianceManager {
               const name = requestListResponse.data.requestList[xx].name;
               const power = requestListResponse.data.requestList[xx].power;
 
-              const blacklisted = await this.sql.isKingdomBlacklisted(kid, this.guild);
+              let blacklisted = await this.sql.isKingdomBlacklisted(kid, this.guild);
 
               if (blacklisted) {
+                blacklisted = blacklisted[0];
                 const dateexp = new Date(blacklisted.expiration);
                 const permanent =
                   dateexp > new Date("2030-01-01");
