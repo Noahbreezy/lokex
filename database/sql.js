@@ -472,7 +472,7 @@ class sqlFunctions {
     }
 
     // Verification functions
-    
+
     // Simplified helpers for new verification maintenance logic
 
     // Get active verified kingdoms (status=1) for a guild
@@ -1994,25 +1994,87 @@ class sqlFunctions {
     // Get all whitelisted kingdoms for a specific guild and continent
     async getWhitelist(guild, continent) {
         return this.query(
-            `SELECT w.kingdomid, i.name, 
-                    MAX(w.dsa) as dsa, 
-                    MAX(w.cmine) as cmine,
-                    MIN(CASE WHEN w.dsa > '0' THEN w.expiry END) as dsa_expiry,
-                    MIN(CASE WHEN w.cmine > '0' THEN w.expiry END) as cmine_expiry,
-                    COUNT(*) as license_count
-             FROM whitelist w
-             LEFT JOIN (
+            `SELECT 
+                t.kingdomid,
+                i.name,
+                t.dsa_max AS dsa,
+                t.cmine_max AS cmine,
+                /* DSA expiry: among rows at highest DSA level, prefer permanent (NULL), else latest */
+                CASE 
+                    WHEN t.dsa_max > '0' AND EXISTS (
+                        SELECT 1 FROM whitelist w2
+                        WHERE w2.kingdomid = t.kingdomid
+                          AND w2.guild = ?
+                          AND w2.continent = ?
+                          AND (w2.expiry IS NULL OR w2.expiry > NOW())
+                          AND w2.dsa = t.dsa_max
+                          AND w2.expiry IS NULL
+                    ) THEN NULL
+                    WHEN t.dsa_max > '0' THEN (
+                        SELECT MAX(w3.expiry) FROM whitelist w3
+                        WHERE w3.kingdomid = t.kingdomid
+                          AND w3.guild = ?
+                          AND w3.continent = ?
+                          AND (w3.expiry IS NULL OR w3.expiry > NOW())
+                          AND w3.dsa = t.dsa_max
+                          AND w3.expiry IS NOT NULL
+                    )
+                    ELSE NULL
+                END AS dsa_expiry,
+                /* C-Mine expiry: among rows at highest CMine level, prefer permanent (NULL), else latest */
+                CASE 
+                    WHEN t.cmine_max > '0' AND EXISTS (
+                        SELECT 1 FROM whitelist w2
+                        WHERE w2.kingdomid = t.kingdomid
+                          AND w2.guild = ?
+                          AND w2.continent = ?
+                          AND (w2.expiry IS NULL OR w2.expiry > NOW())
+                          AND w2.cmine = t.cmine_max
+                          AND w2.expiry IS NULL
+                    ) THEN NULL
+                    WHEN t.cmine_max > '0' THEN (
+                        SELECT MAX(w3.expiry) FROM whitelist w3
+                        WHERE w3.kingdomid = t.kingdomid
+                          AND w3.guild = ?
+                          AND w3.continent = ?
+                          AND (w3.expiry IS NULL OR w3.expiry > NOW())
+                          AND w3.cmine = t.cmine_max
+                          AND w3.expiry IS NOT NULL
+                    )
+                    ELSE NULL
+                END AS cmine_expiry,
+                (
+                    SELECT COUNT(*) FROM whitelist wx
+                    WHERE wx.kingdomid = t.kingdomid
+                      AND wx.guild = ?
+                      AND wx.continent = ?
+                      AND (wx.expiry IS NULL OR wx.expiry > NOW())
+                      AND (wx.dsa > '0' OR wx.cmine > '0')
+                ) AS license_count
+            FROM (
+                SELECT w.kingdomid, MAX(w.dsa) AS dsa_max, MAX(w.cmine) AS cmine_max
+                FROM whitelist w
+                WHERE w.continent = ?
+                  AND w.guild = ?
+                  AND (w.expiry IS NULL OR w.expiry > NOW())
+                  AND (w.dsa > '0' OR w.cmine > '0')
+                GROUP BY w.kingdomid
+            ) t
+            LEFT JOIN (
                 SELECT kingdomId, name
                 FROM info
                 WHERE id IN (SELECT MAX(id) FROM info GROUP BY kingdomId)
-             ) i ON w.kingdomid = i.kingdomId
-             WHERE w.continent = ? AND w.guild = ? 
-             AND (w.dsa > '0' OR w.cmine > '0')
-             AND (w.expiry IS NULL OR w.expiry > NOW())
-             GROUP BY w.kingdomid, i.name
-             HAVING MAX(w.dsa) > '0' OR MAX(w.cmine) > '0'
-             ORDER BY i.name`,
-            [continent, guild]
+            ) i ON t.kingdomid = i.kingdomId
+            WHERE t.dsa_max > '0' OR t.cmine_max > '0'
+            ORDER BY i.name`,
+            [
+                /* dsa_expiry EXISTS */ guild, continent,
+                /* dsa_expiry MAX() */ guild, continent,
+                /* cmine_expiry EXISTS */ guild, continent,
+                /* cmine_expiry MAX() */ guild, continent,
+                /* license_count */ guild, continent,
+                /* inner t filter */ continent, guild
+            ]
         );
     }
 
@@ -2119,6 +2181,33 @@ class sqlFunctions {
              ORDER BY expiry ASC, created_at DESC`,
             [kingdomId, continent, guild]
         );
+    }
+
+    // Check if a user has reached the license limit for a specific type+level across their verified kingdoms in a guild+continent
+    // Returns false if under limit; otherwise returns an array of { kingdomId, kingdomName } that match the license
+    async hasReachedLicenseLimit(discordId, guildId, continent, type, level, maxAllowed) {
+        if (!maxAllowed || maxAllowed <= 0) return false; // unlimited or invalid => not reached
+        console.log(`Debug1: Checking license limit for user ${discordId} in guild ${guildId} on continent ${continent} for ${type} level ${level} with max allowed ${maxAllowed}`);
+        const col = type && type.toLowerCase() === 'cmine' ? 'cmine' : 'dsa';
+        const discordStr = String(discordId);
+        const guildStr = String(guildId);
+        const levelStr = String(level);
+        const sql = `
+            SELECT v.kingdomId, v.kingdomName
+            FROM verified v
+            INNER JOIN whitelist w
+                ON w.kingdomid = v.kingdomId
+               AND w.guild = v.guild
+            WHERE v.discordId = ?
+              AND v.guild = ?
+              AND v.status = 1
+              AND w.continent = ?
+              AND (w.expiry IS NULL OR w.expiry > NOW())
+            GROUP BY v.kingdomId, v.kingdomName
+            HAVING MAX(w.${col}) = ?
+        `;
+        const rows = await this.query(sql, [discordStr, guildStr, continent, levelStr]);
+        return rows.length >= maxAllowed ? rows : false;
     }
 
     // Check verified kingdoms with whitelist from discordId
@@ -2273,16 +2362,16 @@ class sqlFunctions {
         return results.length > 0 ? results[0] : null;
     }
 
-    // Add a new shop item (now supports mincastle)
-    async addShopItem(guildId, name, price, stock, description = null, type = null, level = null, duration = null, mincastle = null) {
-        const query = "INSERT INTO shop_items (guild_id, name, price, stock, description, type, level, duration, mincastle) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);";
-        return this.query(query, [guildId, name, price, stock, description, type, level, duration, mincastle]);
+    // Add a new shop item (now supports mincastle and maxowned)
+    async addShopItem(guildId, name, price, stock, description = null, type = null, level = null, duration = null, mincastle = null, maxowned = null) {
+        const query = "INSERT INTO shop_items (guild_id, name, price, stock, description, type, level, duration, mincastle, maxowned) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);";
+        return this.query(query, [guildId, name, price, stock, description, type, level, duration, mincastle, maxowned]);
     }
 
-    // Update shop item (now supports mincastle)
-    async updateShopItem(itemId, guildId, name, price, stock, description = null, type = null, level = null, duration = null, mincastle = null) {
-        const query = "UPDATE shop_items SET name = ?, price = ?, stock = ?, description = ?, type = ?, level = ?, duration = ?, mincastle = ? WHERE id = ? AND guild_id = ?;";
-        return this.query(query, [name, price, stock, description, type, level, duration, mincastle, itemId, guildId]);
+    // Update shop item (now supports mincastle and maxowned)
+    async updateShopItem(itemId, guildId, name, price, stock, description = null, type = null, level = null, duration = null, mincastle = null, maxowned = null) {
+        const query = "UPDATE shop_items SET name = ?, price = ?, stock = ?, description = ?, type = ?, level = ?, duration = ?, mincastle = ?, maxowned = ? WHERE id = ? AND guild_id = ?;";
+        return this.query(query, [name, price, stock, description, type, level, duration, mincastle, maxowned, itemId, guildId]);
     }
 
     // Delete shop item

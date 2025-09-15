@@ -4,7 +4,7 @@ const { SlashCommandBuilder, PermissionFlagsBits, EmbedBuilder, ActionRowBuilder
 function formatNumber(num) {
     const absNum = Math.abs(num);
     const sign = num < 0 ? '-' : '';
-    
+
     if (absNum >= 1_000_000_000) {
         return sign + (absNum / 1_000_000_000).toFixed(1) + 'B';
     } else if (absNum >= 1_000_000) {
@@ -83,6 +83,13 @@ module.exports = {
                         .setMinValue(1)
                         .setMaxValue(50)
                 )
+                .addIntegerOption((option) =>
+                    option
+                        .setName("maxowned")
+                        .setDescription("Max number this item a user can own (licenses across kingdoms). 0 or empty = unlimited.")
+                        .setRequired(false)
+                        .setMinValue(0)
+                )
         )
         .addSubcommand((subcommand) =>
             subcommand
@@ -151,6 +158,13 @@ module.exports = {
                         .setRequired(false)
                         .setMinValue(0)
                         .setMaxValue(50)
+                )
+                .addIntegerOption((option) =>
+                    option
+                        .setName("maxowned")
+                        .setDescription("New max number this item a user can own (use 0 to clear)")
+                        .setRequired(false)
+                        .setMinValue(0)
                 )
         )
         .addSubcommand((subcommand) =>
@@ -275,7 +289,7 @@ module.exports = {
             // Check admin permissions for admin-only commands
             const adminOnlyCommands = ['add', 'edit', 'remove', 'refresh', 'history', 'addpoints'];
             const subcommand = options.getSubcommand();
-            
+
             if (adminOnlyCommands.includes(subcommand)) {
                 if (!interaction.member.permissions.has(PermissionFlagsBits.Administrator)) {
                     await interaction.reply({ content: "❌ You need administrator permissions to use this command.", flags: 64 });
@@ -294,6 +308,7 @@ module.exports = {
                         const level = options.getInteger("level") || null;
                         const duration = options.getInteger("duration") || null;
                         const mincastle = options.getInteger("mincastle") || null;
+                        const maxowned = options.getInteger("maxowned"); // preserve 0 as unlimited
 
                         // Validate that dsa and cmine items have required level and duration
                         if (type && (type.toLowerCase() === 'dsa' || type.toLowerCase() === 'cmine')) {
@@ -307,12 +322,12 @@ module.exports = {
                             }
                         }
 
-                        await sql.addShopItem(guildId, name, price, stock, description, type, level, duration, mincastle);
+                        await sql.addShopItem(guildId, name, price, stock, description, type, level, duration, mincastle, maxowned);
                         const items = await sql.getShopItems(guildId);
                         const addedItem = items.find(i => i.name === name && i.price === price && i.stock === stock);
                         const itemIdMsg = addedItem ? ` (ID: ${addedItem.id})` : '';
                         await interaction.reply({ content: `✅ Item "${name}"${itemIdMsg} added to shop with price ${formatNumber(price)} ${currencyEmoji} and stock ${stock}.`, ...ephemeral });
-                        
+
                         // Log the action
                         if (addedItem) {
                             await logShopAction(guildId, sql, guild, 'item_added', user, {
@@ -324,10 +339,11 @@ module.exports = {
                                 type,
                                 level,
                                 duration,
-                                mincastle
+                                mincastle,
+                                maxowned
                             });
                         }
-                        
+
                         // Refresh shop channel if it exists
                         await refreshShopChannel(guildId, sql, guild);
                         break;
@@ -336,13 +352,13 @@ module.exports = {
                     {
                         const itemSelection = options.getString("item");
                         const itemId = parseInt(itemSelection);
-                        
+
                         // Validate that itemId is a valid number
                         if (isNaN(itemId) || itemId <= 0) {
                             await interaction.reply({ content: "❌ Invalid item selection. Please select an item from the dropdown list.", flags: 64 });
                             return;
                         }
-                        
+
                         const name = options.getString("name");
                         const price = options.getNumber("price");
                         const stock = options.getInteger("stock");
@@ -351,6 +367,7 @@ module.exports = {
                         const level = options.getInteger("level");
                         const duration = options.getInteger("duration");
                         const mincastle = options.getInteger("mincastle");
+                        const maxowned = options.getInteger("maxowned");
 
                         // Get current item data
                         const currentItem = await sql.getShopItem(itemId, guildId);
@@ -375,6 +392,13 @@ module.exports = {
                         } else {
                             updatedMincastle = currentItem.mincastle;
                         }
+                        // maxowned: allow explicit 0 to clear (NULL = unlimited)
+                        let updatedMaxowned;
+                        if (maxowned !== null) {
+                            updatedMaxowned = maxowned === 0 ? null : maxowned;
+                        } else {
+                            updatedMaxowned = currentItem.maxowned;
+                        }
 
                         // Validate that dsa and cmine items have required level and duration
                         if (updatedType && (updatedType.toLowerCase() === 'dsa' || updatedType.toLowerCase() === 'cmine')) {
@@ -388,15 +412,15 @@ module.exports = {
                             }
                         }
 
-                        await sql.updateShopItem(itemId, guildId, updatedName, updatedPrice, updatedStock, updatedDescription, updatedType, updatedLevel, updatedDuration, updatedMincastle);
-                        
+                        await sql.updateShopItem(itemId, guildId, updatedName, updatedPrice, updatedStock, updatedDescription, updatedType, updatedLevel, updatedDuration, updatedMincastle, updatedMaxowned);
+
                         let responseMessage = `✅ Item "${updatedName}" (ID: ${itemId}) updated successfully.`;
                         if (description === "CLEAR") {
                             responseMessage += " Description has been removed.";
                         }
-                        
+
                         await interaction.reply({ content: responseMessage, ...ephemeral });
-                        
+
                         // Log the action
                         await logShopAction(guildId, sql, guild, 'item_edited', user, {
                             id: itemId,
@@ -407,9 +431,10 @@ module.exports = {
                             type: updatedType,
                             level: updatedLevel,
                             duration: updatedDuration,
-                            mincastle: updatedMincastle
+                            mincastle: updatedMincastle,
+                            maxowned: updatedMaxowned
                         });
-                        
+
                         // Refresh shop channel if it exists
                         await refreshShopChannel(guildId, sql, guild);
                         break;
@@ -418,13 +443,13 @@ module.exports = {
                     {
                         const itemSelection = options.getString("item");
                         const itemId = parseInt(itemSelection);
-                        
+
                         // Validate that itemId is a valid number
                         if (isNaN(itemId) || itemId <= 0) {
                             await interaction.reply({ content: "❌ Invalid item selection. Please select an item from the dropdown list.", flags: 64 });
                             return;
                         }
-                        
+
                         // Check if item exists
                         const item = await sql.getShopItem(itemId, guildId);
                         if (!item) {
@@ -434,7 +459,7 @@ module.exports = {
 
                         await sql.deleteShopItem(itemId, guildId);
                         await interaction.reply({ content: `✅ Item "${item.name}" (ID: ${itemId}) removed from shop.`, ...ephemeral });
-                        
+
                         // Log the action
                         await logShopAction(guildId, sql, guild, 'item_removed', user, {
                             id: itemId,
@@ -442,7 +467,7 @@ module.exports = {
                             price: item.price,
                             stock: item.stock
                         });
-                        
+
                         // Refresh shop channel if it exists
                         await refreshShopChannel(guildId, sql, guild);
                         break;
@@ -450,7 +475,7 @@ module.exports = {
                 case "list":
                     {
                         const items = await sql.getShopItems(guildId);
-                        
+
                         if (!items || items.length === 0) {
                             await interaction.reply({ content: "❌ No items in the shop.", ...ephemeral });
                             return;
@@ -468,7 +493,7 @@ module.exports = {
                             .setTimestamp();
 
                         let ratesDescription = "";
-                        
+
                         // DST to Points conversion
                         if (pointPrice && pointPrice > 0) {
                             const pointsPerDST = 1 / parseFloat(pointPrice);
@@ -516,11 +541,12 @@ module.exports = {
                             if (item.level) description += ` | Level: ${item.level}`;
                             if (item.duration) description += ` | Duration: ${item.duration} weeks`;
                             if (item.mincastle) description += ` | Min Castle: ${item.mincastle}`;
+                            if (item.maxowned) description += ` | Max Owned: ${item.maxowned}`;
                             description += `\n${item.description || 'No description'}\n\n`;
                         }
 
                         shopEmbed.setDescription(description);
-                        
+
                         // Send both embeds
                         await interaction.reply({ embeds: [ratesEmbed, shopEmbed], ...ephemeral });
                         break;
@@ -530,7 +556,7 @@ module.exports = {
                         const success = await refreshShopChannel(guildId, sql, guild);
                         if (success) {
                             await interaction.reply({ content: "✅ Shop channel refreshed successfully.", ...ephemeral });
-                            
+
                             // Log the action
                             await logShopAction(guildId, sql, guild, 'shop_refreshed', user);
                         } else {
@@ -542,7 +568,7 @@ module.exports = {
                     {
                         const limit = options.getInteger("limit") || 20;
                         const history = await sql.getShopPurchaseHistory(guildId, limit);
-                        
+
                         if (!history || history.length === 0) {
                             await interaction.reply({ content: "❌ No purchase history found.", ...ephemeral });
                             return;
@@ -577,7 +603,7 @@ module.exports = {
                 case "balance":
                     {
                         const targetUser = options.getUser("user");
-                        
+
                         // If checking another user's balance, verify admin permissions
                         if (targetUser && targetUser.id !== user.id) {
                             if (!interaction.member.permissions.has(PermissionFlagsBits.KickMembers)) {
@@ -585,23 +611,23 @@ module.exports = {
                                 return;
                             }
                         }
-                        
+
                         const checkUserId = targetUser ? targetUser.id : user.id;
                         const checkUsername = targetUser ? targetUser.username : user.username;
                         const balance = await sql.getUserPointsBalance(checkUserId, guildId);
-                        
+
                         const embed = new EmbedBuilder()
                             .setColor(0xFFD700)
                             .setTitle("💰 Points Balance")
                             .setDescription(`${targetUser ? `**${checkUsername}**` : 'You'} currently ${targetUser ? 'has' : 'have'} **${formatNumber(balance)} ${currencyEmoji}**`)
                             .setTimestamp();
-                            
+
                         if (targetUser) {
                             embed.setThumbnail(targetUser.displayAvatarURL());
                         } else {
                             embed.setThumbnail(user.displayAvatarURL());
                         }
-                        
+
                         await interaction.reply({ embeds: [embed], ...ephemeral });
                         break;
                     }
@@ -633,7 +659,7 @@ module.exports = {
                             .setTimestamp();
 
                         await interaction.reply({ embeds: [embed], ...ephemeral });
-                        
+
                         // Log the action
                         await logShopAction(guildId, sql, guild, 'points_added', user, {
                             targetUserId: targetUser.id,
@@ -645,7 +671,7 @@ module.exports = {
                 case "purchase-points":
                     {
                         const txHash = options.getString("txhash");
-                        
+
                         // Validate transaction hash format
                         if (!/^0x[a-fA-F0-9]{64}$/.test(txHash)) {
                             await interaction.reply({ content: "❌ Invalid transaction hash format. Transaction hash must be 66 characters long and start with '0x'.", flags: 64 });
@@ -665,12 +691,12 @@ module.exports = {
                             // Get guild point price and wallet
                             const pointPrice = await sql.getGuildPointPrice(guildId);
                             const guildWallet = await sql.getGuildWallet(guildId);
-                            
+
                             if (!pointPrice || pointPrice <= 0) {
                                 await interaction.editReply({ content: "❌ No point price is configured for this guild. Contact an administrator." });
                                 return;
                             }
-                            
+
                             if (!guildWallet) {
                                 await interaction.editReply({ content: "❌ No guild wallet is configured for this guild. Contact an administrator." });
                                 return;
@@ -680,7 +706,7 @@ module.exports = {
                             const Api = require('../../../general/api.js');
                             const api = new Api(sql);
                             const DST_CONTRACT = '0x3b7e1ce09afe2bb3a23919afb65a38e627cfbe97';
-                            
+
                             // Get transaction receipt
                             const requestBody = {
                                 jsonrpc: '2.0',
@@ -688,7 +714,7 @@ module.exports = {
                                 params: [txHash],
                                 id: 1
                             };
-                            
+
                             const receipt = await api.request('https://polygon-rpc.com', requestBody, {
                                 'Content-Type': 'application/json'
                             });
@@ -705,7 +731,7 @@ module.exports = {
                             }
 
                             // Parse transaction logs for Transfer events
-                            const transferEvent = receipt.data.result.logs.find(log => 
+                            const transferEvent = receipt.data.result.logs.find(log =>
                                 log.topics[0] === '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef' && // Transfer event signature
                                 log.address.toLowerCase() === DST_CONTRACT.toLowerCase()
                             );
@@ -731,13 +757,13 @@ module.exports = {
 
                             // Calculate points to award
                             const pointsToAward = Math.floor(dstAmount / pointPrice);
-                            
+
                             // Award points to the user (even if 0 points)
                             if (pointsToAward > 0) {
                                 await sql.addUserPoints(
-                                    user.id, 
-                                    guildId, 
-                                    pointsToAward, 
+                                    user.id,
+                                    guildId,
+                                    pointsToAward,
                                     `DST payment`
                                 );
                             }
@@ -750,7 +776,7 @@ module.exports = {
                                 .setColor(pointsToAward > 0 ? 0x00FF00 : 0xFFD700)
                                 .setTitle(pointsToAward > 0 ? '✅ DST Payment Verified' : '✅ DST Payment Verified (No Points)')
                                 .setDescription(
-                                    pointsToAward > 0 
+                                    pointsToAward > 0
                                         ? `Successfully verified your DST payment and awarded **${formatNumber(pointsToAward)} ${currencyEmoji}**!`
                                         : `Successfully verified your DST payment. However, the amount (${dstAmount} DST) is too small to award points. Minimum required: ${pointPrice} DST per point.`
                                 )
@@ -834,16 +860,16 @@ module.exports = {
 
                         const checkUserId = derivedUserId || (targetUser ? targetUser.id : user.id);
                         const checkUsername = derivedUsername || (targetUser ? targetUser.username : user.username);
-                        
+
                         // Get user's verified kingdoms for this guild using helper
                         const verifiedKingdoms = await sql.checkVerifiedKingdoms(checkUserId, guildId);
-                        
+
                         if (!verifiedKingdoms || verifiedKingdoms.length === 0) {
                             const embed = new EmbedBuilder()
                                 .setColor(0x00FF00)
                                 .setTitle("📜 Whitelist Licenses")
                                 .setTimestamp();
-                                
+
                             if (fromKingdom) {
                                 embed.setDescription(`Licenses for kingdoms owned by <@${checkUserId}> (${checkUsername || 'Unknown User'})`);
                             } else if (targetUser) {
@@ -853,10 +879,10 @@ module.exports = {
                                 embed.setThumbnail(user.displayAvatarURL());
                                 embed.setDescription("Your available whitelist licenses:");
                             }
-                            
+
                             embed.addFields({
                                 name: "No Verified Kingdoms",
-                                value: targetUser ? 
+                                value: targetUser ?
                                     `${checkUsername} has no verified kingdoms in this guild.` :
                                     "You have no verified kingdoms in this guild.\n\nUse `/verify` to verify your kingdoms first!",
                                 inline: false
@@ -864,7 +890,7 @@ module.exports = {
                             await interaction.editReply({ embeds: [embed] });
                             return;
                         }
-                        
+
                         // Get continent for this guild
                         const continentArr = await sql.getGuildContinents(guildId);
                         const continent = continentArr && continentArr.length > 0 ? continentArr[0].continent : null;
@@ -872,10 +898,10 @@ module.exports = {
                             await interaction.editReply({ content: "No continent linked to this guild." });
                             return;
                         }
-                        
+
                         // Get all whitelist entries for this guild/continent (same query as whitelist command)
                         const allWhitelistKingdoms = await sql.getWhitelist(guildId, continent);
-                        
+
                         // Filter to only include the user's verified kingdoms
                         const verifiedKingdomIds = new Set(verifiedKingdoms.map(k => k.kingdomId));
                         const licensedKingdoms = allWhitelistKingdoms.filter(kingdom => {
@@ -886,11 +912,11 @@ module.exports = {
                         });
 
                         console.log(`Found ${licensedKingdoms.length} licensed kingdoms for user ${checkUserId}: `, licensedKingdoms.map(k => ({ id: k.kingdomid, name: k.name, dsa: k.dsa, cmine: k.cmine, dsa_expiry: k.dsa_expiry, cmine_expiry: k.cmine_expiry })));
-                        
+
                         // Group licenses by kingdom and find the highest valid level for each type
                         const kingdomLicenses = {};
                         const currentDate = new Date();
-                        
+
                         for (const kingdom of licensedKingdoms) {
                             const kingdomId = kingdom.kingdomid;
                             if (!kingdomLicenses[kingdomId]) {
@@ -903,8 +929,8 @@ module.exports = {
                             }
 
                             // Check if this license record is still valid
-                            const isExpired = (kingdom.dsa_expiry && new Date(kingdom.dsa_expiry) < currentDate) || 
-                                            (kingdom.cmine_expiry && new Date(kingdom.cmine_expiry) < currentDate);
+                            const isExpired = (kingdom.dsa_expiry && new Date(kingdom.dsa_expiry) < currentDate) ||
+                                (kingdom.cmine_expiry && new Date(kingdom.cmine_expiry) < currentDate);
                             if (isExpired) continue; // Skip expired licenses
 
                             // For DSA: if this record grants a higher level, update both level and expiry
@@ -941,12 +967,12 @@ module.exports = {
                                 }
                             }
                         }
-                        
+
                         // Convert back to array for display
-                        const aggregatedKingdoms = Object.values(kingdomLicenses).filter(kingdom => 
+                        const aggregatedKingdoms = Object.values(kingdomLicenses).filter(kingdom =>
                             kingdom.dsa.level > 0 || kingdom.cmine.level > 0
                         );
-                        
+
                         // Debug logging for MIYAVI
                         const miyaviKingdom = licensedKingdoms.find(k => k.name === 'MIYAVI');
                         if (miyaviKingdom) {
@@ -957,12 +983,12 @@ module.exports = {
                                 license_count: miyaviKingdom.license_count
                             });
                         }
-                        
+
                         const embed = new EmbedBuilder()
                             .setColor(0x00FF00)
                             .setTitle("📜 Whitelist Licenses")
                             .setTimestamp();
-                            
+
                         if (targetUser) {
                             embed.setThumbnail(targetUser.displayAvatarURL());
                             embed.setDescription(`**${checkUsername}**'s available whitelist licenses:`);
@@ -970,11 +996,11 @@ module.exports = {
                             embed.setThumbnail(user.displayAvatarURL());
                             embed.setDescription("Your available whitelist licenses:");
                         }
-                        
+
                         if (!aggregatedKingdoms || aggregatedKingdoms.length === 0) {
                             embed.addFields({
                                 name: "No Licenses Found",
-                                value: targetUser ? 
+                                value: targetUser ?
                                     `${checkUsername} has no active whitelist licenses in this guild.` :
                                     "You have no active whitelist licenses in this guild.\n\nPurchase DSA or C-Mine licenses from the shop to get started!",
                                 inline: false
@@ -985,13 +1011,13 @@ module.exports = {
                             const embeds = [];
                             const maxFieldLength = 1024; // Discord's field value limit
                             const maxEmbedsPerMessage = 10; // Discord's embed limit per message
-                            
+
                             let currentDescription = "";
                             let currentEmbed = new EmbedBuilder()
                                 .setColor(0x00FF00)
                                 .setTitle("📜 Whitelist Licenses")
                                 .setTimestamp();
-                                
+
                             if (fromKingdom) {
                                 currentEmbed.setDescription(`Licenses for kingdoms owned by <@${checkUserId}> (${checkUsername || 'Unknown User'})`);
                             } else if (targetUser) {
@@ -1001,27 +1027,27 @@ module.exports = {
                                 currentEmbed.setThumbnail(user.displayAvatarURL());
                                 currentEmbed.setDescription("Your available whitelist licenses:");
                             }
-                            
+
                             for (let i = 0; i < aggregatedKingdoms.length; i++) {
                                 const kingdom = aggregatedKingdoms[i];
-                                
+
                                 const licenses = [];
-                                
+
                                 // Add DSA license info if exists
                                 if (kingdom.dsa.level > 0) {
                                     licenses.push(`DSA Level ${kingdom.dsa.level}`);
                                 }
-                                
+
                                 // Add C-Mine license info if exists
                                 if (kingdom.cmine.level > 0) {
                                     licenses.push(`C-Mine Level ${kingdom.cmine.level}`);
                                 }
-                                
+
                                 // Use kingdom name or kingdomid as fallback
                                 const kingdomName = kingdom.name || kingdom.kingdomid;
                                 let kingdomInfo = `**${kingdomName}** (ID: ${kingdom.kingdomid})\n`;
                                 kingdomInfo += `└ **Licenses:** ${licenses.join(', ')}\n`;
-                                
+
                                 // Show expiry information - handle different expiry dates properly using the separate expiry fields
                                 if (kingdom.dsa.level > 0 && kingdom.cmine.level > 0) {
                                     // Both licenses exist - show separate expiry dates
@@ -1035,12 +1061,12 @@ module.exports = {
                                     kingdomInfo += `└ **Expires:** ${kingdom.cmine.expiry ? `<t:${Math.floor(new Date(kingdom.cmine.expiry).getTime() / 1000)}:F> (<t:${Math.floor(new Date(kingdom.cmine.expiry).getTime() / 1000)}:R>)` : 'Never (Permanent)'}\n`;
                                 }
                                 kingdomInfo += "\n";
-                                
+
                                 // Check if adding this kingdom would exceed the field limit
                                 if (currentDescription.length + kingdomInfo.length > maxFieldLength) {
                                     // Add current field to embed and start a new one
                                     if (currentDescription.length > 0) {
-                                        const fieldName = embeds.length === 0 
+                                        const fieldName = embeds.length === 0
                                             ? `Active Licenses (${aggregatedKingdoms.length} kingdom${aggregatedKingdoms.length === 1 ? '' : 's'})`
                                             : "Continued...";
                                         currentEmbed.addFields({
@@ -1050,22 +1076,22 @@ module.exports = {
                                         });
                                         embeds.push(currentEmbed);
                                     }
-                                    
+
                                     // Start new embed if we've reached the embed limit
                                     currentEmbed = new EmbedBuilder()
                                         .setColor(0x00FF00)
                                         .setTitle(`📜 Whitelist Licenses (Page ${embeds.length + 1})`)
                                         .setTimestamp();
-                                    
+
                                     currentDescription = kingdomInfo;
                                 } else {
                                     currentDescription += kingdomInfo;
                                 }
                             }
-                            
+
                             // Add the final field and embed
                             if (currentDescription.length > 0) {
-                                const fieldName = embeds.length === 0 
+                                const fieldName = embeds.length === 0
                                     ? `Active Licenses (${aggregatedKingdoms.length} kingdom${aggregatedKingdoms.length === 1 ? '' : 's'})`
                                     : "Continued...";
                                 currentEmbed.addFields({
@@ -1075,12 +1101,12 @@ module.exports = {
                                 });
                                 embeds.push(currentEmbed);
                             }
-                            
+
                             // Limit to max embeds per message (Discord limit is 10)
                             const embedsToSend = embeds.slice(0, maxEmbedsPerMessage);
-                            
+
                             await interaction.editReply({ embeds: embedsToSend });
-                            
+
                             // If there are more embeds, send them in follow-up messages
                             for (let i = maxEmbedsPerMessage; i < embeds.length; i += maxEmbedsPerMessage) {
                                 const nextBatch = embeds.slice(i, i + maxEmbedsPerMessage);
@@ -1103,20 +1129,20 @@ module.exports = {
         const { customId, guildId, user } = interaction;
         const guild = interaction.guild;
         const guildName = interaction.guild.name;
-        
+
         try {
             // Get currency emoji for this guild
             const currencyEmoji = await getCurrencyEmoji(guildId, sql);
-            
+
             // Extract item ID from custom ID
             const itemId = parseInt(customId.split("_")[2]);
-            
+
             // Validate that itemId is a valid number
             if (isNaN(itemId) || itemId <= 0) {
                 await interaction.reply({ content: "❌ Invalid item ID. Please refresh the shop and try again.", flags: 64 });
                 return;
             }
-            
+
             // Get item details
             const item = await sql.getShopItem(itemId, guildId);
             if (!item) {
@@ -1136,13 +1162,13 @@ module.exports = {
             const userBalance = await sql.getUserPointsBalance(user.id, guildId);
             const itemPrice = Math.floor(item.price);
             const userBalanceInt = Math.floor(userBalance);
-            
+
             console.log(`Debug: User balance: ${userBalance} (${userBalanceInt}), Item price: ${item.price} (${itemPrice})`);
-            
+
             if (userBalanceInt < itemPrice) {
-                await interaction.reply({ 
-                    content: `❌ Insufficient funds! You have ${formatNumber(userBalanceInt)} ${currencyEmoji} but need ${formatNumber(itemPrice)} ${currencyEmoji} to purchase this item.`, 
-                    flags: 64 
+                await interaction.reply({
+                    content: `❌ Insufficient funds! You have ${formatNumber(userBalanceInt)} ${currencyEmoji} but need ${formatNumber(itemPrice)} ${currencyEmoji} to purchase this item.`,
+                    flags: 64
                 });
                 return;
             }
@@ -1169,11 +1195,39 @@ module.exports = {
         // Get user's verified kingdoms
         const kingdoms = await sql.checkVerifiedKingdoms(user.id, guildId);
         if (!kingdoms || kingdoms.length === 0) {
-            await interaction.reply({ 
-                content: '❌ No verified kingdoms found. You need to verify a kingdom first to purchase whitelist items. Use `/verify` to verify your kingdom.', 
-                flags: 64 
+            await interaction.reply({
+                content: '❌ No verified kingdoms found. You need to verify a kingdom first to purchase whitelist items. Use `/verify` to verify your kingdom.',
+                flags: 64
             });
             return;
+        }
+
+        // Determine continent and max-owned state for this license type/level
+        const continentArr = await sql.getGuildContinents(guildId);
+        const continent = continentArr && continentArr.length > 0 ? continentArr[0].continent : null;
+        if (!continent) {
+            await interaction.reply({ content: "❌ No continent linked to this guild. Cannot apply whitelist.", flags: 64 });
+            return;
+        }
+
+        const isLicenseItem = item.type && (item.type.toLowerCase() === 'dsa' || item.type.toLowerCase() === 'cmine');
+        const hasMaxOwned = isLicenseItem && Number(item.maxowned) > 0; // 0 or null = unlimited
+        let atLimit = false;
+        let eligibleKingdomIds = new Set();
+        if (hasMaxOwned) {
+            try {
+                const limitResult = await sql.hasReachedLicenseLimit(user.id, guildId, continent, item.type, item.level, item.maxowned);
+                console.log(`Debug: Checking maxowned for user ${user.id}, guild ${guildId}, continent ${continent}, type ${item.type}, level ${item.level || 1}, maxowned ${item.maxowned}:`, limitResult);
+                if (limitResult && Array.isArray(limitResult)) {
+                    atLimit = true;
+                    eligibleKingdomIds = new Set(limitResult.map(e => e.kingdomId.toString()));
+                    console.log(`Debug: License cap reached; eligible kingdoms for extension:`, Array.from(eligibleKingdomIds));
+                } else {
+                    atLimit = false;
+                }
+            } catch (e) {
+                console.error('Error checking maxowned state:', e);
+            }
         }
 
         if (kingdoms.length === 1) {
@@ -1189,6 +1243,14 @@ module.exports = {
                 }
                 if (level === null || level < item.mincastle) {
                     await interaction.reply({ content: `❌ Kingdom **${kingdoms[0].kingdomName}** does not meet the required castle level ${item.mincastle}+ (current: ${level ?? 'unknown'}).`, flags: 64 });
+                    return;
+                }
+            }
+
+            // Enforce maxowned on single kingdom: if at limit, only allow extending existing license
+            if (hasMaxOwned && atLimit) {
+                if (!eligibleKingdomIds.has(kingdoms[0].kingdomId.toString())) {
+                    await interaction.reply({ content: `❌ You already own the maximum of **${item.maxowned}** ${item.type.toUpperCase()} Level ${item.level} license(s). You can only extend an existing license, not assign a new kingdom.`, flags: 64 });
                     return;
                 }
             }
@@ -1211,11 +1273,23 @@ module.exports = {
                 return;
             }
 
+            // If at limit, restrict to eligible kingdoms (those already having this license level)
+            let filteredKingdoms = uniqueKingdoms;
+            let limitedMsg = '';
+            if (hasMaxOwned && atLimit) {
+                filteredKingdoms = uniqueKingdoms.filter(k => eligibleKingdomIds.has(k.kingdomId.toString()));
+                limitedMsg = `\nYou have reached the maximum of **${item.maxowned}** ${item.type.toUpperCase()} Level ${item.level} license(s). Please select a kingdom to extend its existing license.`;
+                if (filteredKingdoms.length === 0) {
+                    await interaction.reply({ content: `❌ You have reached the maximum of **${item.maxowned}** ${item.type.toUpperCase()} Level ${item.level} license(s) and none of your verified kingdoms currently have this license to extend.`, flags: 64 });
+                    return;
+                }
+            }
+
             // Enforce Discord max 25 options
             let truncated = false;
-            let displayKingdoms = uniqueKingdoms;
-            if (uniqueKingdoms.length > 25) {
-                displayKingdoms = uniqueKingdoms.slice(0, 25);
+            let displayKingdoms = filteredKingdoms;
+            if (filteredKingdoms.length > 25) {
+                displayKingdoms = filteredKingdoms.slice(0, 25);
                 truncated = true;
             }
 
@@ -1230,20 +1304,20 @@ module.exports = {
 
             const selectMenu = new StringSelectMenuBuilder()
                 .setCustomId(`select_kingdom_shop_${user.id}_${item.id}`)
-                .setPlaceholder('Select a kingdom for the whitelist')
+                .setPlaceholder(hasMaxOwned && atLimit ? 'Select a kingdom to extend' : 'Select a kingdom for the whitelist')
                 .addOptions(kingdomOptions);
 
             const row = new ActionRowBuilder().addComponents(selectMenu);
 
-            let contentMsg = `Please select which kingdom should receive the ${item.type.toUpperCase()} whitelist for **${item.name}**:`;
+            let contentMsg = `Please select which kingdom should receive the ${item.type.toUpperCase()} whitelist for **${item.name}**:` + limitedMsg;
             if (truncated) {
                 contentMsg += `\n⚠️ Showing first 25 of ${uniqueKingdoms.length} kingdoms.`;
             }
 
-            await interaction.reply({ 
-                content: contentMsg, 
-                components: [row], 
-                flags: 64 
+            await interaction.reply({
+                content: contentMsg,
+                components: [row],
+                flags: 64
             });
 
             // Set up collector for kingdom selection
@@ -1255,6 +1329,12 @@ module.exports = {
                 const selectedKingdom = uniqueKingdoms.find(k => k.kingdomId.toString() === selectedKingdomId);
 
                 if (selectedKingdom) {
+                    // If at limit, ensure selected kingdom is eligible for extension
+                    if (hasMaxOwned && atLimit && !eligibleKingdomIds.has(selectedKingdomId.toString())) {
+                        await i.reply({ content: `❌ You already own the maximum of **${item.maxowned}** ${item.type.toUpperCase()} Level ${item.level} license(s). Please select one of your kingdoms that already has this license to extend.`, flags: 64 });
+                        collector.stop();
+                        return;
+                    }
                     // Enforce mincastle on the specifically selected kingdom
                     if (item.mincastle) {
                         const levelRows = await sql.getKingdomLevel(selectedKingdom.kingdomId);
@@ -1294,7 +1374,7 @@ module.exports = {
             // Get continent for this guild (needed for whitelist)
             const continentArr = await sql.getGuildContinents(guildId);
             const continent = continentArr && continentArr.length > 0 ? continentArr[0].continent : null;
-            
+
             if (!continent) {
                 await interaction.reply({ content: "❌ No continent linked to this guild. Cannot apply whitelist.", flags: 64 });
                 return;
@@ -1302,7 +1382,7 @@ module.exports = {
 
             // Attempt to purchase (this will decrease stock if successful)
             const purchaseSuccess = await sql.purchaseShopItem(item.id, guildId, 1);
-            
+
             if (!purchaseSuccess) {
                 await interaction.reply({ content: "❌ Purchase failed. Item may be out of stock.", flags: 64 });
                 return;
@@ -1318,7 +1398,7 @@ module.exports = {
             const whitelistType = item.type.toLowerCase();
             let dsaLevel = 0;
             let cmineLevel = 0;
-            
+
             if (whitelistType === 'dsa') {
                 dsaLevel = item.level || 1;
             } else if (whitelistType === 'cmine') {
@@ -1362,16 +1442,16 @@ module.exports = {
 
             // Add information about license extension or new license
             if (isExtended) {
-                embed.addFields({ 
-                    name: "🔄 License Extended", 
-                    value: `Your existing ${whitelistType.toUpperCase()} Level ${item.level || 1} license has been extended by ${item.duration} weeks.`, 
-                    inline: false 
+                embed.addFields({
+                    name: "🔄 License Extended",
+                    value: `Your existing ${whitelistType.toUpperCase()} Level ${item.level || 1} license has been extended by ${item.duration} weeks.`,
+                    inline: false
                 });
             } else if (expiry) {
-                embed.addFields({ 
-                    name: "🆕 New License", 
-                    value: `A new ${whitelistType.toUpperCase()} Level ${item.level || 1} license has been created.`, 
-                    inline: false 
+                embed.addFields({
+                    name: "🆕 New License",
+                    value: `A new ${whitelistType.toUpperCase()} Level ${item.level || 1} license has been created.`,
+                    inline: false
                 });
             }
 
@@ -1411,7 +1491,7 @@ module.exports = {
         try {
             // Attempt to purchase (this will decrease stock if successful)
             const purchaseSuccess = await sql.purchaseShopItem(item.id, guildId, 1);
-            
+
             if (!purchaseSuccess) {
                 await interaction.reply({ content: "❌ Purchase failed. Item may be out of stock.", flags: 64 });
                 return;
@@ -1471,7 +1551,7 @@ module.exports = {
             try {
                 // Get all shop items for this guild
                 const items = await sql.getShopItems(guildId);
-                
+
                 if (!items || items.length === 0) {
                     await interaction.respond([]);
                     return;
@@ -1487,12 +1567,12 @@ module.exports = {
                         if (item.level) displayName += `, Lvl: ${item.level}`;
                         if (item.duration) displayName += `, ${item.duration}w`;
                         displayName += ')';
-                        
+
                         // Truncate if too long for Discord's 100 character limit
                         if (displayName.length > 100) {
                             displayName = displayName.substring(0, 97) + '...';
                         }
-                        
+
                         return {
                             name: displayName,
                             value: item.id.toString()
@@ -1510,11 +1590,11 @@ module.exports = {
                 { name: 'DSA', value: 'dsa' },
                 { name: 'C-Mine', value: 'cmine' }
             ];
-            
-            const filteredChoices = typeChoices.filter(choice => 
+
+            const filteredChoices = typeChoices.filter(choice =>
                 choice.name.toLowerCase().includes(focusedOption.value.toLowerCase())
             );
-            
+
             await interaction.respond(filteredChoices);
         } else if (focusedOption.name === 'reason') {
             // Provide autocomplete for points transaction reasons (enum values)
@@ -1525,19 +1605,19 @@ module.exports = {
                 { name: 'Other', value: 'other' },
                 { name: 'Admin Change', value: 'admin change' }
             ];
-            
-            const filteredChoices = reasonChoices.filter(choice => 
+
+            const filteredChoices = reasonChoices.filter(choice =>
                 choice.name.toLowerCase().includes(focusedOption.value.toLowerCase()) ||
                 choice.value.toLowerCase().includes(focusedOption.value.toLowerCase())
             );
-            
+
             await interaction.respond(filteredChoices);
         } else if (focusedOption.name === 'kingdom') {
             try {
                 const search = focusedOption.value;
                 // Reuse existing sql method analogous to blacklist autocomplete
                 const names = await sql.searchKingdomName(search);
-                const choices = names.slice(0,25).map(n => ({
+                const choices = names.slice(0, 25).map(n => ({
                     name: n.name ? `${n.name} (${n.kingdomId})` : n.kingdomId,
                     value: n.kingdomId.toString()
                 }));
@@ -1569,7 +1649,7 @@ async function logShopAction(guildId, sql, guild, action, user, details = {}) {
         const channels = logChannels[0];
         // Use shop_log_channel if available, otherwise fall back to accept_log_channel
         const logChannelId = channels.shop_log_channel || channels.accept_log_channel;
-        
+
         if (!logChannelId) {
             return; // No suitable log channel found
         }
@@ -1698,7 +1778,7 @@ function setButtonEmoji(button, emoji) {
                 const isAnimated = !!emojiMatch[1];
                 const name = emojiMatch[2];
                 const id = emojiMatch[3];
-                
+
                 button.setEmoji({
                     name: name,
                     id: id,
@@ -1722,7 +1802,7 @@ async function refreshShopChannel(guildId, sql, guild) {
     try {
         // Get currency emoji for this guild
         const currencyEmoji = await getCurrencyEmoji(guildId, sql);
-        
+
         // Get shop channel
         const managedChannels = await sql.getManagedChannels(guildId);
         if (!managedChannels || managedChannels.length === 0 || !managedChannels[0].shop_channel) {
@@ -1731,7 +1811,7 @@ async function refreshShopChannel(guildId, sql, guild) {
 
         const shopChannelId = managedChannels[0].shop_channel;
         const shopChannel = await guild.channels.fetch(shopChannelId).catch(() => null);
-        
+
         if (!shopChannel) {
             return false;
         }
@@ -1742,7 +1822,7 @@ async function refreshShopChannel(guildId, sql, guild) {
 
         // Get shop items
         const shopItems = await sql.getShopItems(guildId);
-        
+
         // Create new embed
         const embed = new EmbedBuilder()
             .setColor(0xFFD700)
@@ -1757,7 +1837,7 @@ async function refreshShopChannel(guildId, sql, guild) {
 
         // Filter items with stock > 0 for display
         const inStockItems = shopItems ? shopItems.filter(item => item.stock > 0) : [];
-        
+
         if (inStockItems.length > 0) {
             for (const item of inStockItems) {
                 const button = new ButtonBuilder()
@@ -1785,7 +1865,7 @@ async function refreshShopChannel(guildId, sql, guild) {
             // Add fields for each item in stock
             for (const item of inStockItems) {
                 let itemValue = `**Price:** ${formatNumber(item.price)} ${currencyEmoji}\n**Stock:** ${item.stock}`;
-                
+
                 // Add duration if it exists
                 if (item.duration) {
                     itemValue += `\n:clock3: **Duration:** ${item.duration} weeks`;
@@ -1793,12 +1873,12 @@ async function refreshShopChannel(guildId, sql, guild) {
                 if (item.mincastle) {
                     itemValue += `\n🏰 **Min Castle lvl:** ${item.mincastle}`;
                 }
-                
+
                 // Add description only if it exists
                 if (item.description) {
                     itemValue += `\n**Description:** ${item.description}`;
                 }
-                
+
                 embed.addFields({
                     name: item.name,
                     value: itemValue,
