@@ -5,24 +5,34 @@ const base64 = require("base64-js");
 require('dotenv').config();
 
 class Scanner {
+  // Static registry and shared resources
+  static sessionRegistry = new Map(); // key: `${guildId}:${continent}`
+  static discordClient = null;
+  static discordReady = null;
   constructor(options, sql, api) {
     this.config = {
       WEBSOCKET_URL: "wss://socf-lok-live.leagueofkingdoms.com/socket.io/?EIO=4&transport=websocket",
       ZONE_COUNT: 4096,
       BATCH_SIZE: 9,
       // Delay between each batch request to avoid rate limits (in ms)
-      BATCH_DELAY_MS: 500,
+      BATCH_DELAY_MS: 800,
     };
 
-    this.discordClient = new Client({
-      intents: [GatewayIntentBits.Guilds],
-    });
-    this.discordToken = process.env.DISCORD_TOKEN;
-    this.discordClient.login(this.discordToken);
-    this.discordClient.once(Events.ClientReady, () => {
-      console.log("Discord client ready");
-      this.run();
-    });
+    // Shared Discord client initialization
+    if (!Scanner.discordClient) {
+      Scanner.discordClient = new Client({ intents: [GatewayIntentBits.Guilds] });
+      Scanner.discordReady = new Promise((resolve, reject) => {
+        Scanner.discordClient.once(Events.ClientReady, () => {
+          console.log("Discord client ready (shared)");
+          resolve();
+        });
+        Scanner.discordClient.login(process.env.DISCORD_TOKEN).catch(err => {
+          console.error('Discord login failed:', err);
+          reject(err);
+        });
+      });
+    }
+    this.discordClient = Scanner.discordClient;
     this.api = api;
     this.encryption = new Encryption();
     this.accountInfo = new AccountInfo(sql, api);
@@ -41,7 +51,41 @@ class Scanner {
     this.currentContinent = options.continent || null;
     this.logChannels = new Map();
     this.reconnectAttempts = 0;
-    this.maxReconnectAttempts = 3;
+    this.maxReconnectAttempts = 5;
+    this.scanStarted = false;
+    this.instanceId = Math.random().toString(36).slice(2, 11);
+    this.saved = false;
+    this.isConnecting = false;
+    this._aborted = false;
+  this.lastRefreshAttempt = 0;
+  this.refreshCooldownMs = 15000; // throttle token refresh attempts
+
+    // Prevent duplicate scanners for same guild+continent
+    const key = `${this.currentGuild}:${this.currentContinent}`;
+    if (this.currentGuild && this.currentContinent) {
+      if (Scanner.sessionRegistry.has(key)) {
+        console.log(`Duplicate scanner prevented for ${key}.`);
+        this._aborted = true;
+      } else {
+        Scanner.sessionRegistry.set(key, this);
+      }
+    }
+
+    // Start only if not aborted (duplicate)
+    if (!this._aborted) {
+      if (Scanner.discordReady) {
+        Scanner.discordReady.then(() => this.run()).catch(e => console.error('Run start failed:', e));
+      } else {
+        this.run();
+      }
+    }
+  }
+
+  cleanupSession() {
+    const key = `${this.currentGuild}:${this.currentContinent}`;
+    if (Scanner.sessionRegistry.get(key) === this) {
+      Scanner.sessionRegistry.delete(key);
+    }
   }
 
   async processWebSocketData(data) {
@@ -49,19 +93,27 @@ class Scanner {
     const zonesProcessed = Math.min(this.zoneIndex, this.config.ZONE_COUNT);
     const percent = ((zonesProcessed / this.config.ZONE_COUNT) * 100).toFixed(1);
     console.log(
-      `Processing ${data.length} objects from ${this.currentContinent} websocket (${percent}% done)`
+      `Processing ${data.length} objects from ${this.currentContinent} websocket (${percent}% done) [${this.instanceId}]`
     );
     this.objects.push(...data);
   }
 
   async processAndSaveData(data) {
     try {
+      // Deduplicate data by _id to prevent duplicates from reconnections
+      const seen = new Set();
+      const deduplicated = data.filter(item => {
+        if (seen.has(item._id)) return false;
+        seen.add(item._id);
+        return true;
+      });
+
       // Only keep cmines and dsa mines
-      const filtered = data.filter(item =>
+      const filtered = deduplicated.filter(item =>
         item.code === 20100105 || item.code === 20100106
       );
 
-      console.log(`Saving ${filtered.length} cmines/dsa objects to database`);
+      console.log(`Saving ${filtered.length} cmines/dsa objects to database [${this.instanceId}]`);
 
       // Prepare all mine objects for bulk insert
       const mines = filtered.map(item => {
@@ -97,8 +149,16 @@ class Scanner {
       // Continue with any post-processing
       await this.elaborateAndCompare(filtered);
 
+      // Mark finished & cleanup session registry if all zones processed
+      if (!this.isFinished && (this.zoneIndex >= this.config.ZONE_COUNT)) {
+        this.isFinished = true;
+      }
+      if (this.isFinished) {
+        this.cleanupSession();
+      }
+
     } catch (error) {
-      console.error(`Error processing and saving data for guild ${this.currentGuild}, continent ${this.currentContinent}:`, error);
+      console.error(`Error processing and saving data for guild ${this.currentGuild}, continent ${this.currentContinent}: ${error} [${this.instanceId}]`);
     }
   }
 
@@ -120,14 +180,14 @@ class Scanner {
           continent: this.currentContinent,
           guild: this.currentGuild,
         };
-        console.log("saving illegal mine record");
+        console.log("saving illegal mine record", `[${this.instanceId}]`);
         await Promise.all([
           this.sql.insertIllegalMine(illegalRecord),
           this.sendDiscordNotification(record)
         ]);
       }
     } catch (error) {
-      console.error(`Error handling illegal mining for guild ${this.currentGuild}:`, error);
+      console.error(`Error handling illegal mining for guild ${this.currentGuild}: ${error} [${this.instanceId}]`);
     }
   }
 
@@ -153,12 +213,12 @@ class Scanner {
       }
 
       if (skipReporting) {
-        console.log(`Reporting is skipped today for guild ${this.currentGuild} due to free_days setting.`);
+        console.log(`Reporting is skipped today for guild ${this.currentGuild} due to free_days setting. [${this.instanceId}]`);
         return;
       }
 
       const whitelistRows = await this.sql.getWhitelist(this.currentGuild, this.currentContinent);
-      console.log(`Found ${whitelistRows.length} whitelist entries for guild ${this.currentGuild}, continent ${this.currentContinent}`);
+      console.log(`Found ${whitelistRows.length} whitelist entries for guild ${this.currentGuild}, continent ${this.currentContinent} [${this.instanceId}]`);
 
       // Build whitelist object with highest valid license levels per kingdom
       const whitelist = whitelistRows.reduce((acc, row) => {
@@ -176,7 +236,7 @@ class Scanner {
       // console.log("Whitelist: ", whitelist);
 
       // Filter records that are not allowed
-      console.log(`Filtering illegal mines for guild ${this.currentGuild}, continent ${this.currentContinent}`);
+      console.log(`Filtering illegal mines for guild ${this.currentGuild}, continent ${this.currentContinent} [${this.instanceId}]`);
 
       // Fetch min level settings for this guild (outside filter, since filter can't be async)
       let minCmine = 2, minDsa = 2;
@@ -231,7 +291,7 @@ class Scanner {
 
       if (illegalRecords.length) {
         await this.sql.insertIllegalMinesBulk(illegalRecords);
-        console.log(`Inserted ${illegalRecords.length} new illegal mines.`);
+        console.log(`Inserted ${illegalRecords.length} new illegal mines. [${this.instanceId}]`);
         // Send Discord notifications for each new illegal mine
         for (const record of newIllegals) {
 
@@ -250,12 +310,12 @@ class Scanner {
       }
 
     } catch (error) {
-      console.error(`Error in elaborateAndCompare for guild ${this.currentGuild}, continent ${this.currentContinent}:`, error);
+      console.error(`Error in elaborateAndCompare for guild ${this.currentGuild}, continent ${this.currentContinent}: ${error} [${this.instanceId}]`);
     }
   }
 
   async sendDiscordNotification({ code, name, level, x, y, value, allianceTag, id, started }) {
-    console.log(`Sending Discord notification for code ${code}, name ${name}, level ${level}, x ${x}, y ${y}, value ${value}, allianceTag ${allianceTag}, id ${id}, started ${started}`);
+    console.log(`Sending Discord notification for code ${code}, name ${name}, level ${level}, x ${x}, y ${y}, value ${value}, allianceTag ${allianceTag}, id ${id}, started ${started} [${this.instanceId}]`);
     const resourceMap = {
       20100105: {
         type: "Crystal",
@@ -361,7 +421,7 @@ class Scanner {
         embeds: [embed],
       });
     } catch (error) {
-      console.error(`Error sending Discord notification for guild ${this.currentGuild}:`, error);
+      console.error(`Error sending Discord notification for guild ${this.currentGuild}: ${error} [${this.instanceId}]`);
     }
   }
 
@@ -379,14 +439,16 @@ class Scanner {
       const getUrl = () => `${this.config.WEBSOCKET_URL}&token=${this.token}`;
 
       // Define handlers once so we can reuse the same closures across reconnects
-      const onConnect = (connection, proxyUrl) => {
-        this.wsConnection = connection;
-        this.reconnectAttempts = 0;
-        console.log(`WebSocket Client Connected for guild ${guild}, continent ${continent} using proxy: ${proxyUrl || 'none'}`);
+    const onConnect = (connection, proxyUrl) => {
+      this.wsConnection = connection;
+      this.reconnectAttempts = 0;
+      this.isConnecting = false;
+      console.log(`WebSocket Client Connected for guild ${guild}, continent ${continent} using proxy: ${proxyUrl || 'none'} [${this.instanceId}]`);
+      // Only reset _enterSent if scan hasn't started yet
+      if (!this.scanStarted) {
         this._enterSent = false;
-      };
-
-      const onMessage = async (message, connection) => {
+      }
+    };      const onMessage = async (message, connection) => {
         try {
           // Only process utf8 messages
           if (message.type !== "utf8") return;
@@ -406,11 +468,12 @@ class Scanner {
               try {
                 const encoded = await this.encryption.createXorMessage(JSON.stringify({ token: this.token }), this.xorPassword);
                 const messageToSend = `42["/field/enter/v3", "${encoded}"]`;
-                console.log(`Sending initial message after open: ${messageToSend}`);
+                console.log(`Sending initial message after open: ${messageToSend} [${this.instanceId}]`);
                 connection.sendUTF(messageToSend);
                 this._enterSent = true;
+                this.scanStarted = true;
               } catch (e) {
-                console.error('Error encoding/sending initial enter:', e);
+                console.error('Error encoding/sending initial enter:', e, `[${this.instanceId}]`);
               }
             }
             return;
@@ -426,7 +489,7 @@ class Scanner {
           try {
             parsed = JSON.parse(dataStr.substring(2));
           } catch (e) {
-            console.error("Failed to parse WebSocket message as JSON array:", dataStr, e);
+            console.error("Failed to parse WebSocket message as JSON array:", dataStr, e, `[${this.instanceId}]`);
             return;
           }
 
@@ -444,17 +507,19 @@ class Scanner {
               // 3. Parse the decrypted JSON
               decoded = JSON.parse(decrypted);
             } catch (e) {
-              console.error("Failed to decode/decrypt/parse /field/objects/v4:", e, { decompressed, decrypted, data });
+              console.error("Failed to decode/decrypt/parse /field/objects/v4:", e, { decompressed, decrypted, data }, `[${this.instanceId}]`);
               return;
             }
 
             await this.processWebSocketData(decoded.objects);
 
-            // --- Only finish when all zones are processed ---
-            if (this.isFinished || this.zoneIndex >= this.config.ZONE_COUNT) {
-              console.log(`${continent}: 100%`);
+            // --- Only finish and save once ---
+            if (!this.saved && (this.isFinished || this.zoneIndex >= this.config.ZONE_COUNT)) {
+              console.log(`${continent}: 100% [${this.instanceId}]`);
               await this.processAndSaveData(this.objects);
+              this.saved = true;
               this.isFinished = true;
+              this.cleanupSession();
               connection.close();
               resolve();
               return;
@@ -486,13 +551,13 @@ class Scanner {
             const payload = JSON.stringify({ world: this.currentContinent, zones: JSON.stringify(zonesSubset) });
             const encoded = await this.encryption.createXorMessage(payload, this.xorPassword);
             const messageToSend = `42["/zone/enter/list/v4", "${encoded}"]`;
-            console.log(`Sending zone batch message after enter: ${messageToSend}`);
+            console.log(`Sending zone batch message after enter: ${messageToSend} [${this.instanceId}]`);
             connection.sendUTF(messageToSend);
           } else {
             // Ignore other events
           }
         } catch (error) {
-          console.error(`Error processing WebSocket message for guild ${guild}, continent ${continent}:`, error);
+          console.error(`Error processing WebSocket message for guild ${guild}, continent ${continent}: ${error} [${this.instanceId}]`);
         }
       };
 
@@ -500,19 +565,29 @@ class Scanner {
         if (this.isFinished) {
           return; // do not reconnect after successful finish
         }
-        if (this.reconnectAttempts < this.maxReconnectAttempts) {
+        if (this.reconnectAttempts < this.maxReconnectAttempts && !this.isConnecting) {
           this.reconnectAttempts++;
+          this.isConnecting = true;
+          // Close the old connection to prevent parallel processing
+          if (this.wsConnection) {
+            this.wsConnection.close();
+            this.wsConnection = null;
+          }
           // Attempt token refresh once before the first reconnect
           if (!this.tokenRefreshed) {
             try {
               const refreshed = await this.refreshTokenIfNeeded(reasonError);
               if (refreshed) {
-                console.log(`Token refreshed for guild ${guild}.`);
+                console.log(`Token refreshed for guild ${guild}. [${this.instanceId}]`);
               }
             } catch (e) {
               console.error('Token refresh failed:', e);
             }
           }
+          // Exponential backoff with jitter: base 1000ms, factor 2, cap 15000ms
+          const base = 1000;
+          const delay = Math.min(15000, base * Math.pow(2, this.reconnectAttempts - 1));
+          const jitter = Math.random() * 300; // up to 300ms jitter
           setTimeout(() => {
             this.api.connectWebSocket(getUrl(), {
               onConnect,
@@ -521,20 +596,31 @@ class Scanner {
               onClose,
               useProxy: true,
               guild: this.currentGuild,
-            }).catch(err => console.error(`Reconnect failed: ${err.message}`));
-          }, 2000);
+            }).catch(err => {
+              console.error(`Reconnect failed: ${err.message} [${this.instanceId}]`);
+              this.isConnecting = false;
+            }).finally(() => {
+              if (!this.wsConnection) this.isConnecting = false;
+            });
+          }, delay + jitter);
         } else if (reasonError) {
           reject(reasonError);
+        }
+        if (this.reconnectAttempts >= this.maxReconnectAttempts) {
+          this.cleanupSession();
         }
       };
 
       const onError = (error) => {
-        console.error(`WebSocket Connect Error for guild ${guild}, continent ${continent}:`, error.message);
+        console.error(`WebSocket Connect Error for guild ${guild}, continent ${continent}: ${error.message} [${this.instanceId}]`);
         tryReconnect(error);
       };
 
       const onClose = () => {
-        console.log(`WebSocket Connection Closed for guild ${guild}, continent ${continent}`);
+        console.log(`WebSocket Connection Closed for guild ${guild}, continent ${continent} [${this.instanceId}]`);
+        if (this.isFinished) {
+          this.cleanupSession();
+        }
         tryReconnect();
       };
 
@@ -549,7 +635,7 @@ class Scanner {
             guild: this.currentGuild,
           });
         } catch (error) {
-          console.error(`WebSocket Connection Failed for guild ${guild}, continent ${continent}:`, error);
+          console.error(`WebSocket Connection Failed for guild ${guild}, continent ${continent}: ${error} [${this.instanceId}]`);
           if (!hasRetried) {
             try {
               const refreshed = await this.refreshTokenIfNeeded(error);
@@ -569,7 +655,7 @@ class Scanner {
   }
 
   async scanContinent(guild, continent) {
-    console.log("scanning continent:", continent);
+    console.log("scanning continent:", continent, `[${this.instanceId}]`);
     try {
       // Generate valid zone indices [0, ZONE_COUNT-1]; including ZONE_COUNT would be out-of-range
       this.zoneNumbers = Array.from({ length: this.config.ZONE_COUNT }, (_, i) => i);
@@ -578,6 +664,8 @@ class Scanner {
       this.batchCount = 0;
       this.isFinished = false;
       this.reconnectAttempts = 0;
+      this.saved = false;
+      this.isConnecting = false;
 
       const tokens = await this.sql.getScannerTokens(guild);
       if (tokens.length === 0) {
@@ -593,7 +681,7 @@ class Scanner {
       await this.setupWebSocket(guild, continent);
       console.log("webhook ready");
     } catch (error) {
-      console.error(`Error scanning continent ${continent} for guild ${guild}:`, error);
+      console.error(`Error scanning continent ${continent} for guild ${guild}: ${error} [${this.instanceId}]`);
       throw error;
     }
   }
@@ -602,8 +690,15 @@ class Scanner {
     try {
       if (this.tokenRefreshed) return false;
       if (!this.scannerKingdomId) return false;
+      const now = Date.now();
+      if (now - this.lastRefreshAttempt < this.refreshCooldownMs) {
+        return false; // Throttled
+      }
+      this.lastRefreshAttempt = now;
 
-      console.log(`Attempting token refresh for kingdom ${this.scannerKingdomId}${reasonError ? ` due to: ${reasonError.message || reasonError}` : ''}`);
+      const reason = reasonError ? (reasonError.message || String(reasonError)) : '';
+      const mask = (s) => s ? s.replace(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g, '[redacted-email]').replace(/\b(?=.{6,})([A-Za-z0-9!@#$%^&*()_+\-=]{4,})\b/g, m => m.length > 10 ? m.slice(0,3)+'***'+m.slice(-2) : '***') : s;
+      console.log(`Attempting token refresh for kingdom ${this.scannerKingdomId}${reason ? ' due to: ' + mask(reason) : ''} [${this.instanceId}]`);
       await this.accountInfo.updateSingleBotToken(this.scannerKingdomId);
       // Reload fresh token and XOR pass from DB
       const tokens = await this.sql.getScannerTokens(this.currentGuild);
@@ -618,7 +713,7 @@ class Scanner {
       this.tokenRefreshed = true;
       return true;
     } catch (e) {
-      console.error('Error during token refresh:', e);
+      console.error('Error during token refresh:', e, `[${this.instanceId}]`);
       return false;
     }
   }
@@ -635,18 +730,18 @@ class Scanner {
       while (queue.length > 0 || activePromises.size > 0) {
         while (queue.length > 0 && activePromises.size < concurrencyLimit) {
           const { guild_id, continent } = queue.shift();
-          console.log(`Starting scan for guild ${guild_id}, continent ${continent}`);
+          console.log(`Starting scan for guild ${guild_id}, continent ${continent} [${this.instanceId}]`);
 
           const promise = this.scanContinent(guild_id, continent)
             .catch(async error => {
-              console.error(`Scan failed for guild ${guild_id}, continent ${continent}:`, error);
+              console.error(`Scan failed for guild ${guild_id}, continent ${continent}: ${error} [${this.instanceId}]`);
               // Set scanner status to 0 so the process can be restarted
               if (this.sql && typeof this.sql.setScannerStatus === 'function') {
                 try {
                   await this.sql.setScannerStatus(guild_id, 0);
-                  console.log(`Set scanner status to 0 for guild ${guild_id} after failure.`);
+                  console.log(`Set scanner status to 0 for guild ${guild_id} after failure. [${this.instanceId}]`);
                 } catch (e) {
-                  console.error(`Failed to set scanner status to 0 for guild ${guild_id}:`, e);
+                  console.error(`Failed to set scanner status to 0 for guild ${guild_id}: ${e} [${this.instanceId}]`);
                   restartRequired = true;
                 }
               }
@@ -675,20 +770,20 @@ class Scanner {
         process.exit(1);
       }
     } catch (error) {
-      console.error("Bot startup error:", error);
+      console.error("Bot startup error:", error, `[${this.instanceId}]`);
       // Set scanner status to 0 for the current guild if possible
       let restartRequired = false;
       if (this.sql && typeof this.sql.setScannerStatus === 'function' && this.currentGuild) {
         try {
           await this.sql.setScannerStatus(this.currentGuild, 0);
-          console.log(`Set scanner status to 0 for guild ${this.currentGuild} after startup error.`);
+          console.log(`Set scanner status to 0 for guild ${this.currentGuild} after startup error. [${this.instanceId}]`);
         } catch (e) {
-          console.error(`Failed to set scanner status to 0 for guild ${this.currentGuild}:`, e);
+          console.error(`Failed to set scanner status to 0 for guild ${this.currentGuild}: ${e} [${this.instanceId}]`);
           restartRequired = true;
         }
       }
       if (restartRequired) {
-        console.error('Critical: Could not set scanner status to 0 for one or more guilds. Waiting 5 minutes and restarting the scanner process.');
+        console.error('Critical: Could not set scanner status to 0 for one or more guilds. Waiting 5 minutes and restarting the scanner process. [${this.instanceId}]');
         await new Promise(resolve => setTimeout(resolve, 5 * 60 * 1000));
         const { spawn } = require('child_process');
         spawn('node', [require('path').resolve(__dirname, 'startScanner.js')], {
@@ -702,6 +797,9 @@ class Scanner {
       if (this.wsConnection) {
         this.wsConnection.close();
         this.wsConnection = null;
+      }
+      if (this.isFinished) {
+        this.cleanupSession();
       }
     }
   }
@@ -752,7 +850,7 @@ class Scanner {
       try {
         await this.start();
       } catch (error) {
-        console.error("Scheduled scan error:", error);
+        console.error("Scheduled scan error:", error, `[${this.instanceId}]`);
       } finally {
         // Schedule the next run after completion
         this.scheduleNextRun();
@@ -762,7 +860,7 @@ class Scanner {
 
   async run() {
     await this.start();
-    this.scheduleNextRun();
+    // Internal scheduling removed; external manageScanners handles periodic runs.
   }
 }
 
