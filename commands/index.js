@@ -261,6 +261,18 @@ client.on(Events.InteractionCreate, async (interaction) => {
           flags: 64,
         });
       }
+    } else if (interaction.customId.startsWith("player-info_selectkingdom")) {
+      const command = client.commands.get("player-info");
+      if (!command) return;
+      try {
+        await command.stringselect(interaction);
+      } catch (error) {
+        console.error(error);
+        await interaction.reply({
+          content: "There was an error while executing this command!",
+          flags: 64,
+        });
+      }
     } else if (interaction.customId.startsWith("subscription_select")) {
       const command = client.commands.get("subscription");
       if (!command) return;

@@ -109,7 +109,7 @@ class Api {
             const proxies = await this.sql.getProxies();
             const used = this.usedIPs.get(guild) || new Set();
             const availableProxies = proxies.filter(p => !used.has(p.ip));
-            availableProxies.push({ ip: null }); // Add a null option to possibly make a request without a proxy
+            // availableProxies.push({ ip: null }); // Add a null option to possibly make a request without a proxy
             const randomIndex = Math.floor(Math.random() * availableProxies.length);
             proxyUrl = availableProxies[randomIndex].ip;
             if (proxyUrl) {
