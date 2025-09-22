@@ -9,11 +9,50 @@ const {
 } = require('discord.js');
 const qs = require('qs');
 
+// Central map for title codes to names
+const TITLE_CODES = {
+    103: 'Duke',
+    104: 'Count',
+    105: 'Baron',
+    106: 'General',
+    107: 'Minister',
+    108: 'Alchemist',
+    109: 'Architect',
+    110: 'Servant',
+    111: 'Jester',
+    112: 'Cutpurse',
+    113: 'Serf'
+};
+
 module.exports = {
     data: new SlashCommandBuilder()
         .setName('title')
         .setDescription('Manage and request in-game titles')
-        .setDefaultMemberPermissions(PermissionFlagsBits.ManageChannels),
+        .setDefaultMemberPermissions(PermissionFlagsBits.ManageChannels)
+        .addIntegerOption(option =>
+            option
+                .setName('titlename')
+                .setDescription('Title to apply (choose)')
+                .addChoices(
+                    { name: 'Duke', value: 103 },
+                    { name: 'Count', value: 104 },
+                    { name: 'Baron', value: 105 },
+                    { name: 'General', value: 106 },
+                    { name: 'Minister', value: 107 },
+                    { name: 'Alchemist', value: 108 },
+                    { name: 'Architect', value: 109 },
+                    { name: 'Servant', value: 110 },
+                    { name: 'Jester', value: 111 },
+                    { name: 'Cutpurse', value: 112 },
+                    { name: 'Serf', value: 113 }
+                )
+        )
+        .addStringOption(option =>
+            option
+                .setName('kingdom')
+                .setDescription('Target kingdom (autocomplete)')
+                .setAutocomplete(true)
+        ),
 
     async execute(interaction) {
         const sql = module.exports.sql;
@@ -33,6 +72,44 @@ module.exports = {
             if (!subscriptionFlagInfo) {
                 await interaction.editReply({ content: "Your continent needs to have a valid subscription to use this command. Use `/subscribe` to get a new subscription.", flags: 64 });
                 return;
+            }
+
+            // Direct application path if options are provided
+            const providedCode = interaction.options.getInteger('titlename');
+            const providedKingdom = interaction.options.getString('kingdom');
+            if (providedCode && providedKingdom) {
+                // Only admins allowed for direct path (applies to any castle)
+                if (!interaction.member.permissions.has(PermissionFlagsBits.Administrator)) {
+                    await interaction.editReply({ content: 'Only administrators can apply titles directly. Remove options to open panel.', ...ephemeral });
+                    return;
+                }
+                const titleName = TITLE_CODES[providedCode];
+                if (!titleName) {
+                    await interaction.editReply({ content: 'Invalid title code selected.', ...ephemeral });
+                    return;
+                }
+                // providedKingdom is expected to be raw kingdomId string from autocomplete
+                const kingdomId = providedKingdom.trim();
+                let kingdomName = 'Unknown Kingdom';
+                try {
+                    const kInfo = await sql.getKingdomName(kingdomId);
+                    if (Array.isArray(kInfo) && kInfo[0]) {
+                        // getKingdomName likely returns rows; adapt if structure differs
+                        kingdomName = kInfo[0].name || kingdomName;
+                    }
+                } catch (e) {
+                    console.warn('[title.on] Could not fetch kingdom name for', kingdomId, e.message);
+                }
+
+                // Reservation check reuse
+                const lastRecord = await sql.getLastTitleUsers().then(records => records.find(r => r.titleId === providedCode));
+                if (lastRecord && !lastRecord.free && (new Date() - new Date(lastRecord.date)) / 60000 <= 2) {
+                    await interaction.editReply({ content: `${titleName} is currently reserved. Please wait or free it.`, ...ephemeral });
+                    return;
+                }
+
+                await this.applyTitleDirect(interaction, providedCode, kingdomId, kingdomName, titleName, sql, api, ephemeral);
+                return; // stop here
             }
 
             // Create or update the titles panel
@@ -135,7 +212,7 @@ module.exports = {
             await interaction.reply({ content: 'This button is not for you!', ...ephemeral });
             return;
         }
-        
+
         // console.log('interaction', interaction.guild.id);
 
         const subscriptionFlagInfo = await sql.checkSubscriptionValid(interaction.guild.id, "2");
@@ -181,7 +258,7 @@ module.exports = {
         }
 
         const [action] = interaction.customId.split('_');
-        
+
         const adminTitleMap = {
             'duke': { id: 103, name: 'Duke' },
             'count': { id: 104, name: 'Count' },
@@ -416,6 +493,7 @@ module.exports = {
 
         // API call to apply the admin title
         const data = qs.stringify({ code: titleId, targetKingdomId: kingdomId });
+        // console.log('Applying admin title with data:', data);
         const headers = { 'x-access-token': managerToken[0].token, 'Content-Type': 'application/x-www-form-urlencoded' };
         const response = await api.request('https://api-lok-live.leagueofkingdoms.com/api/shrine/title/change', data, headers);
         console.log('Admin Title API response:', response.data);
@@ -431,6 +509,38 @@ module.exports = {
             await sql.freeTitle(userId, guildId);
             await interaction.reply({ content: 'Failed to apply admin title. Please try again.', flags: 64 });
             await this.updateAdminTitlesEmbed(interaction, sql);
+        }
+    },
+
+    async applyTitleDirect(interaction, titleId, kingdomId, kingdomName, titleName, sql, api, ephemeral) {
+        const userId = interaction.user.id;
+        const guildId = interaction.guild.id;
+        const managerToken = await sql.getQueenToken(guildId);
+        if (!managerToken || !managerToken[0]?.token) {
+            await interaction.editReply({ content: 'No manager token available for this continent.', ...ephemeral });
+            return;
+        }
+        await sql.logTitleRequest(titleId, kingdomId, userId, guildId);
+        const data = qs.stringify({ code: titleId, targetKingdomId: kingdomId });
+        //console.log('Applying title directly with data:', data);
+        const headers = { 'x-access-token': managerToken[0].token, 'Content-Type': 'application/x-www-form-urlencoded' };
+        try {
+            const response = await api.request('https://api-lok-live.leagueofkingdoms.com/api/shrine/title/change', data, headers);
+            console.log('Direct Title API response:', response.data);
+            if (response.data.result) {
+                await interaction.editReply({ content: `${titleName} applied to kingdom ${kingdomName} (ID: ${kingdomId}).`, ...ephemeral });
+                const logChannel = await interaction.guild.channels.fetch((await sql.getGuildLogChannels(guildId))[0]?.accept_log_channel).catch(() => null);
+                if (logChannel) {
+                    await logChannel.send(`${titleName} applied to ${kingdomName} (${kingdomId}) by <@${userId}> (direct command)`);
+                }
+            } else {
+                await sql.freeTitle(guildId, userId);
+                await interaction.editReply({ content: 'Failed to apply title (API result false).', ...ephemeral });
+            }
+        } catch (e) {
+            console.error('applyTitleDirect error', e);
+            await sql.freeTitle(guildId, userId).catch(() => { });
+            await interaction.editReply({ content: 'Error while applying title. Check logs.', ...ephemeral });
         }
     },
 
@@ -548,5 +658,23 @@ module.exports = {
 
         // Edit the existing message
         await message.edit({ embeds: [updatedEmbed] });
+    }
+};
+
+// Autocomplete handler (expects interaction.isAutocomplete())
+module.exports.autocomplete = async (interaction) => {
+    if (!interaction.isAutocomplete()) return;
+    const sql = module.exports.sql;
+    try {
+        const focusedValue = interaction.options.getFocused();
+        const names = await sql.searchKingdomName(focusedValue || '');
+        const choices = names.slice(0, 25).map(nameObj => ({
+            name: nameObj.name || 'Unknown',
+            value: nameObj.kingdomId || 'Unknown'
+        }));
+        await interaction.respond(choices);
+    } catch (err) {
+        console.error('Autocomplete kingdom error:', err);
+        await interaction.respond([]);
     }
 };
