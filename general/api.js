@@ -8,9 +8,35 @@ class Api {
     constructor(sql) {
 
         this.sql = sql;
-        this.usedIPs = new Map();
+        this.usedIPs = new Map(); // legacy (unused now for selection)
+        this.globalUsedIPs = new Set(); // new global pool of in-use proxies
         this.connectionToIP = new Map();
+        this.proxyBlacklist = new Map(); // ip -> expiry timestamp (ms)
 
+    }
+
+    // Remove expired blacklist entries and report if still active
+    _isBlacklisted(ip) {
+        if (!ip) return false;
+        const exp = this.proxyBlacklist.get(ip);
+        if (!exp) return false;
+        if (Date.now() > exp) {
+            this.proxyBlacklist.delete(ip);
+            return false;
+        }
+        return true;
+    }
+
+    _blacklist(ip, msDuration) {
+        if (!ip) return;
+        this.proxyBlacklist.set(ip, Date.now() + msDuration);
+    }
+
+    resetProxyUsage(options = {}) {
+        const { includeBlacklist = false } = options;
+        this.globalUsedIPs.clear();
+        if (includeBlacklist) this.proxyBlacklist.clear();
+        console.log(`Proxy usage reset${includeBlacklist ? ' (including blacklist)' : ''}.`);
     }
 
     async request(url, body, header) {
@@ -102,42 +128,47 @@ class Api {
             useProxy = true,
             guild
         } = options;
-
-        // Fetch proxies from the database if using proxy
+        // Select proxy only after successful connect (avoid leaking on failed handshakes)
         let proxyUrl = null;
+        let agent = null;
+        let candidateProxy = null;
         if (useProxy) {
             const proxies = await this.sql.getProxies();
-            const used = this.usedIPs.get(guild) || new Set();
-            const availableProxies = proxies.filter(p => !used.has(p.ip));
-            // availableProxies.push({ ip: null }); // Add a null option to possibly make a request without a proxy
-            const randomIndex = Math.floor(Math.random() * availableProxies.length);
-            proxyUrl = availableProxies[randomIndex].ip;
-            if (proxyUrl) {
-                used.add(proxyUrl);
-                this.usedIPs.set(guild, used);
+            let available = proxies.filter(p => p && p.ip && !this.globalUsedIPs.has(p.ip) && !this._isBlacklisted(p.ip));
+            if (available.length === 0 && proxies.length > 0) {
+                // recycle used set but still respect blacklist
+                this.globalUsedIPs.clear();
+                available = proxies.filter(p => p && p.ip && !this._isBlacklisted(p.ip));
             }
-            // console.log(`Using proxy for WebSocket: ${proxyUrl}`);
+            if (available.length > 0) {
+                const idx = Math.floor(Math.random() * available.length);
+                candidateProxy = available[idx].ip;
+                agent = new HttpsProxyAgent(`http://${candidateProxy}:3128`);
+            }
         }
-
-        // Set up the HTTPS proxy agent if a proxy URL is selected
-        const agent = proxyUrl ? new HttpsProxyAgent(`http://${proxyUrl}:3128`) : null;
-
-        // Create WebSocket client
-        const wsClient = new WebSocketClient({
-            ...(agent && { webSocketAgent: agent }) // Conditionally add the agent
-        });
+        const wsClient = new WebSocketClient({ ...(agent && { webSocketAgent: agent }) });
 
         return new Promise((resolve, reject) => {
             // Handle connection failure
             wsClient.on('connectFailed', (error) => {
+                // Blacklist only on 403 (Forbidden), NOT on 502 or others
+                if (candidateProxy && /\b403\b/.test(String(error && error.message))) {
+                    this._blacklist(candidateProxy, 2 * 60 * 60 * 1000); // 2 hours
+                    console.log(`Blacklisting proxy ${candidateProxy} for 2h due to 403.`);
+                }
                 onError(error);
                 reject(error);
             });
 
             // Handle successful connection
             wsClient.on('connect', (connection) => {
-                this.connectionToIP.set(connection, proxyUrl);
-                onConnect(connection, proxyUrl);
+                // mark proxy as used only now (successful)
+                if (candidateProxy) {
+                    proxyUrl = candidateProxy;
+                    this.globalUsedIPs.add(proxyUrl);
+                    this.connectionToIP.set(connection, proxyUrl);
+                }
+                onConnect(connection, proxyUrl || null);
 
                 // Set up event handlers
                 connection.on('message', (message) => onMessage(message, connection));
@@ -145,8 +176,7 @@ class Api {
                 const wrappedOnClose = () => {
                     const ip = this.connectionToIP.get(connection);
                     if (ip) {
-                        const used = this.usedIPs.get(guild);
-                        if (used) used.delete(ip);
+                        this.globalUsedIPs.delete(ip);
                         this.connectionToIP.delete(connection);
                     }
                     onClose(connection);
