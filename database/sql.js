@@ -14,7 +14,7 @@ class sqlFunctions {
             password: process.env.DB_PASSWORD,
             database: process.env.DB_NAME,
             waitForConnections: true,
-            connectionLimit: 30,
+            connectionLimit: 100,
             queueLimit: 50
         });
 
@@ -381,8 +381,8 @@ class sqlFunctions {
     // Titles functions
 
     // Get last title users
-    async getLastTitleUsers() {
-        return this.query(`WITH LastRecords AS (SELECT *, ROW_NUMBER() OVER (PARTITION BY titleId ORDER BY \`date\` DESC) AS rn FROM titlelog WHERE titleId IN (108, 109) ) SELECT id, titleId, kingdomId, discordId, free, date FROM LastRecords WHERE rn = 1 ORDER BY titleId;`)
+    async getLastTitleUsers(guildId) {
+        return this.query(`WITH LastRecords AS (SELECT *, ROW_NUMBER() OVER (PARTITION BY titleId ORDER BY \`date\` DESC) AS rn FROM titlelog WHERE guild = ? AND titleId IN (108, 109) ) SELECT id, titleId, kingdomId, discordId, free, date FROM LastRecords WHERE rn = 1 ORDER BY titleId;`, [guildId]);
     }
 
     // Get users with titlegrace
@@ -404,9 +404,9 @@ class sqlFunctions {
     }
 
     // Check if a title was applied in the last 2 minutes
-    async checkTitleStatus(titleID) {
-        const query = `SELECT discordId, free, date FROM titlelog WHERE titleId = ? AND date >= NOW() - INTERVAL 2 MINUTE;`;
-        const results = await this.query(query, [titleID]);
+    async checkTitleStatus(titleID, guildId) {
+        const query = `SELECT discordId, free, date FROM titlelog WHERE titleId = ? AND guild = ? AND date >= NOW() - INTERVAL 2 MINUTE;`;
+        const results = await this.query(query, [titleID, guildId]);
         return results.length > 0 ? results[0] : null;
     }
 
@@ -1661,12 +1661,14 @@ class sqlFunctions {
 
     // Get the amount of rallies done by a kingdom in the last month
     async getRalliesCount(kingdomId, guildId) {
+        console.log(`Getting rallies count for kingdomId: ${kingdomId}, guildId: ${guildId}`);
         const query = `
             SELECT COUNT(*) as count 
             FROM rallies 
             WHERE by_kingdom_id = ? AND guild_id = ? AND timestamp >= NOW() - INTERVAL 30 DAY;
         `;
         const results = await this.query(query, [kingdomId, guildId]);
+        console.log(results);
         return results.length > 0 ? results[0].count : 0;
     }
 

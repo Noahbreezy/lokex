@@ -66,30 +66,42 @@ class RallyLogger {
                 const decodedData = await this.encryption.decodeGunzip(response.data?.payload);
                 const rallyData = JSON.parse(decodedData);
 
-                console.log("Rally data: ", rallyData);
-
                 // Process each rally if the request was successful
                 if (rallyData.result && rallyData.battles && rallyData.battles.length > 0) {
+                    // if (this.allianceId === "6163d3db2afd5d39428c5a1d") {
+                    //     console.log(`Rally data for ${this.allianceTag}: `, rallyData.battles);
+                    // }
+                    // console.log(`Found ${rallyData.battles.length} rallies in ${this.allianceTag}`);
                     for (const rally of rallyData.battles) {
-                        // Prepare the rally type (PVE or PVP) based on marchType
-                        const rallyType = rally.marchType === 5 ? 'PVE' : 'PVP';
+                        try {
+                            // console.log("Processing rally: ", rally._id, rally.kingdomId);
+                            // Prepare the rally type (PVE or PVP) based on marchType
+                            const rallyType = rally.marchType === 5 ? 'PVE' : 'PVP';
 
-                        // Insert into the database
-                        const values = [
-                            rally._id || '',
-                            rally.kingdomId || '',
-                            rallyType,
-                            guildId || ''
-                        ];
+                            // Insert into the database
+                            const values = [
+                                rally._id || '',
+                                rally.kingdomId || '',
+                                rallyType,
+                                guildId || ''
+                            ];
 
-                        await this.sql.addRally(...values);
+                            // console.log(`Logging rally ${rally._id} of type ${rallyType} from kingdom ${rally.kingdomId} in ${this.allianceTag}`);
+                            await this.sql.addRally(...values);
+                            // console.log(`Successfully logged rally ${rally._id} in ${this.allianceTag}`);
 
-                        // Get rally participants and record joiners
-                        await this.recordRallyJoiners(rally._id, guildId, token);
+                            // Get rally participants and record joiners
+                            await this.recordRallyJoiners(rally._id, guildId, token);
+                            // console.log(`Recorded joiners for rally ${rally._id} in ${this.allianceTag}`);
+                        } catch (error) {
+                            console.error(`Error processing rally ${rally._id}:`, error);
+                            // Continue to next rally even if error occurs
+                            continue;
+                        }
                     }
                     console.log(`Logged ${rallyData.battles.length} rallies at ${new Date().toISOString()} in ${this.allianceTag}`);
                 } else {
-                    console.log('No rallies found or request failed');
+                    // console.log('No rallies found or request failed in: ', this.allianceTag);
                 }
             } catch (error) {
                 console.error('Error logging rallies:', error);
@@ -97,7 +109,7 @@ class RallyLogger {
 
             // Wait 4 minutes before the next request
             // console.log(`Waiting 4 minutes before the next rally check in ${this.allianceTag}...`);
-            await new Promise(resolve => setTimeout(resolve, 4 * 60 * 1000));
+            await new Promise(resolve => setTimeout(resolve, 1 * 60 * 1000));
         }
     }
 
@@ -113,36 +125,37 @@ class RallyLogger {
 
             // Get rally participants using existing API method
             const response = await this.api.request(url, body, headers);
-            
+            // if (this.allianceId === "6163d3db2afd5d39428c5a1d") {
+            //     console.log(response.data);
+            // }
+
             if (!response.data?.result || !response.data?.battle?.rallyTroops) {
-                console.log(`No rally participants found for rally ${rallyId}`);
+                console.log(`No rally participants found for rally ${rallyId} in ${this.allianceTag}`);
                 return;
             }
 
             // Decode the gzip response if payload exists
             let rallyInfo = response.data;
             if (response.data.payload) {
+                console.log("payload: ", response.data.payload);
                 const decodedData = await this.encryption.decodeGunzip(response.data.payload);
                 rallyInfo = JSON.parse(decodedData);
             }
 
             const rallyTroops = rallyInfo.battle?.rallyTroops || [];
             
+            // if (this.allianceId === "6163d3db2afd5d39428c5a1d") {
+            //     console.log("rally troops: \n", rallyTroops);
+            // }
+
             // Record each joiner
             for (const troopData of rallyTroops) {
                 const joinerKingdomId = troopData.kingdomId;
-                
-                if (joinerKingdomId) {
-                    // Check if this joiner is already recorded for this rally
-                    const exists = await this.sql.checkRallyJoiner(rallyId, joinerKingdomId, guildId);
-                    
-                    if (!exists) {
-                        await this.sql.addRallyJoiner(rallyId, joinerKingdomId, guildId);
-                    }
-                }
+                await this.sql.addRallyJoiner(rallyId, joinerKingdomId, guildId); 
             }
 
-            console.log(`Recorded ${rallyTroops.length} joiners for rally ${rallyId} in ${this.allianceTag}`);
+            // console.log(`Recorded ${rallyTroops.length} joiners for rally ${rallyId} in ${this.allianceTag}`);
+            return;
         } catch (error) {
             console.error(`Error recording rally joiners for rally ${rallyId}:`, error);
         }

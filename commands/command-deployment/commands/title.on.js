@@ -9,6 +9,94 @@ const {
 } = require('discord.js');
 const qs = require('qs');
 
+const TITLE_RESERVATION_DURATION_MS = 2 * 60 * 1000;
+const titleRefreshTimeouts = new Map();
+
+function scheduleTitleRefresh(guildId, client, nextExpiryMs) {
+    if (!guildId || !client) return;
+
+    if (titleRefreshTimeouts.has(guildId)) {
+        clearTimeout(titleRefreshTimeouts.get(guildId));
+        titleRefreshTimeouts.delete(guildId);
+    }
+
+    if (!nextExpiryMs) {
+        return;
+    }
+
+    const delay = Math.max(nextExpiryMs - Date.now(), 1000);
+    const timeout = setTimeout(async () => {
+        titleRefreshTimeouts.delete(guildId);
+        try {
+            const guild = await client.guilds.fetch(guildId);
+            if (!guild) return;
+            await module.exports.updateTitlesEmbedByGuild(guild);
+        } catch (err) {
+            console.error('[title.on] Failed to auto-refresh titles embed:', err);
+        }
+    }, delay);
+
+    titleRefreshTimeouts.set(guildId, timeout);
+}
+
+function buildTitlesEmbed(guildName, panelData) {
+    return new EmbedBuilder()
+        .setColor(0x5865F2)
+        .setTitle(`🔹 Titles for ${guildName}`)
+        .setDescription(
+            "Choose a title, then select the target kingdom. If you have only one kingdom verified, the title will be delivered directly.\n\n" +
+            "1. Click on **Alchemist** 🧪 (for research) or **Architect** 🏰 (for building)\n" +
+            "2. Select the target kingdom for the title from the dropdown menu (to be implemented).\n" +
+            "3. If the target kingdom is not in the dropdown menu, please click **\"Add Kingdom\"** (handled by /verify command) and follow the instructions to verify it. Once verified, start over at step 1.\n\n" +
+            "🚨 **PLEASE NOTE:** The title is reserved for **2 minutes ⏰** then someone else can take it from you. If you finish with the title more quickly, please click **\"Free the Title\"** ❌ so that others can use it! 🙏"
+        )
+        .addFields(
+            { name: "Alchemist status:", value: panelData.alchemistStatus.text, inline: true },
+            { name: "Architect status:", value: panelData.architectStatus.text, inline: true },
+            { name: "Titles applied today:", value: panelData.titlesAppliedToday.toString(), inline: false },
+            { name: "Titles applied from start:", value: panelData.titlesAppliedTotal.toString(), inline: false }
+        )
+        .setFooter({ text: "Lokex" });
+}
+
+async function updateTitlesPanelForGuild(guild) {
+    const sql = module.exports.sql;
+    if (!guild || !sql) return;
+
+    try {
+        const guildSettings = await sql.getGuildLogChannels(guild.id);
+        const titlesChannelId = guildSettings[0]?.titles_channel;
+        if (!titlesChannelId) {
+            scheduleTitleRefresh(guild.id, guild.client, null);
+            return;
+        }
+
+        const titlesChannel = await guild.channels.fetch(titlesChannelId).catch(() => null);
+        if (!titlesChannel) {
+            scheduleTitleRefresh(guild.id, guild.client, null);
+            return;
+        }
+
+        const messages = await titlesChannel.messages.fetch({ limit: 1 }).catch(() => null);
+        const message = messages?.first();
+        if (!message || !message.embeds.length) {
+            scheduleTitleRefresh(guild.id, guild.client, null);
+            return;
+        }
+
+        const panelData = await module.exports.getTitlePanelData(guild.id, sql);
+        const embed = buildTitlesEmbed(guild.name, panelData);
+        await message.edit({ embeds: [embed] });
+
+        scheduleTitleRefresh(guild.id, guild.client, panelData.nextExpiry);
+    } catch (err) {
+        console.error(`[title.on] Failed to update titles panel for guild ${guild?.id}:`, err);
+        if (guild?.client) {
+            scheduleTitleRefresh(guild.id, guild.client, null);
+        }
+    }
+}
+
 // Central map for title codes to names
 const TITLE_CODES = {
     103: 'Duke',
@@ -16,8 +104,8 @@ const TITLE_CODES = {
     105: 'Baron',
     106: 'General',
     107: 'Minister',
-    108: 'Alchemist',
-    109: 'Architect',
+    108: 'Architect',
+    109: 'Alchemist',
     110: 'Servant',
     111: 'Jester',
     112: 'Cutpurse',
@@ -39,8 +127,8 @@ module.exports = {
                     { name: 'Baron', value: 105 },
                     { name: 'General', value: 106 },
                     { name: 'Minister', value: 107 },
-                    { name: 'Alchemist', value: 108 },
-                    { name: 'Architect', value: 109 },
+                    { name: 'Architect', value: 108 },
+                    { name: 'Alchemist', value: 109 },
                     { name: 'Servant', value: 110 },
                     { name: 'Jester', value: 111 },
                     { name: 'Cutpurse', value: 112 },
@@ -102,7 +190,7 @@ module.exports = {
                 }
 
                 // Reservation check reuse
-                const lastRecord = await sql.getLastTitleUsers().then(records => records.find(r => r.titleId === providedCode));
+                const lastRecord = await sql.getLastTitleUsers(guildId).then(records => records.find(r => r.titleId === providedCode));
                 if (lastRecord && !lastRecord.free && (new Date() - new Date(lastRecord.date)) / 60000 <= 2) {
                     await interaction.editReply({ content: `${titleName} is currently reserved. Please wait or free it.`, ...ephemeral });
                     return;
@@ -126,30 +214,10 @@ module.exports = {
                 return;
             }
 
-            // Fetch title statuses and usage stats
-            const alchemistStatus = await this.getTitleStatus(108, sql); // 108 = Alchemist
-            const architectStatus = await this.getTitleStatus(109, sql); // 109 = Architect
-            const titlesAppliedToday = await this.getTitlesAppliedToday(guildId, sql);
-            const titlesAppliedTotal = await this.getTitlesAppliedTotal(sql);
+            const panelData = await this.getTitlePanelData(guildId, sql);
 
             // Create the embed
-            const embed = new EmbedBuilder()
-                .setColor(0x5865F2)
-                .setTitle(`🔹 Titles for ${interaction.guild.name}`)
-                .setDescription(
-                    "Choose a title, then select the target kingdom. If you have only one kingdom verified, the title will be delivered directly.\n\n" +
-                    "1. Click on **Alchemist** 🧪 (for research) or **Architect** 🏰 (for building)\n" +
-                    "2. Select the target kingdom for the title from the dropdown menu (to be implemented).\n" +
-                    "3. If the target kingdom is not in the dropdown menu, please click **\"Add Kingdom\"** (handled by /verify command) and follow the instructions to verify it. Once verified, start over at step 1.\n\n" +
-                    "🚨 **PLEASE NOTE:** The title is reserved for **2 minutes ⏰** then someone else can take it from you. If you finish with the title more quickly, please click **\"Free the Title\"** ❌ so that others can use it! 🙏"
-                )
-                .addFields(
-                    { name: "Alchemist status:", value: alchemistStatus, inline: true },
-                    { name: "Architect status:", value: architectStatus, inline: true },
-                    { name: "Titles applied today:", value: titlesAppliedToday.toString(), inline: false },
-                    { name: "Titles applied from start:", value: titlesAppliedTotal.toString(), inline: false }
-                )
-                .setFooter({ text: "Lokex" });
+            const embed = buildTitlesEmbed(interaction.guild.name, panelData);
 
             // Create the buttons
             const row = new ActionRowBuilder().addComponents(
@@ -171,7 +239,8 @@ module.exports = {
             );
 
             // Send or update the message in the titles channel
-            const message = await titlesChannel.send({ embeds: [embed], components: [row] });
+            await titlesChannel.send({ embeds: [embed], components: [row] });
+            scheduleTitleRefresh(guildId, interaction.client, panelData.nextExpiry);
             // await interaction.editReply({ content: `Titles panel updated in ${titlesChannel}.`, ...ephemeral });
 
         } catch (error) {
@@ -180,21 +249,59 @@ module.exports = {
         }
     },
 
-    async getTitleStatus(titleId, sql) {
-        const lastRecord = await sql.checkTitleStatus(titleId);
-        if (!lastRecord || lastRecord.free === 1) return 'Free';
-        const timeDiff = (new Date() - new Date(lastRecord.date)) / 60000; // Difference in minutes
-        return timeDiff > 2 ? 'Free' : `Reserved by <@${lastRecord.discordId}> (${Math.ceil(2 - timeDiff)}m left)`;
+    async getTitleStatus(titleId, sql, guildId) {
+        const lastRecord = await sql.checkTitleStatus(titleId, guildId);
+        if (!lastRecord || lastRecord.free === 1) {
+            return { text: 'free', expiresAt: null };
+        }
+
+        const appliedAt = new Date(lastRecord.date).getTime();
+        const expiry = appliedAt + TITLE_RESERVATION_DURATION_MS;
+
+        if (Date.now() >= expiry) {
+            return { text: 'free', expiresAt: null };
+        }
+
+        const timestamp = Math.floor(expiry / 1000);
+        const holderMention = `<@${lastRecord.discordId}>`;
+        return { text: `${holderMention} • <t:${timestamp}:R>`, expiresAt: expiry };
+    },
+
+    async getTitlePanelData(guildId, sql) {
+        const [architectStatus, alchemistStatus] = await Promise.all([
+            this.getTitleStatus(108, sql, guildId),
+            this.getTitleStatus(109, sql, guildId)
+        ]);
+
+        console.log('Architect status:', architectStatus);
+        console.log('Alchemist status:', alchemistStatus);
+
+        const titlesAppliedToday = await this.getTitlesAppliedToday(guildId, sql);
+        const titlesAppliedTotal = await this.getTitlesAppliedTotal(guildId, sql);
+
+        const nextExpiry = [architectStatus.expiresAt, alchemistStatus.expiresAt]
+            .filter(Boolean)
+            .reduce((earliest, ts) => (earliest === null || ts < earliest ? ts : earliest), null);
+
+        console.log('Next title expiry:', nextExpiry);
+
+        return {
+            alchemistStatus,
+            architectStatus,
+            titlesAppliedToday,
+            titlesAppliedTotal,
+            nextExpiry
+        };
     },
 
     async getTitlesAppliedToday(guildId, sql) {
         const result = await sql.getTitlesToday(guildId);
-        return result[0].count;
+        return Number(result?.[0]?.count ?? 0);
     },
 
     async getTitlesAppliedTotal(guildId, sql) {
         const result = await sql.getTitlesTotal(guildId);
-        return result[0].count;
+        return Number(result?.[0]?.count ?? 0);
     },
 
     async handleButtonInteraction(interaction) {
@@ -290,7 +397,7 @@ module.exports = {
             return;
         }
 
-        const lastRecord = await sql.getLastTitleUsers().then(records => records.find(r => r.titleId === titleId));
+        const lastRecord = await sql.getLastTitleUsers(interaction.guild.id).then(records => records.find(r => r.titleId === titleId));
         if (lastRecord && !lastRecord.free && (new Date() - new Date(lastRecord.date)) / 60000 <= 2) {
             await interaction.reply({ content: `${titleName} is reserved. Please wait or free it if it’s yours.`, flags: 64 });
             return;
@@ -370,12 +477,6 @@ module.exports = {
         const kingdoms = await sql.checkVerifiedKingdoms(userId, interaction.guild.id);
         if (!kingdoms) {
             await interaction.reply({ content: 'No verified kingdoms found for this user. Use the "Add Kingdom" button to verify one.', flags: 64 });
-            return;
-        }
-
-        const lastRecord = await sql.getLastTitleUsers().then(records => records.find(r => r.titleId === titleId));
-        if (lastRecord && !lastRecord.free && (new Date() - new Date(lastRecord.date)) / 60000 <= 2) {
-            await interaction.reply({ content: `${titleName} is reserved. Please wait or free it if it's yours.`, flags: 64 });
             return;
         }
 
@@ -569,46 +670,13 @@ module.exports = {
     },
 
     async updateTitlesEmbed(interaction) {
-        const sql = module.exports.sql;
-        const guildId = interaction.guild.id;
-        const guildSettings = await sql.getGuildLogChannels(guildId);
-        const titlesChannelId = guildSettings[0]?.titles_channel;
-        if (!titlesChannelId) return;
+        if (!interaction?.guild) return;
+        await updateTitlesPanelForGuild(interaction.guild);
+    },
 
-        const titlesChannel = await interaction.guild.channels.fetch(titlesChannelId);
-        if (!titlesChannel) return;
-
-        // Fetch the latest message in the channel (assuming it's the embed)
-        const messages = await titlesChannel.messages.fetch({ limit: 1 });
-        const message = messages.first();
-        if (!message || !message.embeds.length) return;
-
-        // Get current title statuses and counters
-        const alchemistStatus = await this.getTitleStatus(109, sql); // 109 = Alchemist
-        const architectStatus = await this.getTitleStatus(108, sql); // 108 = Architect
-        const titlesAppliedToday = await this.getTitlesAppliedToday(guildId, sql);
-        const titlesAppliedTotal = await this.getTitlesAppliedTotal(guildId, sql);
-
-        // Update the embed
-        const updatedEmbed = new EmbedBuilder()
-            .setColor(0x5865F2)
-            .setTitle(`🔹 Titles for ${interaction.guild.name}`)
-            .setDescription(
-                "Choose a title, then select the target kingdom. If you have only one kingdom verified, the title will be delivered directly.\n\n" +
-                "1. Click on **Alchemist** 🧪 (for research) or **Architect** 🏰 (for building)\n" +
-                "2. Select the target kingdom for the title from the dropdown menu.\n" +
-                "3. If the target kingdom is not in the dropdown menu, please click **\"Add Kingdom\"** and follow the instructions to verify it. Once verified, start over at step 1.\n\n" +
-                "🚨 **PLEASE NOTE:** The title is reserved for **2 minutes ⏰** then someone else can take it from you. If you finish with the title more quickly, please click **\"Free the Title\"** ❌ so that others can use it! 🙏"
-            )
-            .addFields(
-                { name: "Alchemist status:", value: alchemistStatus, inline: true },
-                { name: "Architect status:", value: architectStatus, inline: true },
-                { name: "Titles applied today:", value: titlesAppliedToday.toString(), inline: false },
-                { name: "Titles applied from start:", value: titlesAppliedTotal.toString(), inline: false }
-            );
-
-        // Edit the existing message
-        await message.edit({ embeds: [updatedEmbed] });
+    async updateTitlesEmbedByGuild(guild) {
+        if (!guild) return;
+        await updateTitlesPanelForGuild(guild);
     },
 
     async updateAdminTitlesEmbed(interaction, sql) {
@@ -625,14 +693,11 @@ module.exports = {
         const message = messages.first();
         if (!message || !message.embeds.length) return;
 
-        // Get current admin title statuses and counters
-        const dukeStatus = await this.getTitleStatus(103, sql); // 103 = Duke
-        const countStatus = await this.getTitleStatus(104, sql); // 104 = Count
-        const baronStatus = await this.getTitleStatus(105, sql); // 105 = Baron
-        const generalStatus = await this.getTitleStatus(106, sql); // 106 = General
-        const ministerStatus = await this.getTitleStatus(107, sql); // 107 = Minister
+        // Get current admin title usage counters
         const adminTitlesAppliedToday = await sql.getAdminTitlesToday(guildId);
         const adminTitlesAppliedTotal = await sql.getAdminTitlesTotal(guildId);
+        const todayCount = Number(adminTitlesAppliedToday?.[0]?.count ?? 0);
+        const totalCount = Number(adminTitlesAppliedTotal?.[0]?.count ?? 0);
 
         // Update the embed
         const updatedEmbed = new EmbedBuilder()
@@ -643,17 +708,11 @@ module.exports = {
                 "1. Click on **Duke** 👑, **Count** 🎩, **Baron** ⚔️, **General** 🛡️, or **Minister** 📜\n" +
                 "2. Select the target kingdom for the title from the dropdown menu.\n" +
                 "3. If the target kingdom is not in the dropdown menu, please click **\"Add Kingdom\"** and follow the instructions to verify it. Once verified, start over at step 1.\n\n" +
-                "🚨 **PLEASE NOTE:** The title is reserved for **2 minutes ⏰** then someone else can take it from you. If you finish with the title more quickly, please click **\"Free the Title\"** ❌ so that the others can use it! 🙏\n\n" +
-                "⚠️ **ADMIN ONLY:** These titles are reserved for administrators."
+                "⚠️ **ADMIN ONLY:** These titles are restricted to administrators."
             )
             .addFields(
-                { name: "Duke status:", value: dukeStatus, inline: true },
-                { name: "Count status:", value: countStatus, inline: true },
-                { name: "Baron status:", value: baronStatus, inline: true },
-                { name: "General status:", value: generalStatus, inline: true },
-                { name: "Minister status:", value: ministerStatus, inline: true },
-                { name: "Admin titles applied today:", value: adminTitlesAppliedToday[0].count.toString(), inline: false },
-                { name: "Admin titles applied from start:", value: adminTitlesAppliedTotal[0].count.toString(), inline: false }
+                { name: "Admin titles applied today:", value: todayCount.toString(), inline: true },
+                { name: "Admin titles applied from start:", value: totalCount.toString(), inline: true }
             );
 
         // Edit the existing message

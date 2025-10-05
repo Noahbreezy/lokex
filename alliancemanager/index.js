@@ -1,3 +1,5 @@
+require('dotenv').config();
+const { Client, Events, GatewayIntentBits } = require('discord.js');
 const AllianceManager = require('./alliancemanager.js');
 const RallyLogger = require(`../database/updaters/updateRallies.js`);
 const sqlFunctions = require('../database/sql.js');
@@ -8,6 +10,38 @@ const Api = require("../general/api.js");
 const sql = new sqlFunctions();
 const api = new Api(sql);
 const acceptRequestLock = new AsyncLock();
+const discordClient = new Client({
+    intents: [GatewayIntentBits.Guilds],
+});
+
+const discordReady = new Promise((resolve) => {
+    if ((typeof discordClient.isReady === 'function' && discordClient.isReady()) || discordClient.readyAt) {
+        console.log('Discord client ready');
+        resolve();
+    } else {
+        discordClient.once(Events.ClientReady, () => {
+            console.log('Discord client ready');
+            resolve();
+        });
+    }
+});
+
+AllianceManager.configureDiscord(discordClient, discordReady);
+
+let discordClientDestroyed = false;
+
+const destroyDiscordClient = () => {
+    if (!discordClientDestroyed) {
+        discordClientDestroyed = true;
+        discordClient.destroy();
+    }
+};
+
+discordClient.login(process.env.DISCORD_TOKEN).catch(err => {
+    console.error('Failed to login to Discord:', err);
+    destroyDiscordClient();
+    process.exit(1);
+});
 
 // function to start all the alliance manager instances
 async function manageAlliances() {
@@ -78,17 +112,21 @@ manageAlliances();
 
 process.on('exit', () => {
     sql.closeConnection();
+    destroyDiscordClient();
 });
 
 process.on('SIGINT', () => {
+    destroyDiscordClient();
     process.exit();
 });
 
 process.on('SIGTERM', () => {
+    destroyDiscordClient();
     process.exit();
 });
 
 process.on('uncaughtException', (err) => {
     console.error('Uncaught Exception:', err);
+    destroyDiscordClient();
     process.exit(1);
 });

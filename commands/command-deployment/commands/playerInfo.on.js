@@ -43,7 +43,7 @@ module.exports = {
             return interaction.editReply({ content: "No valid manager token found", flags: 64 });
         }
 
-        const playerInfo = await getPlayerInfo(kingdomId, token, sql, api, encryption);
+        const playerInfo = await getPlayerInfo(kingdomId, token, sql, api, encryption, guildId);
         if (!playerInfo) {
             return interaction.editReply({ content: "Player not found or invalid kingdom ID.", flags: 64 });
         }
@@ -266,7 +266,7 @@ module.exports = {
     }
 };
 
-async function getPlayerInfo(kingdomId, token, sql, api, encryption) {
+async function getPlayerInfo(kingdomId, token, sql, api, encryption, guildId) {
     const xorPass = (await sql.getXORPass())[0].value;
     const b64EncryptedKingdomId = await encryption.createXorMessage(`{"kingdomId":"${kingdomId}"}`, xorPass);
 
@@ -295,8 +295,10 @@ async function getPlayerInfo(kingdomId, token, sql, api, encryption) {
     // console.log('History Player Info:', historyPlayerInfo);
 
     let location = await getMemberLocation(kingdomId, basicPlayerInfo.alliance?._id, token, api, sql);
-    const ralliesDone = await sql.getRalliesCount(kingdomId, sql.guildId);
+    const ralliesDone = await sql.getRalliesCount(kingdomId, guildId);
     const pastKingdomNames = await sql.getPastKingdomNames(kingdomId);
+
+    console.log(ralliesDone);
 
     return {
         _id: kingdomId,

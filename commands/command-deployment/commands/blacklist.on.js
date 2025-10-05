@@ -97,6 +97,11 @@ module.exports = {
             case "remove": {
                 const kingdomId = interaction.options.getString("name");
 
+                if (!isValidKingdomId(kingdomId)) {
+                    await interaction.reply({ content: "Invalid kingdom ID format.", flags: 64 });
+                    return;
+                }
+
                 // Check if the kingdom is already blacklisted before removing
                 const alreadybs = await sql.isKingdomBlacklisted(kingdomId, guild);
                 // console.log(alreadybs);
@@ -188,8 +193,15 @@ module.exports = {
                 break;
             }
             case "add": {
+                const kingdomId = interaction.options.getString("name");
+
+                if (!isValidKingdomId(kingdomId)) {
+                    await interaction.reply({ content: "Invalid kingdom ID format.", flags: 64 });
+                    return;
+                }
+
                 const modal = new ModalBuilder()
-                    .setCustomId("blacklist_blm_" + interaction.options.getString("name"))
+                    .setCustomId("blacklist_blm_" + kingdomId)
                     .setTitle("Blacklist");
 
                 // Add components to modal
@@ -308,6 +320,9 @@ module.exports = {
         await handleNameAutocomplete(interaction, sql);
     },
 };
+function isValidKingdomId(id) {
+    return /^[a-f0-9]{24}$/i.test(id);
+}
 function formatDateTime(data) {
     var date = new Date(data);
 
@@ -345,6 +360,11 @@ async function handleBlacklistModal(interaction, sql, api, ephemeral) {
 
     if (interaction.customId.startsWith("blacklist_blm_")) {
         let kingdomId = interaction.customId.split("_")[2];
+
+        if (!isValidKingdomId(kingdomId)) {
+            return await interaction.followUp({ content: "Invalid kingdom ID.", ...ephemeral });
+        }
+
         const isBlacklisted = await sql.isKingdomBlacklisted(kingdomId, guild)
 
         if (isBlacklisted) {
