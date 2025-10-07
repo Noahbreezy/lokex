@@ -207,9 +207,17 @@ module.exports = {
                 .setDescription("Set the shop points per rally point in decimal format")
                 .addNumberOption((option) =>
                     option
-                        .setName("points")
-                        .setDescription("Shop points per rally point (decimal value, e.g., 0.01)")
-                        .setRequired(true)
+                        .setName("start")
+                        .setDescription("Shop points per rally start (decimal value, e.g., 0.01)")
+                        .setRequired(false)
+                        .setMinValue(0)
+                        .setMaxValue(99999999.99)
+                )
+                .addNumberOption((option) =>
+                    option
+                        .setName("join")
+                        .setDescription("Shop points per rally join (decimal value, e.g., 0.01)")
+                        .setRequired(false)
                         .setMinValue(0)
                         .setMaxValue(99999999.99)
                 )
@@ -473,23 +481,53 @@ module.exports = {
                     }
                 case "rally-point":
                     {
-                        const points = options.getNumber("points");
-                        
-                        // Validate the decimal places (max 2 decimal places for currency-like values)
-                        const decimalPlaces = (points.toString().split('.')[1] || '').length;
-                        if (decimalPlaces > 2) {
-                            await interaction.reply({ 
-                                content: "❌ Points can have a maximum of 2 decimal places.", 
-                                flags: 64 
+                        const startPoints = options.getNumber("start");
+                        const joinPoints = options.getNumber("join");
+
+                        if (startPoints === null && joinPoints === null) {
+                            await interaction.reply({
+                                content: "❌ Provide at least one value for rally start or rally join points.",
+                                flags: 64
                             });
                             return;
                         }
-                        
-                        await sql.setGuildRallyPoint(points, guildId);
-                        
-                        await interaction.reply({ 
-                            content: `✅ Rally points have been set to: **${points.toFixed(2)} shop points per rally point**`, 
-                            ...ephemeral 
+
+                        const hasTooManyDecimals = (value) => {
+                            const decimals = (value.toString().split('.')[1] || '').length;
+                            return decimals > 2;
+                        };
+
+                        const updates = [];
+
+                        if (startPoints !== null) {
+                            if (hasTooManyDecimals(startPoints)) {
+                                await interaction.reply({
+                                    content: "❌ Rally start points can have a maximum of 2 decimal places.",
+                                    flags: 64
+                                });
+                                return;
+                            }
+
+                            await sql.setGuildRallyPoint(startPoints, guildId);
+                            updates.push(`• Rally start points: **${startPoints.toFixed(2)} shop points**`);
+                        }
+
+                        if (joinPoints !== null) {
+                            if (hasTooManyDecimals(joinPoints)) {
+                                await interaction.reply({
+                                    content: "❌ Rally join points can have a maximum of 2 decimal places.",
+                                    flags: 64
+                                });
+                                return;
+                            }
+
+                            await sql.setGuildRallyJoinPoint(joinPoints, guildId);
+                            updates.push(`• Rally join points: **${joinPoints.toFixed(2)} shop points**`);
+                        }
+
+                        await interaction.reply({
+                            content: `✅ Rally settings updated:\n${updates.join('\n')}`,
+                            ...ephemeral
                         });
                         break;
                     }
@@ -527,7 +565,7 @@ module.exports = {
                         const numericFields = ['main_verify_bonus', 'alt_verify_bonus'];
 
                         // Define decimal fields that should be formatted as currency/price
-                        const decimalFields = ['point_price', 'land_point', 'rally_point'];
+                        const decimalFields = ['point_price', 'land_point', 'rally_point', 'rally_join_point'];
 
                         // Define boolean fields that should be formatted as YES/NO
                         const booleanFields = ['unverify', 'ephemeral'];

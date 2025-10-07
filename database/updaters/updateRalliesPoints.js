@@ -81,10 +81,12 @@ class UpdateRalliesPoints {
                 return;
             }
 
-            // Get point value per rally (used for both starting and joining)
+            // Get point value per rally started
             const pointsPerRally = await this.sql.getGuildRallyPoint(guildId);
-            
-            if (!pointsPerRally || pointsPerRally <= 0) {
+            // Get point value per rally joined
+            const pointsPerRallyJoin = await this.sql.getGuildRallyJoinPoint(guildId);
+
+            if ((!pointsPerRally || pointsPerRally <= 0) && (!pointsPerRallyJoin || pointsPerRallyJoin <= 0)) {
                 console.log(`No rally point value configured for guild ${guildId}`);
                 return;
             }
@@ -155,7 +157,7 @@ class UpdateRalliesPoints {
                     
                     if (verifiedRows && verifiedRows.length > 0) {
                         const discordId = verifiedRows[0].discordId;
-                        const shopPoints = Math.floor(joiner.join_count * pointsPerRally);
+                        const shopPoints = Math.floor(joiner.join_count * pointsPerRallyJoin);
                         
                         if (shopPoints > 0) {
                             // Check if this user already got points for starting rallies

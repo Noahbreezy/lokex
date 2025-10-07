@@ -1168,11 +1168,24 @@ class sqlFunctions {
         return this.query(query, [points, guildId]);
     }
 
+    // Set guild rally join point value 
+    async setGuildRallyJoinPoint(points, guildId) {
+        const query = "UPDATE guild_settings SET rally_join_point=? WHERE guild_id=?;";
+        return this.query(query, [points, guildId]);
+    }
+
     // Get guild rally point value
     async getGuildRallyPoint(guildId) {
         const query = "SELECT rally_point FROM guild_settings WHERE guild_id=?;";
         const results = await this.query(query, [guildId]);
         return results.length > 0 ? results[0].rally_point : null;
+    }
+
+    // Get guild rally join point value
+    async getGuildRallyJoinPoint(guildId) {
+        const query = "SELECT rally_join_point FROM guild_settings WHERE guild_id=?;";
+        const results = await this.query(query, [guildId]);
+        return results.length > 0 ? results[0].rally_join_point : null;
     }
 
     // Check if a guild exists in the settings already
