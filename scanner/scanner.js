@@ -17,7 +17,7 @@ const Sql = require('../database/sql.js');
 const WEBSOCKET_BASE = 'wss://socf-lok-live.leagueofkingdoms.com/socket.io/?EIO=4&transport=websocket';
 const ZONE_COUNT = 4096; // 64 x 64 world tiles (32x32 coords per zone) assumed
 const BATCH_SIZE = 9;     // empiric batch size from legacy code
-const BATCH_DELAY_MS = 2000; // delay to mitigate rate limits
+const BATCH_DELAY_MS = 0; // delay to mitigate rate limits
 const GLOBAL_PAUSE_HOURS = 2; // 2h pause after 403
 
 class Scanner {
@@ -389,9 +389,13 @@ class Scanner {
 
 			const whitelistRows = await Scanner.sql.getWhitelist(this.guildId, this.continent);
 			const whitelist = whitelistRows.reduce((acc, row) => {
+				const cmineExpiryTime = row.cmine_expiry ? new Date(row.cmine_expiry).getTime() : null;
+				const dsaExpiryTime = row.dsa_expiry ? new Date(row.dsa_expiry).getTime() : null;
 				acc[row.kingdomid] = {
-					cmine: parseInt(row.cmine) || 0,
-						dsa: parseInt(row.dsa) || 0,
+					cmine: Number.parseInt(row.cmine, 10) || 0,
+					dsa: Number.parseInt(row.dsa, 10) || 0,
+					cmineExpiry: Number.isFinite(cmineExpiryTime) ? cmineExpiryTime : null,
+					dsaExpiry: Number.isFinite(dsaExpiryTime) ? dsaExpiryTime : null,
 				};
 				return acc;
 			}, {});
@@ -410,14 +414,25 @@ class Scanner {
 
 			const illegalCandidates = records.filter(r => {
 				if (!r || !r.occupied || !r.occupied.name) return false;
+				const kingdomId = (r.occupied.id !== undefined && r.occupied.id !== null) ? r.occupied.id : null;
+				const wl = kingdomId !== null ? whitelist[kingdomId] : null;
+				let startedAt = null;
+				if (r.occupied.started) {
+					const ts = new Date(r.occupied.started).getTime();
+					if (Number.isFinite(ts)) startedAt = ts;
+				}
 				if (r.code === 20100105 && r.level > minCmine) {
-					const wl = whitelist[r.occupied.id];
-					if (wl && wl.cmine >= r.level) return false;
+					if (wl) {
+						if (wl.cmine >= r.level) return false;
+						if (wl.cmineExpiry !== null && startedAt !== null && startedAt <= wl.cmineExpiry) return false;
+					}
 					return true;
 				}
 				if (r.code === 20100106 && r.level > minDsa) {
-					const wl = whitelist[r.occupied.id];
-					if (wl && wl.dsa >= r.level) return false;
+					if (wl) {
+						if (wl.dsa >= r.level) return false;
+						if (wl.dsaExpiry !== null && startedAt !== null && startedAt <= wl.dsaExpiry) return false;
+					}
 					return true;
 				}
 				return false;
