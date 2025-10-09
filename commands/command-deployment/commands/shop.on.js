@@ -822,7 +822,9 @@ module.exports = {
                         const kingdomOption = options.getString("kingdom");
                         let derivedUserId = null;
                         let derivedUsername = null;
+                        let derivedUserAvatar = null;
                         let fromKingdom = false;
+                        let selectedKingdomLabel = kingdomOption ? kingdomOption.trim() : null;
 
                         if (kingdomOption) {
                             console.log('Kingdom option provided:', kingdomOption);
@@ -834,6 +836,7 @@ module.exports = {
                                 try {
                                     const derivedUser = await interaction.guild.members.fetch(derivedUserId);
                                     derivedUsername = derivedUser.user.username;
+                                    derivedUserAvatar = derivedUser.displayAvatarURL();
                                 } catch (error) {
                                     console.log('Could not fetch derived user, using ID as fallback:', derivedUserId);
                                     derivedUsername = `User ${derivedUserId}`;
@@ -864,6 +867,18 @@ module.exports = {
                         // Get user's verified kingdoms for this guild using helper
                         const verifiedKingdoms = await sql.checkVerifiedKingdoms(checkUserId, guildId);
 
+                        if (kingdomOption && verifiedKingdoms && Array.isArray(verifiedKingdoms)) {
+                            const normalizedOption = kingdomOption.toString().trim().toLowerCase();
+                            const exactOption = kingdomOption.toString().trim();
+                            const matchedKingdom = verifiedKingdoms.find(k =>
+                                (k.kingdomId && k.kingdomId.toString() === exactOption) ||
+                                (k.kingdomName && k.kingdomName.toLowerCase() === normalizedOption)
+                            );
+                            if (matchedKingdom) {
+                                selectedKingdomLabel = matchedKingdom.kingdomName || `Kingdom ${matchedKingdom.kingdomId}`;
+                            }
+                        }
+
                         if (!verifiedKingdoms || verifiedKingdoms.length === 0) {
                             const embed = new EmbedBuilder()
                                 .setColor(0x00FF00)
@@ -871,6 +886,9 @@ module.exports = {
                                 .setTimestamp();
 
                             if (fromKingdom) {
+                                if (derivedUserAvatar) {
+                                    embed.setThumbnail(derivedUserAvatar);
+                                }
                                 embed.setDescription(`Licenses for kingdoms owned by <@${checkUserId}> (${checkUsername || 'Unknown User'})`);
                             } else if (targetUser) {
                                 embed.setThumbnail(targetUser.displayAvatarURL());
@@ -882,9 +900,11 @@ module.exports = {
 
                             embed.addFields({
                                 name: "No Verified Kingdoms",
-                                value: targetUser ?
-                                    `${checkUsername} has no verified kingdoms in this guild.` :
-                                    "You have no verified kingdoms in this guild.\n\nUse `/verify` to verify your kingdoms first!",
+                                value: fromKingdom ?
+                                    `<@${checkUserId}> (${checkUsername || 'Unknown User'}) has no verified kingdoms in this guild${selectedKingdomLabel ? ` for **${selectedKingdomLabel}**` : ''}.` :
+                                    (targetUser ?
+                                        `${checkUsername} has no verified kingdoms in this guild.` :
+                                        "You have no verified kingdoms in this guild.\n\nUse `/verify` to verify your kingdoms first!"),
                                 inline: false
                             });
                             await interaction.editReply({ embeds: [embed] });
@@ -989,7 +1009,12 @@ module.exports = {
                             .setTitle("📜 Whitelist Licenses")
                             .setTimestamp();
 
-                        if (targetUser) {
+                        if (fromKingdom) {
+                            if (derivedUserAvatar) {
+                                embed.setThumbnail(derivedUserAvatar);
+                            }
+                            embed.setDescription(`Licenses for kingdoms owned by <@${checkUserId}> (${checkUsername || 'Unknown User'})${selectedKingdomLabel ? ` – focusing on **${selectedKingdomLabel}**` : ''}`);
+                        } else if (targetUser) {
                             embed.setThumbnail(targetUser.displayAvatarURL());
                             embed.setDescription(`**${checkUsername}**'s available whitelist licenses:`);
                         } else {
@@ -1000,9 +1025,11 @@ module.exports = {
                         if (!aggregatedKingdoms || aggregatedKingdoms.length === 0) {
                             embed.addFields({
                                 name: "No Licenses Found",
-                                value: targetUser ?
-                                    `${checkUsername} has no active whitelist licenses in this guild.` :
-                                    "You have no active whitelist licenses in this guild.\n\nPurchase DSA or C-Mine licenses from the shop to get started!",
+                                value: fromKingdom ?
+                                    `<@${checkUserId}> (${checkUsername || 'Unknown User'}) has no active whitelist licenses${selectedKingdomLabel ? ` for **${selectedKingdomLabel}**` : ''} in this guild.` :
+                                    (targetUser ?
+                                        `${checkUsername} has no active whitelist licenses in this guild.` :
+                                        "You have no active whitelist licenses in this guild.\n\nPurchase DSA or C-Mine licenses from the shop to get started!"),
                                 inline: false
                             });
                             await interaction.editReply({ embeds: [embed] });
@@ -1019,7 +1046,10 @@ module.exports = {
                                 .setTimestamp();
 
                             if (fromKingdom) {
-                                currentEmbed.setDescription(`Licenses for kingdoms owned by <@${checkUserId}> (${checkUsername || 'Unknown User'})`);
+                                currentEmbed.setDescription(`Licenses for kingdoms owned by <@${checkUserId}> (${checkUsername || 'Unknown User'})${selectedKingdomLabel ? ` – focusing on **${selectedKingdomLabel}**` : ''}`);
+                                if (derivedUserAvatar) {
+                                    currentEmbed.setThumbnail(derivedUserAvatar);
+                                }
                             } else if (targetUser) {
                                 currentEmbed.setThumbnail(targetUser.displayAvatarURL());
                                 currentEmbed.setDescription(`**${checkUsername}**'s available whitelist licenses:`);

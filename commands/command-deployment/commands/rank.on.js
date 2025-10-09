@@ -97,7 +97,8 @@ async function handleChangeRank(interaction, sql, ephemeral) {
     const kingdomId = interaction.options.getString('player'); // This comes from autocomplete as kingdomId
     const newRankInput = interaction.options.getString('rank');
 
-    await interaction.deferReply();
+    const deferOptions = ephemeral.flags === 64 ? { ephemeral: true } : {};
+    await interaction.deferReply(deferOptions);
 
     try {
         // Parse the new rank - convert rank name to number using the ranks array
@@ -141,8 +142,30 @@ async function handleChangeRank(interaction, sql, ephemeral) {
 
         const basicPlayerInfo = JSON.parse(await encryption.decryptXorMessage(basicPlayerInfoResponse.data, xorPass)).profile;
         console.log('Basic Player Info:', basicPlayerInfo);
+
+        // Step 4: Ensure the player belongs to one of this guild's linked continents
+        const playerContinentRaw = basicPlayerInfo.worldId ?? basicPlayerInfo.continent ?? basicPlayerInfo.world ?? basicPlayerInfo.location?.continent ?? null;
+        const playerContinent = playerContinentRaw !== null && playerContinentRaw !== undefined ? Number(playerContinentRaw) : null;
+        const guildContinentRows = await sql.getGuildContinent(guildId);
+        const allowedContinents = guildContinentRows
+            .map(row => Number(row.continent))
+            .filter(continent => !Number.isNaN(continent));
+
+        if (!allowedContinents.length) {
+            return await interaction.editReply({
+                content: 'No continents are linked to this guild. Please configure a continent before changing ranks.',
+                ...ephemeral
+            });
+        }
+
+        if (playerContinent === null || Number.isNaN(playerContinent) || !allowedContinents.includes(playerContinent)) {
+            return await interaction.editReply({
+                content: 'This player is not on a continent linked to this guild.',
+                ...ephemeral
+            });
+        }
         
-        // Step 4: Check if player is in an alliance
+        // Step 5: Check if player is in an alliance
         if (!basicPlayerInfo.alliance || !basicPlayerInfo.alliance._id) {
             return await interaction.editReply({
                 content: 'This player is not currently in an alliance.',
@@ -151,10 +174,19 @@ async function handleChangeRank(interaction, sql, ephemeral) {
         }
 
         const playerAllianceId = basicPlayerInfo.alliance._id;
+        const guildAllianceRows = await sql.getAllGuildAlliances(guildId);
+        const guildAllianceIds = new Set(guildAllianceRows.map(row => String(row.allianceId)));
+
+        if (!guildAllianceIds.has(String(playerAllianceId))) {
+            return await interaction.editReply({
+                content: 'This player is not part of an alliance linked to this guild.',
+                ...ephemeral
+            });
+        }
         const playerName = basicPlayerInfo.name;
         const currentRank = basicPlayerInfo.alliance.rank || 0;
 
-        // Step 5: Get manager info for the player's alliance
+        // Step 6: Get manager info for the player's alliance
         const managerInfoResult = await sql.getManagerInfoByAllianceId(playerAllianceId);
         if (!managerInfoResult || managerInfoResult.length === 0) {
             return await interaction.editReply({
@@ -167,7 +199,7 @@ async function handleChangeRank(interaction, sql, ephemeral) {
         const managerToken = managerInfo.token;
         const managerKingdomId = managerInfo.kingdomId;
 
-        // Step 6: Get manager's basic player info to check their rank
+        // Step 7: Get manager's basic player info to check their rank
         const b64EncryptedManagerKingdomId = await encryption.createXorMessage(`{"kingdomId":"${managerKingdomId}"}`, xorPass);
         const managerPlayerInfoResponse = await api.request(
             'https://api-lok-live.leagueofkingdoms.com/api/kingdom/profile/other',
@@ -179,7 +211,7 @@ async function handleChangeRank(interaction, sql, ephemeral) {
         const managerRank = managerPlayerInfo.alliance?.rank || 99;
         console.log(`Manager Rank: ${managerRank}, Player Rank: ${currentRank}, New Rank: ${newRank}`);
 
-        // Step 7: Check if manager can assign the requested rank 
+        // Step 8: Check if manager can assign the requested rank 
         // In this system: R1 (value 1) is highest, R5 (value 99) is lowest
         // Only R4 and R5 managers can assign ranks
         // R5 managers can assign all ranks
@@ -203,14 +235,14 @@ async function handleChangeRank(interaction, sql, ephemeral) {
             }
         }
 
-        // Step 8: Change the player's rank
+        // Step 9: Change the player's rank
         await api.request(
             "https://api-lok-live.leagueofkingdoms.com/api/alliance/member/rank",
             { json: `{"memberKingdomId":"${kingdomId}","rank":${newRank},"title":0}` },
             { "x-access-token": managerToken }
         );
 
-        // Step 9: Success response
+        // Step 10: Success response
         const rankDisplayName = newRank === 99 ? 'R5' : `R${newRank}`;
         const previousRankDisplayName = currentRank === 99 ? 'R5' : `R${currentRank}`;
         

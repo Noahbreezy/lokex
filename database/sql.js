@@ -434,6 +434,13 @@ class sqlFunctions {
         return this.query(query, [guild]);
     }
 
+    // Get the amount of times a kingdom received a title
+    async getKingdomTitleCount(kingdomId, guild) {
+        const query = `SELECT COUNT(*) as count FROM titlelog WHERE kingdomId = ? AND guild = ?`;
+        const results = await this.query(query, [kingdomId, guild]);
+        return results.length > 0 ? results[0].count : 0;
+    }
+
     // Blacklist functions
 
     // Check if a kingdom is blacklisted
@@ -469,6 +476,13 @@ class sqlFunctions {
                    ON b.kingdomid = i.kingdomid 
                    WHERE b.valid=1 AND b.expiration>NOW() AND b.guild=?;`;
         return this.query(query, [guild]);
+    }
+
+    // Get the total amount of times a kingdom was blacklisted
+    async getTotalBlacklistedCount(kingdomId, guild) {
+        const query = `SELECT COUNT(*) as count FROM blacklist WHERE kingdomId = ? AND guild = ?`;
+        const results = await this.query(query, [kingdomId, guild]);
+        return results.length > 0 ? results[0].count : 0;
     }
 
     // Verification functions
@@ -603,6 +617,13 @@ class sqlFunctions {
         const query = 'SELECT kingdomId, kingdomName, wallet FROM verified WHERE discordId = ? AND guild = ? AND wallet IS NOT NULL';
         const results = await this.query(query, [discordId, guild]);
         return results.length > 0 ? results : false;
+    }
+
+    // Get all verified wallets of a discord user
+    async getVerifiedWallets(discordId, guild) {
+        const query = 'SELECT wallet FROM verified WHERE discordId = ? AND guild = ? AND wallet IS NOT NULL';
+        const results = await this.query(query, [discordId, guild]);
+        return results.length > 0 ? results.map(r => r.wallet) : [];
     }
 
     // Check if a discord user exists for a certain wallet, if it does, return user information from verified
@@ -822,6 +843,12 @@ class sqlFunctions {
     // Get guild to continent links
     async getGuildContinent(guildId) {
         const query = "SELECT DISTINCT continent FROM guild_continent_link WHERE guild_id = ?;";
+        return this.query(query, [guildId]);
+    }
+
+    // Get guild to new_continent links
+    async getGuildNewContinent(guildId) {
+        const query = "SELECT DISTINCT new_continent FROM guild_continent_link WHERE guild_id = ?;";
         return this.query(query, [guildId]);
     }
 
@@ -1634,6 +1661,55 @@ class sqlFunctions {
         return this.query(query, [guildId]);
     }
 
+    // Get the total pledged of a specific wallet address
+    async getTotalPledged(fromAddress) {
+        const query = `SELECT SUM(amount) AS total FROM staking_transactions WHERE from_address = ?;`;
+        const results = await this.query(query, [fromAddress]);
+        return results.length > 0 ? results[0].total : 0;
+    }
+
+    // Get the total pledged of a specific wallet to a guild's merged continent (101-108), applying merge/multiplier rules
+    async getTotalPledgedToMergedContinent(fromAddress, guildId) {
+        const cutoff = Number(process.env.STAKING_CUTOFF_TS) || Math.floor(Date.UTC(2025, 8, 1) / 1000);
+
+        // Get the correct new_continent value for the guild
+        const newContinentRows = await this.getGuildNewContinent(guildId);
+        if (!newContinentRows || newContinentRows.length === 0 || !newContinentRows[0].new_continent) {
+            return 0;
+        }
+        const newContinent = newContinentRows[0].new_continent;
+
+        const query = `
+            WITH mapped AS (
+                SELECT
+                    from_address,
+                    CASE
+                        WHEN continent IN (69,35,64,45,70,13,7,20) THEN 101
+                        WHEN continent IN (41,54,43,61,15,46,9,19) THEN 102
+                        WHEN continent IN (53,23,40,42,66,57,27,48,60) THEN 103
+                        WHEN continent IN (8,10,38,65,33,68,32,56,24) THEN 104
+                        WHEN continent IN (5,63,51,50,62,16,58,39,59) THEN 105
+                        WHEN continent IN (44,1,29,12,67,28,34,36,17) THEN 106
+                        WHEN continent IN (30,18,11,14,6,21,4,49,25) THEN 107
+                        WHEN continent IN (26,31,47,3,55,37,22,52,2) THEN 108
+                        WHEN continent BETWEEN 101 AND 108 THEN continent
+                        ELSE NULL
+                    END AS new_continent,
+                    CASE
+                        WHEN timestamp < ? THEN amount * 20
+                        ELSE amount
+                    END AS adjusted_amount
+                FROM staking_transactions
+                WHERE from_address = ?
+            )
+            SELECT SUM(adjusted_amount) AS total
+            FROM mapped
+            WHERE new_continent = ?
+        `;
+        const results = await this.query(query, [cutoff, fromAddress, newContinent]);
+        return results.length > 0 && results[0].total ? results[0].total : 0;
+    }
+
     // Buffs functions
 
     // Insert the newest buff message of a guild in the database.
@@ -2002,6 +2078,17 @@ class sqlFunctions {
         }
         const sql = `INSERT INTO illegal (${columns.join(',')}) VALUES ${placeholders}`;
         return this.query(sql, values);
+    }
+
+    // Get the amount of illegal reports for a kingdom in the last month
+    async getIllegalReportsCount(kingdomId, guild) {
+        const query = `
+            SELECT COUNT(*) as count 
+            FROM illegal 
+            WHERE kingdomid = ? AND guild = ? AND started >= NOW() - INTERVAL 30 DAY;
+        `;
+        const results = await this.query(query, [kingdomId, guild]);
+        return results.length > 0 ? results[0].count : 0;
     }
 
     // Whitelist functions
