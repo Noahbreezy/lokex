@@ -6,18 +6,21 @@ async function handleNameAutocomplete(interaction, sql) {
     const focusedValue = interaction.options.getFocused();
     const guild = interaction.guild.id;
     const names = await sql.getBotNamesFromGuild(focusedValue, guild);
-    await interaction.respond(
-        names.map(nameObj => ({ name: nameObj.name, value: nameObj.kingdomId }))
-    );
+    // Discord autocomplete only accepts up to 25 suggestions at a time.
+    const limitedNames = names
+        .map(nameObj => ({ name: nameObj.name, value: nameObj.kingdomId }))
+        .slice(0, 25);
+    await interaction.respond(limitedNames);
 }
 
 async function handleRoleAutocomplete(interaction, sql) {
     const focusedValue = interaction.options.getFocused();
     const roles = await sql.getRoles();
     const filtered = roles.filter(role => role.toLowerCase().includes(focusedValue.toLowerCase()));
-    await interaction.respond(
-        filtered.map(role => ({ name: role, value: role }))
-    );
+    const limitedRoles = filtered
+        .map(role => ({ name: role, value: role }))
+        .slice(0, 25);
+    await interaction.respond(limitedRoles);
 }
 
 async function addAlliance(kingdomId, sql, r4Check) {
