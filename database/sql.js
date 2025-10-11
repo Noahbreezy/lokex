@@ -1463,6 +1463,18 @@ class sqlFunctions {
         return this.query(query, [kingdomId, kingdomId]);
     }
 
+    // Get the info of a specific kingdom closest to N days ago.
+    async getKingdomInfoCloseToNDaysAgo(kingdomId, daysAgo = 7) {
+        const query = `
+        SELECT * FROM info
+        WHERE kingdomId = ?
+        AND \`date\` <= NOW() - INTERVAL ? DAY
+        ORDER BY \`date\` DESC, id DESC
+        LIMIT 1;
+        `;
+        return this.query(query, [kingdomId, daysAgo]);
+    }
+
     // Staking transactions functions
 
     // Insert a new staking transaction
@@ -1750,14 +1762,12 @@ class sqlFunctions {
 
     // Get the amount of rallies done by a kingdom in the last month
     async getRalliesCount(kingdomId, guildId) {
-        console.log(`Getting rallies count for kingdomId: ${kingdomId}, guildId: ${guildId}`);
         const query = `
             SELECT COUNT(*) as count 
             FROM rallies 
             WHERE by_kingdom_id = ? AND guild_id = ? AND timestamp >= NOW() - INTERVAL 30 DAY;
         `;
         const results = await this.query(query, [kingdomId, guildId]);
-        console.log(results);
         return results.length > 0 ? results[0].count : 0;
     }
 

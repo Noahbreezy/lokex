@@ -114,12 +114,31 @@ async function handleKingdomInfo(interaction, kingdomId, sql, api, encryption, e
             ? await getEconomyDetails(sql, effectiveGuildId, discordDetails.discordId)
             : null;
     const combatStats = await getCombatStats(sql, playerInfo.kingdomId);
-    const socialStats = await getSocialStats(sql, playerInfo.kingdomId, effectiveGuildId);
-    const embed = buildPlayerEmbed(playerInfo, discordDetails, economyDetails, combatStats, socialStats);
+    const combatDeltas = await getCombatDeltaStats(sql, playerInfo.kingdomId, combatStats);
+        const socialStats = await getSocialStats(sql, playerInfo.kingdomId, effectiveGuildId);
+    const embed = buildPlayerEmbed(playerInfo, discordDetails, economyDetails, combatStats, combatDeltas, socialStats);
 
-        await interaction.editReply({ embeds: [embed], ...ephemeral });
+        let imageArtifacts = null;
+        try {
+            if (playerInfo.kingdomId) {
+                imageArtifacts = await fetchPlayerProfileImageAttachment(api, playerInfo.kingdomId);
+                if (imageArtifacts?.attachment && imageArtifacts?.imageName) {
+                    embed.setThumbnail(`attachment://${imageArtifacts.imageName}`);
+                }
+            }
 
-        await savePlayerInfo(playerInfo, sql);
+            const replyPayload = { embeds: [embed], ...ephemeral };
+            if (imageArtifacts?.attachment) {
+                replyPayload.files = [imageArtifacts.attachment];
+            }
+
+            await interaction.editReply(replyPayload);
+            await savePlayerInfo(playerInfo, sql);
+        } finally {
+            if (imageArtifacts?.filePath && fs.existsSync(imageArtifacts.filePath)) {
+                fs.unlinkSync(imageArtifacts.filePath);
+            }
+        }
     } catch (error) {
         console.error('Error in handleKingdomInfo:', error);
         await interaction.editReply({ content: "An error occurred while fetching player information.", ...ephemeral });
@@ -138,11 +157,13 @@ async function handleDiscordUserInfo(interaction, discordUser, sql, api, encrypt
         await interaction.editReply({ content: `${discordUser.username} has no verified kingdoms in this guild.`, ...ephemeral });
         return;
     }
+    console.log(kingdoms);
 
-    const embeds = [];
+    const embedResults = [];
     const verificationCache = new Map();
     const economyCache = new Map();
     for (const kingdom of kingdoms) {
+        console.log(`Processing kingdom ID: ${kingdom.kingdomId} for Discord user: ${discordUser.id}`);
         const token = (await sql.getRandomManagerTokenFromGuild(effectiveGuildId))[0]?.token;
         if (!token) continue;
 
@@ -160,18 +181,51 @@ async function handleDiscordUserInfo(interaction, discordUser, sql, api, encrypt
             }
         }
 
-    const combatStats = await getCombatStats(sql, playerInfo.kingdomId);
-    const socialStats = await getSocialStats(sql, playerInfo.kingdomId, effectiveGuildId);
+        const combatStats = await getCombatStats(sql, playerInfo.kingdomId);
+        const combatDeltas = await getCombatDeltaStats(sql, playerInfo.kingdomId, combatStats);
+        const socialStats = await getSocialStats(sql, playerInfo.kingdomId, effectiveGuildId);
 
-    embeds.push(buildPlayerEmbed(playerInfo, discordDetails, economyDetails, combatStats, socialStats));
+        const embed = buildPlayerEmbed(playerInfo, discordDetails, economyDetails, combatStats, combatDeltas, socialStats);
+        console.log(`Built embed for kingdom ID: ${playerInfo.kingdomId}`);
+
+        const resultEntry = { embed, attachment: null, filePath: null };
+
+        if (playerInfo.kingdomId) {
+            const imageArtifacts = await fetchPlayerProfileImageAttachment(api, playerInfo.kingdomId);
+            if (imageArtifacts?.attachment && imageArtifacts?.imageName) {
+                embed.setThumbnail(`attachment://${imageArtifacts.imageName}`);
+                resultEntry.attachment = imageArtifacts.attachment;
+                resultEntry.filePath = imageArtifacts.filePath || null;
+            } else if (imageArtifacts?.filePath) {
+                resultEntry.filePath = imageArtifacts.filePath;
+            }
+        }
+        console.log(`Prepared embed result for kingdom ID: ${playerInfo.kingdomId}`);
+
+        embedResults.push(resultEntry);
     }
 
-    if (embeds.length === 0) {
+    if (embedResults.length === 0) {
+        cleanupTempFiles(embedResults.map(entry => entry.filePath));
         await interaction.editReply({ content: "Unable to retrieve information for the linked kingdoms at this time.", ...ephemeral });
         return;
     }
 
-    await interaction.editReply({ embeds, ...ephemeral });
+    const isEphemeral = Boolean(ephemeral?.flags);
+    const [firstResult, ...remainingResults] = embedResults;
+
+    try {
+        await sendEmbedResponse(interaction, firstResult, { isEphemeral, isInitial: true, ephemeralFlags: ephemeral });
+
+        for (const result of remainingResults) {
+            await sendEmbedResponse(interaction, result, { isEphemeral, isInitial: false });
+        }
+    } finally {
+        const leftoverFiles = embedResults
+            .map(entry => entry.filePath)
+            .filter(filePath => filePath && fs.existsSync(filePath));
+        cleanupTempFiles(leftoverFiles);
+    }
 }
 
 async function handleOwnKingdomsSelection(interaction, sql, ephemeral, guildId) {
@@ -247,7 +301,7 @@ function calculateStatsChange(latest, older) {
     };
 }
 
-function buildPlayerEmbed(playerInfo, discordDetails, economyDetails, combatStats, socialStats) {
+function buildPlayerEmbed(playerInfo, discordDetails, economyDetails, combatStats, combatDeltas, socialStats) {
     const safeName = playerInfo.name || "Unknown";
 
     const embed = new EmbedBuilder()
@@ -276,12 +330,11 @@ function buildPlayerEmbed(playerInfo, discordDetails, economyDetails, combatStat
         inline: true
     });
 
-    const economyInfoValue = buildEconomyFieldValue(economyDetails);
-
+    // Spacer field to keep the first row limited to two visible fields.
     embed.addFields({
-        name: '__Economy Info__',
-        value: economyInfoValue,
-        inline: true
+        name: '\u200B',
+        value: '\u200B',
+        inline: false
     });
 
     const combatInfoValue = buildCombatFieldValue(combatStats, playerInfo);
@@ -292,6 +345,14 @@ function buildPlayerEmbed(playerInfo, discordDetails, economyDetails, combatStat
         inline: true
     });
 
+    const economyInfoValue = buildEconomyFieldValue(economyDetails);
+
+    embed.addFields({
+        name: '__Economy Info__',
+        value: economyInfoValue,
+        inline: true
+    });
+
     const socialInfoValue = buildSocialFieldValue(socialStats);
 
     embed.addFields({
@@ -299,6 +360,9 @@ function buildPlayerEmbed(playerInfo, discordDetails, economyDetails, combatStat
         value: socialInfoValue,
         inline: true
     });
+
+    const combatDeltaFields = buildCombatDeltaFields(combatDeltas);
+    combatDeltaFields.forEach(field => embed.addFields(field));
 
     return embed;
 }
@@ -324,6 +388,46 @@ async function getCombatStats(sql, kingdomId) {
         console.error('Error retrieving combat stats:', error);
         return null;
     }
+}
+
+async function getCombatDeltaStats(sql, kingdomId, combatStats) {
+    if (!combatStats) {
+        return null;
+    }
+
+    const targets = [7, 30, 90];
+    const deltaResults = {};
+
+    await Promise.all(targets.map(async (days) => {
+        try {
+            const rows = await sql.getKingdomInfoCloseToNDaysAgo(kingdomId, days);
+            const historical = rows && rows[0];
+
+            if (!historical) {
+                deltaResults[days] = null;
+                return;
+            }
+
+            const pastKills = Number(historical.kills) || 0;
+            const pastDeaths = Number(historical.death) || 0;
+            const pastKd = pastDeaths === 0 ? (pastKills > 0 ? Infinity : 0) : pastKills / pastDeaths;
+
+            const killsChange = combatStats.kills - pastKills;
+            const deathsChange = combatStats.deaths - pastDeaths;
+            const kdChange = computeKdChange(combatStats.kd, pastKd);
+
+            deltaResults[days] = {
+                killsChange,
+                deathsChange,
+                kdChange
+            };
+        } catch (error) {
+            console.error(`Error retrieving ${days}d combat delta:`, error);
+            deltaResults[days] = null;
+        }
+    }));
+
+    return deltaResults;
 }
 
 async function getSocialStats(sql, kingdomId, guildId) {
@@ -441,8 +545,8 @@ function buildDiscordInfoFieldValue(discordDetails) {
     }
 
     const lines = [
-        `• Link: <@${discordDetails.discordId}>`,
-        discordDetails.username ? `• Username: ${discordDetails.username}` : null,
+        `• Tag: <@${discordDetails.discordId}>`,
+        discordDetails.username ? `• Name: ${discordDetails.username}` : null,
         `• ID: ${discordDetails.discordId}`,
         '• Status: ✅ Verified'
     ].filter(Boolean);
@@ -498,6 +602,111 @@ function formatCombatLines(kills, deaths, kd) {
     ].join('\n');
 }
 
+function buildCombatDeltaFields(combatDeltas) {
+    if (!combatDeltas) {
+        return [
+            {
+                name: '__Combat Change (7D)__',
+                value: '• Data unavailable',
+                inline: true
+            },
+            {
+                name: '__Combat Change (30D)__',
+                value: '• Data unavailable',
+                inline: true
+            },
+            {
+                name: '__Combat Change (90D)__',
+                value: '• Data unavailable',
+                inline: true
+            }
+        ];
+    }
+
+    return [7, 30, 90].map((days) => {
+        const delta = combatDeltas[days];
+        if (!delta) {
+            return {
+                name: `__Combat Change (${days}D)__`,
+                value: '• Data unavailable',
+                inline: true
+            };
+        }
+
+        return {
+            name: `__Combat Change (${days}D)__`,
+            value: buildCombatDeltaFieldValue(delta),
+            inline: true
+        };
+    });
+}
+
+function buildCombatDeltaFieldValue(delta) {
+    return [
+        `• Kills: ${formatSignedNumberWithSuffix(delta.killsChange)}`,
+        `• Deaths: ${formatSignedNumberWithSuffix(delta.deathsChange)}`,
+        `• K/D Ratio: ${formatSignedRatio(delta.kdChange)}`
+    ].join('\n');
+}
+
+function computeKdChange(currentKd, pastKd) {
+    const normalizedCurrent = Number.isFinite(currentKd) ? currentKd : (currentKd === Infinity ? Infinity : -Infinity);
+    const normalizedPast = Number.isFinite(pastKd) ? pastKd : (pastKd === Infinity ? Infinity : -Infinity);
+
+    if (normalizedCurrent === Infinity && normalizedPast === Infinity) {
+        return 0;
+    }
+
+    if (normalizedCurrent === Infinity) {
+        return Infinity;
+    }
+
+    if (normalizedPast === Infinity) {
+        return -Infinity;
+    }
+
+    if (normalizedCurrent === -Infinity && normalizedPast === -Infinity) {
+        return 0;
+    }
+
+    if (normalizedCurrent === -Infinity) {
+        return -Infinity;
+    }
+
+    if (normalizedPast === -Infinity) {
+        return Infinity;
+    }
+
+    return normalizedCurrent - normalizedPast;
+}
+
+function formatSignedNumberWithSuffix(value) {
+    const numericValue = Number(value) || 0;
+    if (numericValue === 0) {
+        return '0';
+    }
+
+    const prefix = numericValue > 0 ? '+' : '-';
+    const formattedMagnitude = formatNumberWithSuffix2(Math.abs(numericValue));
+    return `${prefix}${formattedMagnitude}`;
+}
+
+function formatSignedRatio(value) {
+    if (!Number.isFinite(value)) {
+        if (value === Infinity) return '+∞';
+        if (value === -Infinity) return '-∞';
+        return '0';
+    }
+
+    if (value === 0) {
+        return '0.00';
+    }
+
+    const prefix = value > 0 ? '+' : '-';
+    const magnitude = Math.abs(value).toFixed(2);
+    return `${prefix}${magnitude}`;
+}
+
 function buildSocialFieldValue(socialStats) {
     if (!socialStats) {
         return '• No social data available';
@@ -509,6 +718,91 @@ function buildSocialFieldValue(socialStats) {
         `• Titles Received: ${formatNumberWithSuffix2(socialStats.titleCount)}`,
         `• Rallies Started (30d): ${formatNumberWithSuffix2(socialStats.ralliesStarted)}`
     ].join('\n');
+}
+
+async function sendEmbedResponse(interaction, resultEntry, { isEphemeral, isInitial, ephemeralFlags }) {
+    const payload = { embeds: [resultEntry.embed] };
+
+    if (resultEntry.attachment) {
+        payload.files = [resultEntry.attachment];
+    }
+
+    if (isInitial) {
+        Object.assign(payload, ephemeralFlags || {});
+        await interaction.editReply(payload);
+    } else {
+        if (isEphemeral) {
+            payload.ephemeral = true;
+        }
+        await interaction.followUp(payload);
+    }
+
+    if (resultEntry.filePath && fs.existsSync(resultEntry.filePath)) {
+        try {
+            fs.unlinkSync(resultEntry.filePath);
+        } catch (error) {
+            console.error(`Failed to remove temp file ${resultEntry.filePath}:`, error);
+        }
+        resultEntry.filePath = null;
+    }
+}
+
+async function fetchPlayerProfileImageAttachment(api, kingdomId) {
+    const tempDir = path.join(__dirname, '../../../temp');
+    if (!fs.existsSync(tempDir)) {
+        fs.mkdirSync(tempDir, { recursive: true });
+    }
+
+    const uniqueSuffix = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    const filePath = path.join(tempDir, `player_${kingdomId}_${uniqueSuffix}.png`);
+    const url = `https://play.leagueofkingdoms.com/images/face/${kingdomId}`;
+
+    try {
+        const response = await api.getStream(url, {});
+        const writer = fs.createWriteStream(filePath);
+
+        response.data.pipe(writer);
+
+        await new Promise((resolve, reject) => {
+            writer.on('finish', resolve);
+            writer.on('error', reject);
+        });
+
+        if (!fs.existsSync(filePath)) {
+            console.error(`Player image file missing after download for kingdom ${kingdomId}`);
+            return { attachment: null, filePath: null, imageName: null };
+        }
+
+        const imageName = path.basename(filePath);
+        const attachment = new AttachmentBuilder(filePath);
+        return { attachment, filePath, imageName };
+    } catch (error) {
+        if (error?.response) {
+            console.error(`Failed to download player image: ${error.response.status} ${error.response.statusText}`);
+        } else {
+            console.error('Failed to download player image: Network error');
+        }
+        if (fs.existsSync(filePath)) {
+            try {
+                fs.unlinkSync(filePath);
+            } catch (cleanupError) {
+                console.error(`Failed to remove temp file ${filePath} after download error:`, cleanupError);
+            }
+        }
+        return { attachment: null, filePath: null, imageName: null };
+    }
+}
+
+function cleanupTempFiles(files = []) {
+    for (const filePath of files) {
+        if (filePath && fs.existsSync(filePath)) {
+            try {
+                fs.unlinkSync(filePath);
+            } catch (error) {
+                console.error(`Failed to remove temp file ${filePath}:`, error);
+            }
+        }
+    }
 }
 
 // Include the existing helper functions from playerInfo.on.js
