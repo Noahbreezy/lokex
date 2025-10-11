@@ -88,8 +88,9 @@ class UpdateStakers {
     // Fetch transactions from Etherscan API
     async fetchTransactions() {
         try {
-            const response = await axios.get('https://api.etherscan.io/api', {
+            const response = await axios.get('https://api.etherscan.io/v2/api', {
                 params: {
+                    chainid: 1,
                     module: 'account',
                     action: 'txlist',
                     address: this.stakingAddress,
@@ -298,14 +299,19 @@ class UpdateStakers {
         for (const guild of guilds) {
             const guildId = guild.guild_id;
             const channelId = guild.pledgers_channel;
-            const guildContinent = Number(guild.continent); // Ensure it's a number
+            const mappedGuildContinent = this.normalizeContinentForNet(guild.continent);
+
+            if (mappedGuildContinent === null) {
+                console.error(`Unable to normalize continent value '${guild.continent}' for guild ${guildId}`);
+                continue;
+            }
 
             try {
                 const channel = await this.discordClient.channels.fetch(channelId);
                 if (!channel) continue;
 
                 // Find continentStake ensuring type consistency
-                const continentStake = netStaking.find(row => Number(row.continent) === guildContinent);
+                const continentStake = netStaking.find(row => Number(row.continent) === mappedGuildContinent);
                 const difference = continentStake ? Number(continentStake.total_amount) : 0;
 
                 // console.log(`NetStaking:`, netStaking);
@@ -345,10 +351,19 @@ class UpdateStakers {
 
     // Utility to escape Discord special characters
     cleanAndEscapeDiscordString(input) {
-        let trimmedString = input.trim();
+        // Strip Discord mentions and tags to avoid accidental pings
+        let sanitized = input
+            .replace(/<@!?\d+>/g, '') // user mentions like <@123> or <@!123>
+            .replace(/<@&\d+>/g, '') // role mentions
+            .replace(/@everyone/gi, '')
+            .replace(/@here/gi, '')
+            .replace(/@\d+/g, ' ') // fallback for raw @123 cases
+            .replace(/\s+/g, ' ')
+            .trim();
+
         const escapeChars = ['*', '_', '|', '~', '`', '\\'];
         let escapedString = '';
-        for (let char of trimmedString) {
+        for (let char of sanitized) {
             if (escapeChars.includes(char)) {
                 escapedString += '\\' + char;
             } else {
@@ -356,6 +371,45 @@ class UpdateStakers {
             }
         }
         return escapedString;
+    }
+
+    // Normalize various continent representations to merged indices (101-108)
+    normalizeContinentForNet(continentValue) {
+        if (continentValue === undefined || continentValue === null) {
+            return null;
+        }
+
+        const match = String(continentValue).match(/\d+/);
+        if (!match) {
+            return null;
+        }
+
+        const numeric = Number(match[0]);
+
+        if (numeric >= 101 && numeric <= 108) {
+            return numeric;
+        }
+
+        if (numeric >= 1 && numeric <= 8) {
+            return numeric + 100;
+        }
+
+        const legacyToMerged = {
+            19: 101,
+            20: 102,
+            60: 103,
+            24: 104,
+            59: 105,
+            17: 106,
+            25: 107,
+            2: 108,
+        };
+
+        if (legacyToMerged[numeric]) {
+            return legacyToMerged[numeric];
+        }
+
+        return numeric;
     }
 }
 
