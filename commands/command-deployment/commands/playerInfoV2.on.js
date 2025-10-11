@@ -113,10 +113,13 @@ async function handleKingdomInfo(interaction, kingdomId, sql, api, encryption, e
         const economyDetails = discordDetails
             ? await getEconomyDetails(sql, effectiveGuildId, discordDetails.discordId)
             : null;
-    const combatStats = await getCombatStats(sql, playerInfo.kingdomId);
-    const combatDeltas = await getCombatDeltaStats(sql, playerInfo.kingdomId, combatStats);
+        const combatStats = await getCombatStats(sql, playerInfo.kingdomId);
+        const combatDeltas = await getCombatDeltaStats(sql, playerInfo.kingdomId, combatStats);
         const socialStats = await getSocialStats(sql, playerInfo.kingdomId, effectiveGuildId);
-    const embed = buildPlayerEmbed(playerInfo, discordDetails, economyDetails, combatStats, combatDeltas, socialStats);
+        const licenseSummary = await getKingdomLicenseSummary(sql, playerInfo.kingdomId, playerInfo.continent, effectiveGuildId);
+        const blacklistEntries = await getBlacklistStatus(sql, playerInfo.kingdomId, effectiveGuildId);
+        const pastNamesHistory = await getPastNamesHistory(sql, playerInfo.kingdomId);
+        const embed = buildPlayerEmbed(playerInfo, discordDetails, economyDetails, combatStats, combatDeltas, socialStats, licenseSummary, blacklistEntries, pastNamesHistory);
 
         let imageArtifacts = null;
         try {
@@ -157,13 +160,17 @@ async function handleDiscordUserInfo(interaction, discordUser, sql, api, encrypt
         await interaction.editReply({ content: `${discordUser.username} has no verified kingdoms in this guild.`, ...ephemeral });
         return;
     }
-    console.log(kingdoms);
 
     const embedResults = [];
     const verificationCache = new Map();
     const economyCache = new Map();
+    const summaryData = {
+        discordDetails: null,
+        economyDetails: null,
+        socialTotals: null,
+        accountEntries: []
+    };
     for (const kingdom of kingdoms) {
-        console.log(`Processing kingdom ID: ${kingdom.kingdomId} for Discord user: ${discordUser.id}`);
         const token = (await sql.getRandomManagerTokenFromGuild(effectiveGuildId))[0]?.token;
         if (!token) continue;
 
@@ -184,9 +191,48 @@ async function handleDiscordUserInfo(interaction, discordUser, sql, api, encrypt
         const combatStats = await getCombatStats(sql, playerInfo.kingdomId);
         const combatDeltas = await getCombatDeltaStats(sql, playerInfo.kingdomId, combatStats);
         const socialStats = await getSocialStats(sql, playerInfo.kingdomId, effectiveGuildId);
+        const licenseSummary = await getKingdomLicenseSummary(sql, playerInfo.kingdomId, playerInfo.continent, effectiveGuildId);
+        const blacklistEntries = await getBlacklistStatus(sql, playerInfo.kingdomId, effectiveGuildId);
+        const pastNamesHistory = await getPastNamesHistory(sql, playerInfo.kingdomId);
 
-        const embed = buildPlayerEmbed(playerInfo, discordDetails, economyDetails, combatStats, combatDeltas, socialStats);
-        console.log(`Built embed for kingdom ID: ${playerInfo.kingdomId}`);
+        if (!summaryData.discordDetails && discordDetails) {
+            summaryData.discordDetails = discordDetails;
+        }
+
+        if (!summaryData.economyDetails && economyDetails) {
+            summaryData.economyDetails = economyDetails;
+        }
+
+        if (socialStats) {
+            if (!summaryData.socialTotals) {
+                summaryData.socialTotals = {
+                    illegalMines: 0,
+                    blacklistCount: 0,
+                    titleCount: 0,
+                    ralliesStarted: 0
+                };
+            }
+
+            summaryData.socialTotals.illegalMines += Number(socialStats.illegalMines) || 0;
+            summaryData.socialTotals.blacklistCount += Number(socialStats.blacklistCount) || 0;
+            summaryData.socialTotals.titleCount += Number(socialStats.titleCount) || 0;
+            summaryData.socialTotals.ralliesStarted += Number(socialStats.ralliesStarted) || 0;
+        }
+
+        const allianceTag = playerInfo.allianceTag && playerInfo.allianceTag.trim() !== ''
+            ? playerInfo.allianceTag.trim()
+            : 'no alliance';
+
+        summaryData.accountEntries.push({
+            name: playerInfo.name || playerInfo.kingdomId || 'Unknown',
+            kingdomId: playerInfo.kingdomId || 'Unknown',
+            level: Number.isFinite(Number(playerInfo.level)) ? Number(playerInfo.level) : 'Unknown',
+            alliance: allianceTag,
+            power: Number.isFinite(Number(playerInfo.power)) ? Number(playerInfo.power) : null,
+            licenseSummary
+        });
+
+        const embed = buildPlayerEmbed(playerInfo, discordDetails, economyDetails, combatStats, combatDeltas, socialStats, licenseSummary, blacklistEntries, pastNamesHistory);
 
         const resultEntry = { embed, attachment: null, filePath: null };
 
@@ -219,6 +265,15 @@ async function handleDiscordUserInfo(interaction, discordUser, sql, api, encrypt
 
         for (const result of remainingResults) {
             await sendEmbedResponse(interaction, result, { isEphemeral, isInitial: false });
+        }
+
+        const summaryEmbed = buildDiscordAccountsSummaryEmbed(discordUser, summaryData);
+        if (summaryEmbed) {
+            const summaryPayload = { embeds: [summaryEmbed] };
+            if (isEphemeral) {
+                summaryPayload.ephemeral = true;
+            }
+            await interaction.followUp(summaryPayload);
         }
     } finally {
         const leftoverFiles = embedResults
@@ -301,7 +356,7 @@ function calculateStatsChange(latest, older) {
     };
 }
 
-function buildPlayerEmbed(playerInfo, discordDetails, economyDetails, combatStats, combatDeltas, socialStats) {
+function buildPlayerEmbed(playerInfo, discordDetails, economyDetails, combatStats, combatDeltas, socialStats, licenseSummary, blacklistEntries, pastNamesHistory) {
     const safeName = playerInfo.name || "Unknown";
 
     const embed = new EmbedBuilder()
@@ -309,10 +364,15 @@ function buildPlayerEmbed(playerInfo, discordDetails, economyDetails, combatStat
         .setColor("#007ACC")
         .setTimestamp();
 
+    const allianceTag = playerInfo.allianceTag && playerInfo.allianceTag.trim() !== ''
+        ? playerInfo.allianceTag.trim()
+        : 'no alliance';
+
     const accountInfoValue = [
         `• Kingdom ID: ${playerInfo.kingdomId || 'Unknown'}`,
         `• Continent: ${playerInfo.continent ?? 'Unknown'}`,
         `• Level: ${playerInfo.level ?? 'Unknown'}`,
+        `• Alliance: ${allianceTag}`,
         `• Power: ${formatNumberWithSuffix2(playerInfo.power)}`
     ].join('\n');
 
@@ -330,10 +390,11 @@ function buildPlayerEmbed(playerInfo, discordDetails, economyDetails, combatStat
         inline: true
     });
 
-    // Spacer field to keep the first row limited to two visible fields.
+    const walletsInfoValue = buildWalletsFieldValue(economyDetails);
+
     embed.addFields({
-        name: '\u200B',
-        value: '\u200B',
+        name: '__Wallets__',
+        value: walletsInfoValue,
         inline: false
     });
 
@@ -363,6 +424,33 @@ function buildPlayerEmbed(playerInfo, discordDetails, economyDetails, combatStat
 
     const combatDeltaFields = buildCombatDeltaFields(combatDeltas);
     combatDeltaFields.forEach(field => embed.addFields(field));
+
+    const licenseInfoValue = buildLicenseFieldValue(licenseSummary);
+    if (licenseInfoValue) {
+        embed.addFields({
+            name: '__Whitelist Licenses__',
+            value: licenseInfoValue,
+            inline: false
+        });
+    }
+
+    const blacklistInfoValue = buildBlacklistFieldValue(blacklistEntries);
+    if (blacklistInfoValue) {
+        embed.addFields({
+            name: '__Blacklist Status__',
+            value: blacklistInfoValue,
+            inline: false
+        });
+    }
+
+    const pastNamesFieldValue = buildPastNamesFieldValue(pastNamesHistory);
+    if (pastNamesFieldValue) {
+        embed.addFields({
+            name: '__Past Names__',
+            value: pastNamesFieldValue,
+            inline: false
+        });
+    }
 
     return embed;
 }
@@ -451,6 +539,135 @@ async function getSocialStats(sql, kingdomId, guildId) {
     }
 }
 
+async function getBlacklistStatus(sql, kingdomId, guildId) {
+    try {
+        const result = await sql.isKingdomBlacklisted(kingdomId, guildId);
+        if (!result || result === false) {
+            return null;
+        }
+
+        if (Array.isArray(result)) {
+            return result.filter(entry => entry);
+        }
+
+        return [result];
+    } catch (error) {
+        console.error('Error retrieving blacklist status:', error);
+        return null;
+    }
+}
+
+async function getPastNamesHistory(sql, kingdomId) {
+    try {
+        const rows = await sql.getPastKingdomNames(kingdomId);
+        if (!rows || rows.length === 0) {
+            return [];
+        }
+
+        return rows
+            .filter(entry => entry?.name && entry?.date)
+            .map(entry => {
+                const firstUsed = new Date(entry.date);
+                return Number.isNaN(firstUsed.getTime())
+                    ? null
+                    : { name: entry.name, firstUsed };
+            })
+            .filter(Boolean);
+    } catch (error) {
+        console.error('Error retrieving past kingdom names:', error);
+        return [];
+    }
+}
+
+async function getKingdomLicenseSummary(sql, kingdomId, continent, guildId) {
+    try {
+        if (!kingdomId || !guildId) {
+            return null;
+        }
+
+        let resolvedContinent = Number(continent);
+        if (!Number.isFinite(resolvedContinent) || resolvedContinent === 0) {
+            try {
+                const fallbackRows = await sql.getKingdomContinent(kingdomId);
+                const fallbackContinent = fallbackRows && fallbackRows[0] ? Number(fallbackRows[0].continent) : NaN;
+                if (Number.isFinite(fallbackContinent) && fallbackContinent !== 0) {
+                    resolvedContinent = fallbackContinent;
+                }
+            } catch (fallbackError) {
+                console.error('Error resolving fallback continent for license lookup:', fallbackError);
+            }
+        }
+
+        if (!Number.isFinite(resolvedContinent) || resolvedContinent === 0) {
+            return null;
+        }
+
+        const rows = await sql.getKingdomLicenses(kingdomId, resolvedContinent, guildId);
+        if (!rows || rows.length === 0) {
+            return null;
+        }
+
+        const summary = {
+            dsa: { level: 0, expiry: null },
+            cmine: { level: 0, expiry: null }
+        };
+
+        for (const entry of rows) {
+            const expiryDate = entry?.expiry ? new Date(entry.expiry) : null;
+            const normalizedExpiry = expiryDate instanceof Date && !Number.isNaN(expiryDate.getTime())
+                ? expiryDate
+                : null;
+
+            const dsaLevel = Number(entry?.dsa) || 0;
+            if (dsaLevel > 0) {
+                if (
+                    dsaLevel > summary.dsa.level ||
+                    (dsaLevel === summary.dsa.level && shouldPreferExpiry(summary.dsa.expiry, normalizedExpiry))
+                ) {
+                    summary.dsa.level = dsaLevel;
+                    summary.dsa.expiry = normalizedExpiry;
+                }
+            }
+
+            const cmineLevel = Number(entry?.cmine) || 0;
+            if (cmineLevel > 0) {
+                if (
+                    cmineLevel > summary.cmine.level ||
+                    (cmineLevel === summary.cmine.level && shouldPreferExpiry(summary.cmine.expiry, normalizedExpiry))
+                ) {
+                    summary.cmine.level = cmineLevel;
+                    summary.cmine.expiry = normalizedExpiry;
+                }
+            }
+        }
+
+        if (summary.dsa.level === 0 && summary.cmine.level === 0) {
+            return null;
+        }
+
+        return summary;
+    } catch (error) {
+        console.error('Error retrieving kingdom license summary:', error);
+        return null;
+    }
+}
+
+function shouldPreferExpiry(currentExpiry, candidateExpiry) {
+    if (!candidateExpiry && currentExpiry) {
+        return true;
+    }
+    if (!candidateExpiry && !currentExpiry) {
+        return false;
+    }
+    if (candidateExpiry && !currentExpiry) {
+        return false;
+    }
+    if (candidateExpiry && currentExpiry) {
+        return candidateExpiry > currentExpiry;
+    }
+    return false;
+}
+
 async function getEconomyDetails(sql, guildId, discordId) {
     try {
         const [pointsBalance, wallets] = await Promise.all([
@@ -458,9 +675,21 @@ async function getEconomyDetails(sql, guildId, discordId) {
             sql.getVerifiedWallets(discordId, guildId)
         ]);
 
-        const filteredWallets = (wallets || []).filter(wallet => wallet && wallet !== '0' && wallet !== 0);
+        const filteredWallets = (wallets || [])
+            .filter(wallet => wallet && wallet !== '0' && wallet !== 0)
+            .map(wallet => wallet.toString());
 
-        if (filteredWallets.length === 0) {
+        const walletMap = new Map();
+        for (const wallet of filteredWallets) {
+            const key = wallet.toLowerCase();
+            if (!walletMap.has(key)) {
+                walletMap.set(key, wallet);
+            }
+        }
+
+        const uniqueWallets = Array.from(walletMap.values());
+
+        if (uniqueWallets.length === 0) {
             return {
                 pointsBalance,
                 totalPledged: 0,
@@ -469,7 +698,7 @@ async function getEconomyDetails(sql, guildId, discordId) {
         }
 
         const pledgedResults = await Promise.all(
-            filteredWallets
+            uniqueWallets
                 .map(async (wallet) => ({
                     wallet,
                     pledged: await sql.getTotalPledgedToMergedContinent(wallet, guildId)
@@ -564,20 +793,156 @@ function buildEconomyFieldValue(economyDetails) {
         `• Total Pledged: ${formatNumberWithSuffix2(economyDetails.totalPledged)}`
     ];
 
-    if (economyDetails.wallets && economyDetails.wallets.length > 0) {
-        lines.push('• Wallets:');
-        economyDetails.wallets.forEach(({ wallet, pledged }) => {
-            if (pledged === null || pledged === 0) {
-                lines.push(`-${wallet}`);
-            } else {
-                lines.push(`-${wallet} (${formatNumberWithSuffix2(pledged)})`);
-            }
-        });
-    } else {
-        lines.push('• Wallets: None');
+    return lines.join('\n');
+}
+
+function buildWalletsFieldValue(economyDetails) {
+    if (!economyDetails || !Array.isArray(economyDetails.wallets) || economyDetails.wallets.length === 0) {
+        return '• None on record';
+    }
+
+    const seen = new Set();
+    const lines = [];
+
+    for (const entry of economyDetails.wallets) {
+        const wallet = entry?.wallet;
+        if (!wallet) {
+            continue;
+        }
+
+        const key = typeof wallet === 'string' ? wallet.toLowerCase() : wallet;
+        if (seen.has(key)) {
+            continue;
+        }
+        seen.add(key);
+
+        if (entry.pledged === null || entry.pledged === 0) {
+            lines.push(`• ${wallet}`);
+        } else {
+            lines.push(`• ${wallet} (${formatNumberWithSuffix2(entry.pledged)})`);
+        }
+    }
+
+    if (lines.length === 0) {
+        return '• None on record';
     }
 
     return lines.join('\n');
+}
+
+function buildDiscordAccountsSummaryEmbed(discordUser, summaryData) {
+    if (!summaryData || summaryData.accountEntries.length === 0) {
+        return null;
+    }
+
+    const summaryTitle = discordUser?.username
+        ? `${discordUser.username}'s summary`
+        : 'Discord User summary';
+
+    const embed = new EmbedBuilder()
+        .setTitle(summaryTitle)
+        .setColor("#007ACC")
+        .setTimestamp();
+
+    if (typeof discordUser?.displayAvatarURL === 'function') {
+        const avatarUrl = discordUser.displayAvatarURL({ extension: 'png', size: 128 });
+        if (avatarUrl) {
+            embed.setThumbnail(avatarUrl);
+        }
+    }
+
+    const discordInfoValue = buildDiscordInfoFieldValue(summaryData.discordDetails);
+    embed.addFields({
+        name: '__Discord Info__',
+        value: discordInfoValue,
+        inline: true
+    });
+
+    const socialFieldValue = summaryData.socialTotals
+        ? buildSocialFieldValue(summaryData.socialTotals)
+        : buildSocialFieldValue(null);
+
+    embed.addFields({
+        name: '__Social Stats__',
+        value: socialFieldValue,
+        inline: true
+    });
+
+    const walletsFieldValue = buildWalletsFieldValue(summaryData.economyDetails);
+    embed.addFields({
+        name: '__Wallets__',
+        value: walletsFieldValue,
+        inline: false
+    });
+
+    const maxAccountFields = 22;
+    const accountEntries = summaryData.accountEntries.slice(0, maxAccountFields);
+    accountEntries.forEach(entry => {
+        const fieldName = entry.name
+            ? `__${entry.name}__`
+            : `__${entry.kingdomId || 'Unknown'}__`;
+        embed.addFields({
+            name: fieldName,
+            value: buildAccountSummaryFieldValue(entry),
+            inline: true
+        });
+    });
+
+    if (summaryData.accountEntries.length > maxAccountFields) {
+        embed.addFields({
+            name: 'Additional Accounts',
+            value: `• ...and ${summaryData.accountEntries.length - maxAccountFields} more`,
+            inline: false
+        });
+    }
+
+    return embed;
+}
+
+function buildAccountSummaryFieldValue(entry) {
+    const levelDisplay = typeof entry.level === 'number' && Number.isFinite(entry.level)
+        ? entry.level
+        : (entry.level ?? 'Unknown');
+
+    const powerDisplay = entry.power === null || entry.power === undefined
+        ? 'Unknown'
+        : formatNumberWithSuffix2(entry.power);
+
+    const lines = [
+        `• ID: ${entry.kingdomId || 'Unknown'}`,
+        `• Level: ${levelDisplay}`,
+        `• Alliance: ${entry.alliance || 'no alliance'}`,
+        `• Power: ${powerDisplay}`,
+        `• Licenses: ${formatLicenseSummaryForAccount(entry.licenseSummary)}`
+    ];
+
+    return lines.join('\n');
+}
+
+function formatLicenseSummaryForAccount(licenseSummary) {
+    if (!licenseSummary) {
+        return 'DSA: None | C-Mine: None';
+    }
+
+    const dsaPart = formatIndividualLicenseSummary('DSA', licenseSummary.dsa);
+    const cminePart = formatIndividualLicenseSummary('C-Mine', licenseSummary.cmine);
+
+    return `${dsaPart} | ${cminePart}`;
+}
+
+function formatIndividualLicenseSummary(label, data) {
+    if (!data || !Number.isFinite(Number(data.level)) || Number(data.level) <= 0) {
+        return `${label}: None`;
+    }
+
+    const levelDisplay = Number(data.level);
+
+    if (!data.expiry) {
+        return `${label}: L${levelDisplay} (Permanent)`;
+    }
+
+    const relative = formatDiscordRelativeTimestamp(data.expiry);
+    return `${label}: L${levelDisplay} (${relative})`;
 }
 
 function buildCombatFieldValue(combatStats, playerInfo) {
@@ -720,6 +1085,84 @@ function buildSocialFieldValue(socialStats) {
     ].join('\n');
 }
 
+function buildLicenseFieldValue(licenseSummary) {
+    if (!licenseSummary) {
+        return '• No whitelist licenses found';
+    }
+
+    const lines = [];
+
+    if (licenseSummary.dsa?.level > 0) {
+        lines.push(`• DSA Level ${licenseSummary.dsa.level} — ${formatLicenseExpiry(licenseSummary.dsa.expiry)}`);
+    }
+
+    if (licenseSummary.cmine?.level > 0) {
+        lines.push(`• C-Mine Level ${licenseSummary.cmine.level} — ${formatLicenseExpiry(licenseSummary.cmine.expiry)}`);
+    }
+
+    if (lines.length === 0) {
+        return '• No whitelist licenses found';
+    }
+
+    return lines.join('\n');
+}
+
+function formatLicenseExpiry(expiryDate) {
+    if (!expiryDate) {
+        return 'Permanent';
+    }
+
+    const epochSeconds = Math.floor(expiryDate.getTime() / 1000);
+    if (!Number.isFinite(epochSeconds)) {
+        return 'Unknown expiry';
+    }
+
+    return `<t:${epochSeconds}:F> (<t:${epochSeconds}:R>)`;
+}
+
+function formatDiscordRelativeTimestamp(dateLike) {
+    const targetDate = dateLike instanceof Date ? dateLike : new Date(dateLike);
+    if (!(targetDate instanceof Date) || Number.isNaN(targetDate.getTime())) {
+        return 'Unknown';
+    }
+
+    const epochSeconds = Math.floor(targetDate.getTime() / 1000);
+    if (!Number.isFinite(epochSeconds)) {
+        return 'Unknown';
+    }
+
+    return `<t:${epochSeconds}:R>`;
+}
+
+function buildBlacklistFieldValue(entries) {
+    if (!entries || entries.length === 0) {
+        return '• Status: ✅ Not blacklisted';
+    }
+
+    const entry = entries[0];
+    const expiration = entry?.expiration ? formatDateTime(entry.expiration) : 'No expiry set';
+
+    return ['• Status: ❌ Blacklisted', `• Expires: ${expiration}`].join('\n');
+}
+
+function buildPastNamesFieldValue(history) {
+    if (!history || history.length === 0) {
+        return '• None recorded';
+    }
+
+    const maxEntries = 5;
+    const lines = history.slice(0, maxEntries).map(entry => {
+        const relative = formatRelativeTimeFromNow(entry.firstUsed);
+        return `• ${entry.name} — first seen ${relative}`;
+    });
+
+    if (history.length > maxEntries) {
+        lines.push(`• ...and ${history.length - maxEntries} older name(s)`);
+    }
+
+    return lines.join('\n');
+}
+
 async function sendEmbedResponse(interaction, resultEntry, { isEphemeral, isInitial, ephemeralFlags }) {
     const payload = { embeds: [resultEntry.embed] };
 
@@ -803,6 +1246,39 @@ function cleanupTempFiles(files = []) {
             }
         }
     }
+}
+
+function formatRelativeTimeFromNow(dateLike) {
+    const targetDate = dateLike instanceof Date ? dateLike : new Date(dateLike);
+    if (!(targetDate instanceof Date) || Number.isNaN(targetDate.getTime())) {
+        return 'an unknown time ago';
+    }
+
+    const now = new Date();
+    const diffMs = now.getTime() - targetDate.getTime();
+    if (diffMs <= 0) {
+        return 'just now';
+    }
+
+    const seconds = Math.floor(diffMs / 1000);
+    const intervals = [
+        { unit: 'year', seconds: 31536000 },
+        { unit: 'month', seconds: 2592000 },
+        { unit: 'week', seconds: 604800 },
+        { unit: 'day', seconds: 86400 },
+        { unit: 'hour', seconds: 3600 },
+        { unit: 'minute', seconds: 60 }
+    ];
+
+    for (const interval of intervals) {
+        const value = Math.floor(seconds / interval.seconds);
+        if (value >= 1) {
+            const label = value === 1 ? interval.unit : `${interval.unit}s`;
+            return `${value} ${label} ago`;
+        }
+    }
+
+    return 'moments ago';
 }
 
 // Include the existing helper functions from playerInfo.on.js

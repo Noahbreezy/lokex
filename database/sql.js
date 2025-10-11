@@ -2282,7 +2282,7 @@ class sqlFunctions {
         };
     }
 
-    // Get all licenses for a specific kingdom (for admin/debugging purposes)
+    // Get all licenses for a specific kingdom 
     async getKingdomLicenses(kingdomId, continent, guild) {
         return this.query(
             `SELECT id, dsa, cmine, expiry, created_at
