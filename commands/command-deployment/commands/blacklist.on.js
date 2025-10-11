@@ -485,6 +485,47 @@ async function handleBlacklistModal(interaction, sql, api, ephemeral) {
             }
         }
 
+        let kingdomContinent = null;
+        try {
+            const kingdomContinentRows = await sql.getKingdomContinent(kingdomId);
+            if (Array.isArray(kingdomContinentRows) && kingdomContinentRows.length > 0) {
+                const parsedContinent = Number(kingdomContinentRows[0]?.continent);
+                if (!Number.isNaN(parsedContinent)) {
+                    kingdomContinent = parsedContinent;
+                }
+            }
+        } catch (error) {
+            console.error("Error fetching kingdom continent:", error);
+        }
+
+        let guildContinents = [];
+        try {
+            const guildContinentRows = await sql.getGuildContinent(guild);
+            if (Array.isArray(guildContinentRows)) {
+                guildContinents = guildContinentRows
+                    .map((row) => Number(row?.continent))
+                    .filter((continent) => !Number.isNaN(continent));
+            }
+        } catch (error) {
+            console.error("Error fetching guild continents:", error);
+        }
+
+        const canAttemptKick =
+            kingdomContinent !== null && guildContinents.includes(kingdomContinent);
+
+        if (!canAttemptKick) {
+            const reason =
+                kingdomContinent === null
+                    ? "Kick not attempted because the kingdom's continent couldn't be determined. Manual kick may be required."
+                    : `Kick not attempted because continent ${kingdomContinent} isn't linked to this server. Manual kick may be required.`;
+            try {
+                await interaction.followUp({ content: reason, ...ephemeral });
+            } catch (e) {
+                console.error("FollowUp failed (continent mismatch):", e);
+            }
+            return;
+        }
+
         if (nameList.length > 0 && nameList[0]?.allianceId) {
             let allianceId = nameList[0].allianceId;
             let allianceTag = nameList[0].allianceTag;
