@@ -112,6 +112,18 @@ client.on(Events.InteractionCreate, async (interaction) => {
           flags: 64,
         });
       }
+    } else if (interaction.customId.startsWith("player-info_")) {
+      const command = client.commands.get("player-info");
+      if (!command) return;
+      try {
+        await command.buttons(interaction);
+      } catch (error) {
+        console.error(error);
+        await interaction.reply({
+          content: "There was an error while executing this command!",
+          flags: 64,
+        });
+      }
     } else if (interaction.customId.startsWith("pay_")) {
       const command = client.commands.get("subscription");
       if (!command) return;
@@ -164,6 +176,18 @@ client.on(Events.InteractionCreate, async (interaction) => {
       }
     } else if (interaction.customId.startsWith("playerinfo_")) {
       const command = client.commands.get("playerinfo");
+      if (!command) return;
+      try {
+        await command.modals(interaction);
+      } catch (error) {
+        console.error(error);
+        await interaction.reply({
+          content: "There was an error while executing this command!",
+          flags: 64,
+        });
+      }
+    } else if (interaction.customId.startsWith("player-info_")) {
+      const command = client.commands.get("player-info");
       if (!command) return;
       try {
         await command.modals(interaction);
@@ -261,7 +285,9 @@ client.on(Events.InteractionCreate, async (interaction) => {
           flags: 64,
         });
       }
-    } else if (interaction.customId.startsWith("player-info_selectkingdom")) {
+  } else if (interaction.customId.startsWith("player-info_selectkingdom") ||
+         interaction.customId.startsWith("player-info_invite_select") ||
+         interaction.customId.startsWith("player-info_rank_select")) {
       const command = client.commands.get("player-info");
       if (!command) return;
       try {

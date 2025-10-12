@@ -1,4 +1,4 @@
-const { SlashCommandBuilder, PermissionFlagsBits, EmbedBuilder, ActionRowBuilder, StringSelectMenuBuilder, StringSelectMenuOptionBuilder, AttachmentBuilder } = require("discord.js");
+const { SlashCommandBuilder, PermissionFlagsBits, EmbedBuilder, ActionRowBuilder, StringSelectMenuBuilder, StringSelectMenuOptionBuilder, AttachmentBuilder, ButtonBuilder, ButtonStyle, ModalBuilder, TextInputBuilder, TextInputStyle } = require("discord.js");
 const path = require('path');
 const fs = require('fs');
 const Encryption = require("../../../encryption/encryption.js");
@@ -27,7 +27,7 @@ module.exports = {
 
         try {
             if (!interaction.guild) {
-                await interaction.reply({ content: "This command can only be used in a server.", ephemeral: true });
+                await interaction.reply({ content: "This command can only be used in a server.", flags: 64 });
                 return;
             }
 
@@ -60,7 +60,7 @@ module.exports = {
         } catch (error) {
             console.error('Error in player-info execute:', error);
             if (!interaction.replied && !interaction.deferred) {
-                await interaction.reply({ content: "An error occurred while processing your request.", ephemeral: true });
+                await interaction.reply({ content: "An error occurred while processing your request.", flags: 64 });
             } else {
                 await interaction.editReply({ content: "An error occurred while processing your request." });
             }
@@ -72,20 +72,41 @@ module.exports = {
     },
 
     async stringselect(interaction) {
-        if (!interaction.customId.startsWith("player-info_selectkingdom")) return;
+        const customId = interaction.customId || '';
 
-        await interaction.deferUpdate();
+        if (customId.startsWith("player-info_selectkingdom")) {
+            await interaction.deferUpdate();
 
-        const kingdomId = interaction.values[0];
-        await handleKingdomInfo(
-            interaction,
-            kingdomId,
-            module.exports.sql,
-            module.exports.api,
-            new Encryption(),
-            { flags: 64 },
-            interaction.guild?.id
-        );
+            const kingdomId = interaction.values[0];
+            await handleKingdomInfo(
+                interaction,
+                kingdomId,
+                module.exports.sql,
+                module.exports.api,
+                new Encryption(),
+                { flags: 64 },
+                interaction.guild?.id
+            );
+            return;
+        }
+
+        if (customId.startsWith(INVITE_SELECT_PREFIX)) {
+            await handleInviteSelect(interaction, module.exports.sql, module.exports.api);
+            return;
+        }
+
+        if (customId.startsWith(RANK_SELECT_PREFIX)) {
+            await handleRankSelect(interaction, module.exports.sql, module.exports.api);
+            return;
+        }
+    },
+
+    async buttons(interaction) {
+        await handleButtonInteraction(interaction, module.exports.sql, module.exports.api);
+    },
+
+    async modals(interaction) {
+        await handleModalSubmission(interaction, module.exports.sql, module.exports.api);
     }
 };
 
@@ -155,6 +176,10 @@ async function handleKingdomInfo(interaction, kingdomId, sql, api, encryption, e
             }
 
             const replyPayload = { embeds: [embed], ...ephemeral };
+            const actionRow = buildAccountActionRow(playerInfo.kingdomId);
+            if (actionRow) {
+                replyPayload.components = [actionRow];
+            }
             if (imageArtifacts?.attachment) {
                 replyPayload.files = [imageArtifacts.attachment];
             }
@@ -247,7 +272,13 @@ async function handleDiscordUserInfo(interaction, discordUser, sql, api, encrypt
                 kingdomCoordinates
             );
 
-            const embedEntry = { embed, attachment: null, filePath: null };
+            const actionRow = buildAccountActionRow(playerInfo.kingdomId);
+            const embedEntry = {
+                embed,
+                attachment: null,
+                filePath: null,
+                components: actionRow ? [actionRow] : undefined
+            };
 
             if (playerInfo.kingdomId) {
                 const imageArtifacts = await fetchPlayerProfileImageAttachment(api, playerInfo.kingdomId);
@@ -597,7 +628,7 @@ async function resolveKingdomCoordinates(sql, playerInfo) {
     const yNumber = Number(playerInfo?.y);
 
     // If x is 0 or not finite, use the SQL query
-    if ((Number.isFinite(xNumber) && xNumber !== 0) && Number.isFinite(yNumber)) {
+    if (Number.isFinite(xNumber) && Number.isFinite(yNumber) && (xNumber !== 0 || yNumber !== 0)) {
         return { x: xNumber, y: yNumber };
     }
 
@@ -1227,6 +1258,10 @@ async function sendEmbedResponse(interaction, resultEntry, { isEphemeral, isInit
         payload.files = [resultEntry.attachment];
     }
 
+    if (Array.isArray(resultEntry.components) && resultEntry.components.length > 0) {
+        payload.components = resultEntry.components;
+    }
+
     if (isInitial) {
         Object.assign(payload, ephemeralFlags || {});
         await interaction.editReply(payload);
@@ -1503,5 +1538,1128 @@ async function handleNameAutocomplete(interaction, sql) {
     } catch (error) {
         console.error('Error in handleNameAutocomplete:', error);
         await interaction.respond([]);
+    }
+}
+
+const BL_BUTTON_PREFIX = 'player-info_bl_';
+const UBL_BUTTON_PREFIX = 'player-info_ubl_';
+const MAIL_BUTTON_PREFIX = 'player-info_mail_';
+const INVITE_BUTTON_PREFIX = 'player-info_invite_';
+const INVITE_SELECT_PREFIX = 'player-info_invite_select_';
+const RANK_BUTTON_PREFIX = 'player-info_rank_';
+const RANK_SELECT_PREFIX = 'player-info_rank_select_';
+const BLACKLIST_MODAL_PREFIX = 'player-info_blacklist_modal_';
+const MAIL_MODAL_PREFIX = 'player-info_mail_modal_';
+const RANK_MODAL_PREFIX = 'player-info_rank_modal_';
+
+const RANK_CHOICES = [
+    { label: 'R1', value: 1 },
+    { label: 'R2', value: 2 },
+    { label: 'R3', value: 3 },
+    { label: 'R4', value: 4 },
+    { label: 'R5', value: 99 }
+];
+
+function buildAccountActionRow(kingdomId) {
+    if (!kingdomId) {
+        return null;
+    }
+
+    const blacklistButton = new ButtonBuilder()
+        .setCustomId(`${BL_BUTTON_PREFIX}${kingdomId}`)
+        .setLabel('BL')
+        .setStyle(ButtonStyle.Danger);
+
+    const unblacklistButton = new ButtonBuilder()
+        .setCustomId(`${UBL_BUTTON_PREFIX}${kingdomId}`)
+        .setLabel('UBL')
+        .setStyle(ButtonStyle.Secondary);
+
+    const mailButton = new ButtonBuilder()
+        .setCustomId(`${MAIL_BUTTON_PREFIX}${kingdomId}`)
+        .setLabel('Mail')
+        .setStyle(ButtonStyle.Primary);
+
+    const inviteButton = new ButtonBuilder()
+        .setCustomId(`${INVITE_BUTTON_PREFIX}${kingdomId}`)
+        .setLabel('Invite')
+        .setStyle(ButtonStyle.Primary);
+
+    const rankButton = new ButtonBuilder()
+        .setCustomId(`${RANK_BUTTON_PREFIX}${kingdomId}`)
+        .setLabel('Rank')
+        .setStyle(ButtonStyle.Primary);
+
+    return new ActionRowBuilder().addComponents(blacklistButton, unblacklistButton, mailButton, inviteButton, rankButton);
+}
+
+async function handleButtonInteraction(interaction, sql, api) {
+    const customId = interaction.customId || '';
+
+    if (customId.startsWith(BL_BUTTON_PREFIX)) {
+        const kingdomId = customId.slice(BL_BUTTON_PREFIX.length);
+        await handleBlacklistButton(interaction, kingdomId);
+        return;
+    }
+
+    if (customId.startsWith(UBL_BUTTON_PREFIX)) {
+        const kingdomId = customId.slice(UBL_BUTTON_PREFIX.length);
+        await handleUnblacklistButton(interaction, kingdomId, sql);
+        return;
+    }
+
+    if (customId.startsWith(MAIL_BUTTON_PREFIX)) {
+        const kingdomId = customId.slice(MAIL_BUTTON_PREFIX.length);
+        await handleSendMailButton(interaction, kingdomId, sql);
+        return;
+    }
+
+    if (customId.startsWith(INVITE_BUTTON_PREFIX)) {
+        const kingdomId = customId.slice(INVITE_BUTTON_PREFIX.length);
+        await handleInviteButton(interaction, kingdomId, sql, api);
+        return;
+    }
+
+    if (customId.startsWith(RANK_BUTTON_PREFIX)) {
+        const kingdomId = customId.slice(RANK_BUTTON_PREFIX.length);
+        await handleRankButton(interaction, kingdomId, sql);
+        return;
+    }
+
+    await interaction.reply({ content: 'Unsupported action for this button.', flags: 64 });
+}
+
+async function handleModalSubmission(interaction, sql, api) {
+    const customId = interaction.customId || '';
+
+    if (customId.startsWith(BLACKLIST_MODAL_PREFIX)) {
+        const kingdomId = customId.slice(BLACKLIST_MODAL_PREFIX.length);
+        await handleBlacklistModalSubmission(interaction, kingdomId, sql, api);
+        return;
+    }
+
+    if (customId.startsWith(MAIL_MODAL_PREFIX)) {
+        const kingdomId = customId.slice(MAIL_MODAL_PREFIX.length);
+        await handleMailModalSubmission(interaction, kingdomId, sql, api);
+        return;
+    }
+
+    if (customId.startsWith(RANK_MODAL_PREFIX)) {
+        const kingdomId = customId.slice(RANK_MODAL_PREFIX.length);
+        await handleRankModalSubmission(interaction, kingdomId, sql, api);
+        return;
+    }
+
+    await interaction.reply({ content: 'Unsupported modal submission.', flags: 64 });
+}
+
+async function handleBlacklistButton(interaction, kingdomId) {
+    if (!memberHasKickPermission(interaction)) {
+        await interaction.reply({ content: 'You need Kick Members permission to blacklist kingdoms.', flags: 64 });
+        return;
+    }
+
+    if (!interaction.guild) {
+        await interaction.reply({ content: 'This action can only be performed inside a server.', flags: 64 });
+        return;
+    }
+
+    if (!isValidKingdomId(kingdomId)) {
+        await interaction.reply({ content: 'The selected kingdom ID appears to be invalid.', flags: 64 });
+        return;
+    }
+
+    const modal = buildBlacklistModal(kingdomId);
+    await interaction.showModal(modal);
+}
+
+async function handleUnblacklistButton(interaction, kingdomId, sql) {
+    if (!memberHasKickPermission(interaction)) {
+        await interaction.reply({ content: 'You need Kick Members permission to unblacklist kingdoms.', flags: 64 });
+        return;
+    }
+
+    if (!interaction.guild) {
+        await interaction.reply({ content: 'This action can only be performed inside a server.', flags: 64 });
+        return;
+    }
+
+    if (!isValidKingdomId(kingdomId)) {
+        await interaction.reply({ content: 'The selected kingdom ID appears to be invalid.', flags: 64 });
+        return;
+    }
+
+    await interaction.deferReply({ flags: 64 });
+
+    try {
+        const guildId = interaction.guild.id;
+        const isBlacklisted = await sql.isKingdomBlacklisted(kingdomId, guildId);
+        if (!isBlacklisted) {
+            await interaction.editReply({ content: 'This kingdom is not currently blacklisted.' });
+            return;
+        }
+
+        const nameRecord = await sql.getKingdomNameAndAlliance(kingdomId);
+        const displayName = nameRecord?.[0]?.name || kingdomId;
+        const discordId = (await sql.getVerifiedDiscordId(kingdomId, guildId))?.[0]?.discordId;
+
+        await sql.removeFromBlacklist(kingdomId, guildId);
+
+        const successMessage = `${displayName} (${kingdomId}) has been removed from the blacklist.`;
+        await interaction.editReply({ content: successMessage });
+
+        await notifyBlacklistChange(interaction, {
+            kingdomId,
+            displayName,
+            discordId,
+            moderatorId: interaction.user.id,
+            guildId,
+            action: 'unblacklisted'
+        });
+    } catch (error) {
+        console.error('Error while unblacklisting kingdom:', error);
+        await interaction.editReply({ content: 'Failed to unblacklist this kingdom. Please try again later.' });
+    }
+}
+
+async function handleBlacklistModalSubmission(interaction, kingdomId, sql, api) {
+    if (!memberHasKickPermission(interaction)) {
+        await interaction.reply({ content: 'You need Kick Members permission to blacklist kingdoms.', flags: 64 });
+        return;
+    }
+
+    const guildId = interaction.guild?.id;
+    if (!guildId) {
+        await interaction.reply({ content: 'Unable to determine the guild for this request.', flags: 64 });
+        return;
+    }
+
+    if (!isValidKingdomId(kingdomId)) {
+        await interaction.reply({ content: 'The supplied kingdom ID is invalid.', flags: 64 });
+        return;
+    }
+
+    const reason = interaction.fields.getTextInputValue('desc')?.trim();
+    const expiryInput = interaction.fields.getTextInputValue('expir')?.trim();
+
+    if (!reason) {
+        await interaction.reply({ content: 'A blacklist reason is required.', flags: 64 });
+        return;
+    }
+
+    await interaction.deferReply({ flags: 64 });
+
+    try {
+        const existing = await sql.isKingdomBlacklisted(kingdomId, guildId);
+        if (existing) {
+            const expiration = existing?.[0]?.expiration
+                ? `<t:${Math.floor(new Date(existing[0].expiration).getTime() / 1000)}:f>`
+                : 'an unspecified time';
+            await interaction.editReply({ content: `This kingdom is already blacklisted until ${expiration}.` });
+            return;
+        }
+
+        const expirationDate = parseExpirationInput(expiryInput);
+        const permanent = !expirationDate;
+        const effectiveExpiration = expirationDate || new Date('2030-12-12T00:00:00Z');
+
+        const nameRecord = await sql.getKingdomNameAndAlliance(kingdomId);
+        const displayName = nameRecord?.[0]?.name || kingdomId;
+        const allianceId = nameRecord?.[0]?.allianceId || null;
+        const allianceTag = nameRecord?.[0]?.allianceTag || null;
+        const discordId = (await sql.getVerifiedDiscordId(kingdomId, guildId))?.[0]?.discordId;
+
+        await sql.addToBlacklist(interaction.user.id, kingdomId, effectiveExpiration, reason, guildId);
+
+        const baseMessageParts = [
+            `${displayName} (${kingdomId}) has been ${permanent ? 'permanently' : 'temporarily'} blacklisted`,
+            permanent ? '' : `until <t:${Math.floor(effectiveExpiration.getTime() / 1000)}:f>`,
+            `for: ${reason}`
+        ].filter(Boolean);
+
+        await interaction.editReply({ content: baseMessageParts.join(' ') });
+
+        await notifyBlacklistChange(interaction, {
+            kingdomId,
+            displayName,
+            discordId,
+            moderatorId: interaction.user.id,
+            guildId,
+            reason,
+            expiration: permanent ? null : effectiveExpiration,
+            action: 'blacklisted'
+        });
+
+        await attemptKickFromAlliance({
+            sql,
+            api,
+            kingdomId,
+            displayName,
+            allianceId,
+            allianceTag,
+            guildId,
+            interaction
+        });
+    } catch (error) {
+        console.error('Error while blacklisting kingdom:', error);
+        await interaction.editReply({ content: 'Failed to blacklist this kingdom. Please try again later.' });
+    }
+}
+
+function buildBlacklistModal(kingdomId) {
+    const modal = new ModalBuilder()
+        .setCustomId(`${BLACKLIST_MODAL_PREFIX}${kingdomId}`)
+        .setTitle('Blacklist Kingdom');
+
+    const reasonInput = new TextInputBuilder()
+        .setCustomId('desc')
+        .setLabel('Reason')
+        .setRequired(true)
+        .setStyle(TextInputStyle.Paragraph);
+
+    const expiryInput = new TextInputBuilder()
+        .setCustomId('expir')
+        .setLabel('Expiration (hours or YYYY-MM-DD)')
+        .setRequired(false)
+        .setStyle(TextInputStyle.Short);
+
+    modal.addComponents(
+        new ActionRowBuilder().addComponents(reasonInput),
+        new ActionRowBuilder().addComponents(expiryInput)
+    );
+
+    return modal;
+}
+
+async function handleSendMailButton(interaction, kingdomId, sql) {
+    if (!memberHasKickPermission(interaction)) {
+        await interaction.reply({ content: 'You need Kick Members permission to mail kingdoms.', flags: 64 });
+        return;
+    }
+
+    if (!interaction.guild) {
+        await interaction.reply({ content: 'This action can only be performed inside a server.', flags: 64 });
+        return;
+    }
+
+    if (!isValidKingdomId(kingdomId)) {
+        await interaction.reply({ content: 'The selected kingdom ID appears to be invalid.', flags: 64 });
+        return;
+    }
+
+    let displayName = kingdomId;
+    try {
+        const nameRecord = await sql.getKingdomNameAndAlliance(kingdomId);
+        displayName = nameRecord?.[0]?.name || kingdomId;
+    } catch (error) {
+        console.error('Failed to resolve kingdom name for mail modal:', error);
+    }
+
+    const modal = buildMailModal(kingdomId, displayName);
+    await interaction.showModal(modal);
+}
+
+function buildMailModal(kingdomId, displayName) {
+    const modal = new ModalBuilder()
+        .setCustomId(`${MAIL_MODAL_PREFIX}${kingdomId}`)
+        .setTitle(`Mail ${displayName}`.slice(0, 45));
+
+    const subjectInput = new TextInputBuilder()
+        .setCustomId('mail_subject')
+        .setLabel('Subject (optional)')
+        .setRequired(false)
+        .setStyle(TextInputStyle.Short)
+        .setPlaceholder('Subject line or leave blank');
+
+    const contentInput = new TextInputBuilder()
+        .setCustomId('mail_content')
+        .setLabel('Message')
+        .setRequired(true)
+        .setStyle(TextInputStyle.Paragraph)
+        .setPlaceholder('Enter the mail body...');
+
+    modal.addComponents(
+        new ActionRowBuilder().addComponents(subjectInput),
+        new ActionRowBuilder().addComponents(contentInput)
+    );
+
+    return modal;
+}
+
+async function handleMailModalSubmission(interaction, kingdomId, sql, api) {
+    if (!memberHasKickPermission(interaction)) {
+        await interaction.reply({ content: 'You need Kick Members permission to mail kingdoms.', flags: 64 });
+        return;
+    }
+
+    const guildId = interaction.guild?.id;
+    if (!guildId) {
+        await interaction.reply({ content: 'Unable to determine the guild for this request.', flags: 64 });
+        return;
+    }
+
+    if (!isValidKingdomId(kingdomId)) {
+        await interaction.reply({ content: 'The supplied kingdom ID is invalid.', flags: 64 });
+        return;
+    }
+
+    const subjectInput = interaction.fields.getTextInputValue('mail_subject')?.trim() || ''; // optional
+    const contentInput = interaction.fields.getTextInputValue('mail_content')?.trim();
+
+    if (!contentInput) {
+        await interaction.reply({ content: 'Mail content cannot be empty.', flags: 64 });
+        return;
+    }
+
+    await interaction.deferReply({ flags: 64 });
+
+    let mailAccountToken;
+    try {
+        mailAccountToken = (await sql.getRandomManagerTokenFromGuild(guildId))?.[0]?.token;
+    } catch (error) {
+        console.error('Failed to retrieve mail token:', error);
+    }
+
+    if (!mailAccountToken) {
+        await interaction.editReply({ content: 'No mail token is configured for this guild. Manual mail may be required.' });
+        return;
+    }
+
+    let displayName = kingdomId;
+    try {
+        const nameRecord = await sql.getKingdomNameAndAlliance(kingdomId);
+        displayName = nameRecord?.[0]?.name || kingdomId;
+    } catch (error) {
+        console.error('Failed to resolve kingdom name while sending mail:', error);
+    }
+
+    try {
+        const payload = new URLSearchParams({
+            json: JSON.stringify({
+                toIds: kingdomId,
+                subject: subjectInput,
+                content: contentInput
+            })
+        });
+
+        await api.request(
+            'https://api-lok-live.leagueofkingdoms.com/api/mail/send',
+            payload,
+            {
+                'x-access-token': mailAccountToken,
+                'Content-Type': 'application/x-www-form-urlencoded'
+            }
+        );
+
+        const confirmationParts = [
+            `Mail sent to ${displayName} (${kingdomId}).`,
+            subjectInput ? `Subject: ${subjectInput}` : null
+        ].filter(Boolean);
+
+        await interaction.editReply({ content: confirmationParts.join('\n') || 'Mail sent successfully.' });
+    } catch (error) {
+        console.error('Failed to send alliance mail:', error);
+        const errorMessage = error?.response?.data?.message || 'Failed to send mail. Please try again later.';
+        await interaction.editReply({ content: errorMessage });
+    }
+}
+
+async function handleInviteButton(interaction, kingdomId, sql, api) {
+    if (!memberHasKickPermission(interaction)) {
+        await interaction.reply({ content: 'You need Kick Members permission to invite kingdoms.', flags: 64 });
+        return;
+    }
+
+    if (!interaction.guild) {
+        await interaction.reply({ content: 'This action can only be performed inside a server.', flags: 64 });
+        return;
+    }
+
+    if (!isValidKingdomId(kingdomId)) {
+        await interaction.reply({ content: 'The selected kingdom ID appears to be invalid.', flags: 64 });
+        return;
+    }
+
+    await interaction.deferReply({ flags: 64 });
+
+    const guildId = interaction.guild.id;
+
+    let allianceRows = [];
+    try {
+        const rows = await sql.getAllGuildAlliances(guildId);
+        if (Array.isArray(rows)) {
+            allianceRows = rows.filter(row => row?.allianceId);
+        }
+    } catch (error) {
+        console.error('Failed to retrieve guild alliances for invite:', error);
+    }
+
+    if (!allianceRows.length) {
+        await interaction.editReply({ content: 'No alliances are linked to this guild.', components: [] });
+        return;
+    }
+
+    const uniqueAlliances = new Map();
+    for (const entry of allianceRows) {
+        const allianceIdKey = String(entry.allianceId);
+        if (!uniqueAlliances.has(allianceIdKey)) {
+            uniqueAlliances.set(allianceIdKey, {
+                allianceId: allianceIdKey,
+                tag: entry.tag || 'Unknown'
+            });
+        }
+    }
+
+    const alliances = Array.from(uniqueAlliances.values());
+
+    if (alliances.length === 1) {
+        const result = await processAllianceInvite({
+            sql,
+            api,
+            kingdomId,
+            allianceId: alliances[0].allianceId
+        });
+
+        await interaction.editReply({ content: result.message, components: [] });
+        return;
+    }
+
+    const maxOptions = 25;
+    const options = [];
+
+    for (const alliance of alliances.slice(0, maxOptions)) {
+        const cleanedLabel = (alliance.tag || 'Alliance').toString();
+        const label = cleanedLabel.length > 95 ? cleanedLabel.slice(0, 95) : cleanedLabel;
+
+        options.push(
+            new StringSelectMenuOptionBuilder()
+                .setLabel(label || 'Alliance')
+                .setValue(alliance.allianceId)
+                .setDescription(alliance.allianceId)
+        );
+    }
+
+    if (!options.length) {
+        await interaction.editReply({ content: 'No alliances with available manager accounts found.', components: [] });
+        return;
+    }
+
+    const selectMenu = new StringSelectMenuBuilder()
+        .setCustomId(`${INVITE_SELECT_PREFIX}${kingdomId}`)
+        .setPlaceholder('Select the alliance to send the invite from')
+        .addOptions(options);
+
+    const row = new ActionRowBuilder().addComponents(selectMenu);
+
+    await interaction.editReply({
+        content: 'Choose which alliance should send the invitation:',
+        components: [row]
+    });
+}
+
+async function handleRankButton(interaction, kingdomId, sql) {
+    if (!memberHasKickPermission(interaction)) {
+        await interaction.reply({ content: 'You need Kick Members permission to change ranks.', flags: 64 });
+        return;
+    }
+
+    if (!interaction.guild) {
+        await interaction.reply({ content: 'This action can only be performed inside a server.', flags: 64 });
+        return;
+    }
+
+    if (!isValidKingdomId(kingdomId)) {
+        await interaction.reply({ content: 'The selected kingdom ID appears to be invalid.', flags: 64 });
+        return;
+    }
+
+    await interaction.deferReply({ flags: 64 });
+
+    let displayName = kingdomId;
+    try {
+        const nameRecord = await sql.getKingdomNameAndAlliance(kingdomId);
+        displayName = nameRecord?.[0]?.name || kingdomId;
+    } catch (error) {
+        console.error('Failed to resolve kingdom name for rank selection:', error);
+    }
+
+    const options = RANK_CHOICES.map(choice => {
+        const value = choice.label;
+        const description = choice.label === 'R5'
+            ? 'Alliance leader'
+            : `Set member to ${choice.label}`;
+
+        return new StringSelectMenuOptionBuilder()
+            .setLabel(choice.label)
+            .setValue(value)
+            .setDescription(description);
+    });
+
+    const selectMenu = new StringSelectMenuBuilder()
+        .setCustomId(`${RANK_SELECT_PREFIX}${kingdomId}`)
+        .setPlaceholder('Choose the new rank')
+        .addOptions(options);
+
+    const row = new ActionRowBuilder().addComponents(selectMenu);
+
+    await interaction.editReply({
+        content: `Select a new rank for ${displayName} (${kingdomId}):`,
+        components: [row]
+    });
+}
+
+async function handleRankSelect(interaction, sql, api) {
+    const customId = interaction.customId || '';
+    if (!customId.startsWith(RANK_SELECT_PREFIX)) {
+        return;
+    }
+
+    if (!memberHasKickPermission(interaction)) {
+        await interaction.reply({ content: 'You need Kick Members permission to change ranks.', flags: 64 });
+        return;
+    }
+
+    const guildId = interaction.guild?.id;
+    if (!guildId) {
+        await interaction.reply({ content: 'Unable to determine the guild for this request.', flags: 64 });
+        return;
+    }
+
+    const kingdomId = customId.slice(RANK_SELECT_PREFIX.length);
+    if (!isValidKingdomId(kingdomId)) {
+        await interaction.reply({ content: 'The supplied kingdom ID is invalid.', flags: 64 });
+        return;
+    }
+
+    const selectedValue = interaction.values?.[0];
+    const resolvedRank = resolveRankInput(selectedValue);
+    if (!resolvedRank) {
+        await interaction.reply({ content: 'Invalid rank selection.', flags: 64 });
+        return;
+    }
+
+    await interaction.deferUpdate();
+    await interaction.editReply({ content: 'Updating rank...', components: [] });
+
+    await processRankChange({
+        interaction,
+        sql,
+        api,
+        guildId,
+        kingdomId,
+        resolvedRank
+    });
+}
+
+async function handleRankModalSubmission(interaction, kingdomId, sql, api) {
+    if (!memberHasKickPermission(interaction)) {
+        await interaction.reply({ content: 'You need Kick Members permission to change ranks.', flags: 64 });
+        return;
+    }
+
+    const guildId = interaction.guild?.id;
+    if (!guildId) {
+        await interaction.reply({ content: 'Unable to determine the guild for this request.', flags: 64 });
+        return;
+    }
+
+    if (!isValidKingdomId(kingdomId)) {
+        await interaction.reply({ content: 'The supplied kingdom ID is invalid.', flags: 64 });
+        return;
+    }
+
+    const rankInput = (interaction.fields.getTextInputValue('rank_value') || '').trim().toUpperCase();
+    const resolvedRank = resolveRankInput(rankInput);
+
+    if (!resolvedRank) {
+        await interaction.reply({ content: 'Invalid rank. Please enter R1, R2, R3, R4, or R5.', flags: 64 });
+        return;
+    }
+
+    await interaction.deferReply({ flags: 64 });
+    await processRankChange({
+        interaction,
+        sql,
+        api,
+        guildId,
+        kingdomId,
+        resolvedRank
+    });
+}
+
+async function processRankChange({ interaction, sql, api, guildId, kingdomId, resolvedRank }) {
+    if (!guildId) {
+        await interaction.editReply({ content: 'Unable to determine the guild for this request.', components: [] });
+        return;
+    }
+
+    const encryption = new Encryption();
+
+    let tokenResult;
+    try {
+        tokenResult = await sql.getRandomNonIdleTokenFromGuild(guildId);
+    } catch (error) {
+        console.error('Failed to fetch non-idle token for rank change:', error);
+    }
+
+    const token = tokenResult?.[0]?.token;
+    if (!token) {
+        await interaction.editReply({ content: 'No valid bot token found for this guild.', components: [] });
+        return;
+    }
+
+    let xorPass;
+    try {
+        xorPass = (await sql.getXORPass())[0]?.value;
+    } catch (error) {
+        console.error('Failed to retrieve XOR password for rank change:', error);
+    }
+
+    if (!xorPass) {
+        await interaction.editReply({ content: 'Unable to retrieve encryption key to process this request.', components: [] });
+        return;
+    }
+
+    try {
+        const encryptedPayload = await encryption.createXorMessage(`{"kingdomId":"${kingdomId}"}`, xorPass);
+        const basicPlayerInfoResponse = await api.request(
+            'https://api-lok-live.leagueofkingdoms.com/api/kingdom/profile/other',
+            { json: encryptedPayload },
+            { 'x-access-token': token, 'Content-Type': 'application/json' }
+        );
+
+        const decrypted = JSON.parse(await encryption.decryptXorMessage(basicPlayerInfoResponse.data, xorPass));
+        const profile = decrypted?.profile;
+
+        if (!profile) {
+            await interaction.editReply({ content: 'Player not found or invalid kingdom ID.', components: [] });
+            return;
+        }
+
+        const playerContinentRaw = profile.worldId ?? profile.continent ?? profile.world ?? profile.location?.continent ?? null;
+        const playerContinent = playerContinentRaw !== null && playerContinentRaw !== undefined ? Number(playerContinentRaw) : null;
+
+        let guildContinentRows = [];
+        try {
+            const rows = await sql.getGuildContinent(guildId);
+            if (Array.isArray(rows)) {
+                guildContinentRows = rows;
+            }
+        } catch (continentError) {
+            console.error('Failed to fetch guild continents for rank change:', continentError);
+        }
+
+        const guildContinents = guildContinentRows
+            .map(row => Number(row?.continent))
+            .filter(continent => Number.isFinite(continent));
+
+        if (!guildContinents.length) {
+            await interaction.editReply({ content: 'No continents are linked to this guild. Configure a continent before changing ranks.', components: [] });
+            return;
+        }
+
+        if (!Number.isFinite(playerContinent) || !guildContinents.includes(playerContinent)) {
+            await interaction.editReply({ content: 'This player is not on a continent linked to this guild.', components: [] });
+            return;
+        }
+
+        const allianceId = profile.alliance?._id;
+        if (!allianceId) {
+            await interaction.editReply({ content: 'This player is not currently in an alliance.', components: [] });
+            return;
+        }
+
+        let guildAllianceRows = [];
+        try {
+            const rows = await sql.getAllGuildAlliances(guildId);
+            if (Array.isArray(rows)) {
+                guildAllianceRows = rows;
+            }
+        } catch (alliancesError) {
+            console.error('Failed to fetch guild alliances for rank change:', alliancesError);
+        }
+
+        const guildAllianceIds = new Set(guildAllianceRows.map(row => String(row?.allianceId)));
+
+        if (!guildAllianceIds.has(String(allianceId))) {
+            await interaction.editReply({ content: 'This player is not part of an alliance linked to this guild.', components: [] });
+            return;
+        }
+
+        let managerInfoResult = [];
+        try {
+            const rows = await sql.getManagerInfoByAllianceId(allianceId);
+            if (Array.isArray(rows)) {
+                managerInfoResult = rows;
+            }
+        } catch (managerInfoError) {
+            console.error('Failed to fetch manager info for rank change:', managerInfoError);
+        }
+
+        if (!managerInfoResult || managerInfoResult.length === 0) {
+            await interaction.editReply({ content: 'No manager bot found for this player\'s alliance.', components: [] });
+            return;
+        }
+
+        const managerInfo = managerInfoResult[0];
+        const managerToken = managerInfo.token;
+        const managerKingdomId = managerInfo.kingdomId;
+
+        if (!managerToken || !managerKingdomId) {
+            await interaction.editReply({ content: 'Manager account data is incomplete for this alliance.', components: [] });
+            return;
+        }
+
+        const encryptedManagerPayload = await encryption.createXorMessage(`{"kingdomId":"${managerKingdomId}"}`, xorPass);
+        const managerProfileResponse = await api.request(
+            'https://api-lok-live.leagueofkingdoms.com/api/kingdom/profile/other',
+            { json: encryptedManagerPayload },
+            { 'x-access-token': token, 'Content-Type': 'application/json' }
+        );
+
+        const managerDecrypted = JSON.parse(await encryption.decryptXorMessage(managerProfileResponse.data, xorPass));
+        const managerProfile = managerDecrypted?.profile;
+
+        const managerRank = managerProfile?.alliance?.rank ?? 99;
+
+        if (!canManagerAssignRank(managerRank, resolvedRank.value)) {
+            await interaction.editReply({ content: `Manager (rank R${managerRank === 99 ? 5 : managerRank}) cannot assign the requested rank.`, components: [] });
+            return;
+        }
+
+        await api.request(
+            'https://api-lok-live.leagueofkingdoms.com/api/alliance/member/rank',
+            { json: `{"memberKingdomId":"${kingdomId}","rank":${resolvedRank.value},"title":0}` },
+            { 'x-access-token': managerToken, 'Content-Type': 'application/json' }
+        );
+
+        const playerName = profile.name || kingdomId;
+        const previousRank = profile.alliance?.rank ?? null;
+        const previousRankLabel = formatRankLabel(previousRank);
+        const newRankLabel = resolvedRank.label;
+
+        const confirmationLines = [
+            `Rank updated for ${playerName} (${kingdomId}).`,
+            previousRankLabel ? `Previous Rank: ${previousRankLabel}` : null,
+            `New Rank: ${newRankLabel}`
+        ].filter(Boolean);
+
+        await interaction.editReply({ content: confirmationLines.join('\n'), components: [] });
+    } catch (error) {
+        console.error('Error processing rank change:', error);
+        await interaction.editReply({ content: 'An error occurred while changing the rank. Please try again later.', components: [] });
+    }
+}
+
+async function handleInviteSelect(interaction, sql, api) {
+    const customId = interaction.customId || '';
+    if (!customId.startsWith(INVITE_SELECT_PREFIX)) {
+        return;
+    }
+
+    const kingdomId = customId.slice(INVITE_SELECT_PREFIX.length);
+    const allianceId = interaction.values?.[0];
+
+    if (!allianceId) {
+        await interaction.reply({ content: 'No alliance was selected.', flags: 64 });
+        return;
+    }
+
+    await interaction.deferUpdate();
+
+    const result = await processAllianceInvite({ sql, api, kingdomId, allianceId });
+
+    await interaction.editReply({ content: result.message, components: [] });
+}
+
+async function processAllianceInvite({ sql, api, kingdomId, allianceId }) {
+    let managerInfoRows = [];
+    try {
+        const rows = await sql.getManagerInfoByAllianceId(allianceId);
+        if (Array.isArray(rows)) {
+            managerInfoRows = rows;
+        }
+    } catch (error) {
+        console.error('Failed to fetch manager info for alliance invite:', error);
+    }
+
+    const managerInfo = managerInfoRows?.[0];
+    if (!managerInfo?.token) {
+        return {
+            success: false,
+            message: 'No manager token is configured for the selected alliance. Manual invite may be required.'
+        };
+    }
+
+    const managerToken = managerInfo.token;
+    const allianceTag = managerInfo.allianceTag || '';
+
+    let displayName = kingdomId;
+    try {
+        const nameRecord = await sql.getKingdomNameAndAlliance(kingdomId);
+        displayName = nameRecord?.[0]?.name || kingdomId;
+    } catch (error) {
+        console.error('Failed to resolve kingdom name while inviting:', error);
+    }
+
+    try {
+        const payload = new URLSearchParams({
+            json: JSON.stringify({ kingdomId })
+        });
+
+        await api.request(
+            'https://api-lok-live.leagueofkingdoms.com/api/alliance/invite',
+            payload,
+            {
+                'x-access-token': managerToken,
+                'Content-Type': 'application/x-www-form-urlencoded'
+            }
+        );
+
+        const allianceLabel = allianceTag ? `[${allianceTag}]` : 'the selected alliance';
+
+        return {
+            success: true,
+            message: `${displayName} (${kingdomId}) has been invited by ${allianceLabel}.`
+        };
+    } catch (error) {
+        console.error('Failed to send alliance invite:', error);
+        const apiMessage = error?.response?.data?.message || 'Failed to send invite. Please try again later.';
+        return {
+            success: false,
+            message: apiMessage
+        };
+    }
+}
+
+function resolveRankInput(input) {
+    if (!input) {
+        return null;
+    }
+
+    const normalized = input.startsWith('R') ? input : `R${input}`;
+    const match = RANK_CHOICES.find(choice => choice.label === normalized);
+    if (match) {
+        return match;
+    }
+
+    const numeric = Number(input);
+    if (Number.isFinite(numeric)) {
+        const matchedNumeric = RANK_CHOICES.find(choice => choice.value === numeric);
+        return matchedNumeric || null;
+    }
+
+    return null;
+}
+
+function canManagerAssignRank(managerRank, targetRankValue) {
+    if (managerRank === 99) {
+        return true; // R5 manager can assign any rank
+    }
+
+    if (managerRank === 4) {
+        return targetRankValue < 4; // R4 can assign R1-R3 only
+    }
+
+    return false; // R1-R3 cannot assign ranks
+}
+
+function formatRankLabel(rankValue) {
+    if (rankValue === null || rankValue === undefined) {
+        return null;
+    }
+
+    const numeric = Number(rankValue);
+    if (!Number.isFinite(numeric)) {
+        return null;
+    }
+
+    if (numeric === 99) {
+        return 'R5';
+    }
+
+    if (numeric >= 1 && numeric <= 4) {
+        return `R${numeric}`;
+    }
+
+    return null;
+}
+
+function memberHasKickPermission(interaction) {
+    return Boolean(interaction?.memberPermissions?.has(PermissionFlagsBits.KickMembers));
+}
+
+function isValidKingdomId(id) {
+    return /^[a-f0-9]{24}$/i.test(id);
+}
+
+function parseExpirationInput(input) {
+    if (!input) {
+        return null;
+    }
+
+    const trimmed = input.trim();
+    if (!trimmed) {
+        return null;
+    }
+
+    const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
+    if (dateRegex.test(trimmed)) {
+        const date = new Date(`${trimmed}T00:00:00Z`);
+        if (!Number.isNaN(date.getTime())) {
+            return date;
+        }
+    }
+
+    const numeric = Number(trimmed);
+    if (!Number.isNaN(numeric)) {
+        const now = new Date();
+        now.setHours(now.getHours() + numeric);
+        return now;
+    }
+
+    return null;
+}
+
+async function notifyBlacklistChange(interaction, details) {
+    const sql = module.exports.sql;
+    const guildId = details.guildId;
+
+    try {
+        const logChannel = (await sql.getGuildLogChannels(guildId))?.[0]?.accept_log_channel;
+        const blacklistChannel = (await sql.getGuildBlacklistLogChannel(guildId))?.[0]?.blacklist_log_channel;
+
+        const actionSummary = details.action === 'blacklisted'
+            ? `${details.displayName} (${details.kingdomId}) has been blacklisted${details.reason ? ` for ${details.reason}` : ''}`
+            : `${details.displayName} (${details.kingdomId}) has been unblacklisted`;
+
+        const moderatorMention = `<@${details.moderatorId}>`;
+        const targetMention = details.discordId ? `<@${details.discordId}>` : '<Unknown User>';
+        const expirationText = details.action === 'blacklisted' && details.expiration
+            ? ` until <t:${Math.floor(details.expiration.getTime() / 1000)}:f>`
+            : '';
+
+        const composed = `${actionSummary}${expirationText} by ${moderatorMention} (${targetMention}).`;
+
+        if (logChannel) {
+            await safeChannelSend(interaction.client, logChannel, composed);
+        }
+
+        if (blacklistChannel) {
+            await safeChannelSend(interaction.client, blacklistChannel, composed);
+        }
+
+        if (details.discordId && details.action === 'blacklisted') {
+            await safeUserDM(interaction.client, details.discordId, composed);
+        }
+
+        if (details.discordId && details.action === 'unblacklisted') {
+            await safeUserDM(interaction.client, details.discordId, `${details.displayName} (${details.kingdomId}) has been removed from the blacklist.`);
+        }
+    } catch (error) {
+        console.error('Failed to send blacklist notifications:', error);
+    }
+}
+
+async function attemptKickFromAlliance({
+    sql,
+    api,
+    kingdomId,
+    displayName,
+    allianceId,
+    allianceTag,
+    guildId,
+    interaction
+}) {
+    if (!allianceId) {
+    await interaction.followUp({ content: 'No alliance information was found. Manual kick may be required.', flags: 64 });
+        return;
+    }
+
+    let kingdomContinent = null;
+    try {
+        const kingdomContinentRows = await sql.getKingdomContinent(kingdomId);
+        if (Array.isArray(kingdomContinentRows) && kingdomContinentRows.length > 0) {
+            const parsedContinent = Number(kingdomContinentRows[0]?.continent);
+            if (!Number.isNaN(parsedContinent)) {
+                kingdomContinent = parsedContinent;
+            }
+        }
+    } catch (error) {
+        console.error('Error fetching kingdom continent:', error);
+    }
+
+    let guildContinents = [];
+    try {
+        const guildContinentRows = await sql.getGuildContinent(guildId);
+        if (Array.isArray(guildContinentRows)) {
+            guildContinents = guildContinentRows
+                .map((row) => Number(row?.continent))
+                .filter((continent) => !Number.isNaN(continent));
+        }
+    } catch (error) {
+        console.error('Error fetching guild continents:', error);
+    }
+
+    const canAttemptKick = kingdomContinent !== null && guildContinents.includes(kingdomContinent);
+    if (!canAttemptKick) {
+        const reasonText = kingdomContinent === null
+            ? 'Unable to determine the kingdom continent. Manual kick may be required.'
+            : `Continent ${kingdomContinent} is not linked to this server. Manual kick may be required.`;
+    await interaction.followUp({ content: reasonText, flags: 64 });
+        return;
+    }
+
+    let managerToken;
+    try {
+        managerToken = (await sql.getManagerToken(allianceId))?.[0]?.token;
+    } catch (error) {
+        console.error('Error fetching manager token:', error);
+    }
+
+    if (!managerToken) {
+    await interaction.followUp({ content: `Unable to locate a manager token for alliance ${allianceTag || allianceId}. Manual kick may be required.`, flags: 64 });
+        return;
+    }
+
+    try {
+        const response = await api.request(
+            'https://api-lok-live.leagueofkingdoms.com/api/alliance/member/disband',
+            { memberKingdomId: kingdomId },
+            { 'x-access-token': managerToken, 'Content-Type': 'application/json' }
+        );
+
+        if (response?.data?.result) {
+            await interaction.followUp({ content: `${displayName} (${kingdomId}) has been removed from the alliance.`, flags: 64 });
+        } else {
+            await interaction.followUp({ content: 'Alliance kick attempt returned an unexpected response. Manual kick may be required.', flags: 64 });
+        }
+    } catch (error) {
+        console.error('Kick API error:', error);
+    await interaction.followUp({ content: 'Failed to automatically kick the kingdom. Manual kick may be required.', flags: 64 });
+    }
+}
+
+async function safeChannelSend(client, channelId, message) {
+    try {
+        const channel = client.channels.cache.get(channelId);
+        if (!channel) {
+            return;
+        }
+        await channel.send(message);
+    } catch (error) {
+        console.error(`Failed to send message to channel ${channelId}:`, error);
+    }
+}
+
+async function safeUserDM(client, userId, message) {
+    try {
+        const user = await client.users.fetch(userId);
+        if (!user) {
+            return;
+        }
+        await user.send(message);
+    } catch (error) {
+        console.error(`Failed to DM user ${userId}:`, error);
     }
 }
