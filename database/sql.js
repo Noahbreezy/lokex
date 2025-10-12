@@ -1418,9 +1418,9 @@ class sqlFunctions {
         return this.query(query, [kingdomId]);
     }
 
-    // Get latest kingdom location
+    // Get latest kingdom location where x is not 0
     async getKingdomLocation(kingdomId) {
-        const query = "SELECT continent, x, y FROM info WHERE kingdomId=? AND continent > 0 ORDER BY id DESC LIMIT 1";
+        const query = "SELECT continent, x, y FROM info WHERE kingdomId=? AND continent > 0 AND x != 0 ORDER BY id DESC LIMIT 1";
         return this.query(query, [kingdomId]);
     }
 

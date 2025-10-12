@@ -119,7 +119,19 @@ async function handleKingdomInfo(interaction, kingdomId, sql, api, encryption, e
         const licenseSummary = await getKingdomLicenseSummary(sql, playerInfo.kingdomId, playerInfo.continent, effectiveGuildId);
         const blacklistEntries = await getBlacklistStatus(sql, playerInfo.kingdomId, effectiveGuildId);
         const pastNamesHistory = await getPastNamesHistory(sql, playerInfo.kingdomId);
-        const embed = buildPlayerEmbed(playerInfo, discordDetails, economyDetails, combatStats, combatDeltas, socialStats, licenseSummary, blacklistEntries, pastNamesHistory);
+        const kingdomCoordinates = await getKingdomCoordinates(sql, playerInfo.kingdomId);
+        const embed = buildPlayerEmbed(
+            playerInfo,
+            discordDetails,
+            economyDetails,
+            combatStats,
+            combatDeltas,
+            socialStats,
+            licenseSummary,
+            blacklistEntries,
+            pastNamesHistory,
+            kingdomCoordinates
+        );
 
         let imageArtifacts = null;
         try {
@@ -194,6 +206,7 @@ async function handleDiscordUserInfo(interaction, discordUser, sql, api, encrypt
         const licenseSummary = await getKingdomLicenseSummary(sql, playerInfo.kingdomId, playerInfo.continent, effectiveGuildId);
         const blacklistEntries = await getBlacklistStatus(sql, playerInfo.kingdomId, effectiveGuildId);
         const pastNamesHistory = await getPastNamesHistory(sql, playerInfo.kingdomId);
+        const kingdomCoordinates = await getKingdomCoordinates(sql, playerInfo.kingdomId);
 
         if (!summaryData.discordDetails && discordDetails) {
             summaryData.discordDetails = discordDetails;
@@ -232,7 +245,7 @@ async function handleDiscordUserInfo(interaction, discordUser, sql, api, encrypt
             licenseSummary
         });
 
-        const embed = buildPlayerEmbed(playerInfo, discordDetails, economyDetails, combatStats, combatDeltas, socialStats, licenseSummary, blacklistEntries, pastNamesHistory);
+        const embed = buildPlayerEmbed(playerInfo, discordDetails, economyDetails, combatStats, combatDeltas, socialStats, licenseSummary, blacklistEntries, pastNamesHistory, kingdomCoordinates);
 
         const resultEntry = { embed, attachment: null, filePath: null };
 
@@ -356,7 +369,7 @@ function calculateStatsChange(latest, older) {
     };
 }
 
-function buildPlayerEmbed(playerInfo, discordDetails, economyDetails, combatStats, combatDeltas, socialStats, licenseSummary, blacklistEntries, pastNamesHistory) {
+function buildPlayerEmbed(playerInfo, discordDetails, economyDetails, combatStats, combatDeltas, socialStats, licenseSummary, blacklistEntries, pastNamesHistory, kingdomCoordinates) {
     const safeName = playerInfo.name || "Unknown";
 
     const embed = new EmbedBuilder()
@@ -451,6 +464,13 @@ function buildPlayerEmbed(playerInfo, discordDetails, economyDetails, combatStat
             inline: false
         });
     }
+
+    const coordinatesFieldValue = buildCoordinatesFieldValue(kingdomCoordinates);
+    embed.addFields({
+        name: '__Coordinates__',
+        value: coordinatesFieldValue,
+        inline: false
+    });
 
     return embed;
 }
@@ -576,6 +596,28 @@ async function getPastNamesHistory(sql, kingdomId) {
     } catch (error) {
         console.error('Error retrieving past kingdom names:', error);
         return [];
+    }
+}
+
+async function getKingdomCoordinates(sql, kingdomId) {
+    try {
+        const rows = await sql.getKingdomLocation(kingdomId);
+        if (!rows || rows.length === 0) {
+            return null;
+        }
+
+        const entry = rows[0];
+        const x = Number(entry?.x);
+        const y = Number(entry?.y);
+
+        if (!Number.isFinite(x) || !Number.isFinite(y)) {
+            return null;
+        }
+
+        return { x, y };
+    } catch (error) {
+        console.error('Error retrieving kingdom coordinates:', error);
+        return null;
     }
 }
 
@@ -1161,6 +1203,20 @@ function buildPastNamesFieldValue(history) {
     }
 
     return lines.join('\n');
+}
+
+function buildCoordinatesFieldValue(coordinates) {
+    if (!coordinates) {
+        return '• Not available';
+    }
+
+    const xNumber = Number(coordinates.x);
+    const yNumber = Number(coordinates.y);
+
+    const xValue = Number.isFinite(xNumber) ? xNumber : 'Unknown';
+    const yValue = Number.isFinite(yNumber) ? yNumber : 'Unknown';
+
+    return [`• X: ${xValue}`, `• Y: ${yValue}`].join('\n');
 }
 
 async function sendEmbedResponse(interaction, resultEntry, { isEphemeral, isInitial, ephemeralFlags }) {
