@@ -1,4 +1,4 @@
-const { SlashCommandBuilder, PermissionFlagsBits, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, ModalBuilder, TextInputBuilder, TextInputStyle, StringSelectMenuBuilder, StringSelectMenuOptionBuilder, AttachmentBuilder } = require("discord.js");
+const { SlashCommandBuilder, PermissionFlagsBits, EmbedBuilder, ActionRowBuilder, StringSelectMenuBuilder, StringSelectMenuOptionBuilder, AttachmentBuilder } = require("discord.js");
 const path = require('path');
 const fs = require('fs');
 const Encryption = require("../../../encryption/encryption.js");
@@ -109,17 +109,29 @@ async function handleKingdomInfo(interaction, kingdomId, sql, api, encryption, e
             return;
         }
 
-        const discordDetails = await getDiscordVerificationDetails(interaction, sql, playerInfo.kingdomId);
+        const [
+            discordDetails,
+            combatStats,
+            socialStats,
+            licenseSummary,
+            blacklistEntries,
+            kingdomCoordinates
+        ] = await Promise.all([
+            getDiscordVerificationDetails(interaction, sql, playerInfo.kingdomId),
+            getCombatStats(sql, playerInfo.kingdomId),
+            getSocialStats(sql, playerInfo.kingdomId, effectiveGuildId),
+            getKingdomLicenseSummary(sql, playerInfo.kingdomId, playerInfo.continent, effectiveGuildId),
+            getBlacklistStatus(sql, playerInfo.kingdomId, effectiveGuildId),
+            resolveKingdomCoordinates(sql, playerInfo)
+        ]);
+
         const economyDetails = discordDetails
             ? await getEconomyDetails(sql, effectiveGuildId, discordDetails.discordId)
             : null;
-        const combatStats = await getCombatStats(sql, playerInfo.kingdomId);
         const combatDeltas = await getCombatDeltaStats(sql, playerInfo.kingdomId, combatStats);
-        const socialStats = await getSocialStats(sql, playerInfo.kingdomId, effectiveGuildId);
-        const licenseSummary = await getKingdomLicenseSummary(sql, playerInfo.kingdomId, playerInfo.continent, effectiveGuildId);
-        const blacklistEntries = await getBlacklistStatus(sql, playerInfo.kingdomId, effectiveGuildId);
-        const pastNamesHistory = await getPastNamesHistory(sql, playerInfo.kingdomId);
-        const kingdomCoordinates = await getKingdomCoordinates(sql, playerInfo.kingdomId);
+        const pastNamesHistory = Array.isArray(playerInfo.pastNamesHistory)
+            ? playerInfo.pastNamesHistory
+            : [];
         const embed = buildPlayerEmbed(
             playerInfo,
             discordDetails,
@@ -173,40 +185,110 @@ async function handleDiscordUserInfo(interaction, discordUser, sql, api, encrypt
         return;
     }
 
-    const embedResults = [];
     const verificationCache = new Map();
     const economyCache = new Map();
+
+    const kingdomResults = await Promise.all(
+        kingdoms.map(async (kingdom) => {
+            const token = (await sql.getRandomManagerTokenFromGuild(effectiveGuildId))[0]?.token;
+            if (!token) return null;
+
+            const playerInfo = await getPlayerInfo(kingdom.kingdomId, token, sql, api, encryption, effectiveGuildId);
+            if (!playerInfo) return null;
+
+            const [discordDetails, combatStats, socialStats, licenseSummary, blacklistEntries, kingdomCoordinates] = await Promise.all([
+                getDiscordVerificationDetails(interaction, sql, playerInfo.kingdomId, verificationCache),
+                getCombatStats(sql, playerInfo.kingdomId),
+                getSocialStats(sql, playerInfo.kingdomId, effectiveGuildId),
+                getKingdomLicenseSummary(sql, playerInfo.kingdomId, playerInfo.continent, effectiveGuildId),
+                getBlacklistStatus(sql, playerInfo.kingdomId, effectiveGuildId),
+                resolveKingdomCoordinates(sql, playerInfo)
+            ]);
+
+            let economyDetails = null;
+            if (discordDetails) {
+                if (!economyCache.has(discordDetails.discordId)) {
+                    economyCache.set(
+                        discordDetails.discordId,
+                        getEconomyDetails(sql, effectiveGuildId, discordDetails.discordId)
+                    );
+                }
+                economyDetails = await economyCache.get(discordDetails.discordId);
+            }
+
+            const combatDeltas = await getCombatDeltaStats(sql, playerInfo.kingdomId, combatStats);
+            const pastNamesHistory = Array.isArray(playerInfo.pastNamesHistory)
+                ? playerInfo.pastNamesHistory
+                : [];
+
+            const allianceTag = playerInfo.allianceTag && playerInfo.allianceTag.trim() !== ''
+                ? playerInfo.allianceTag.trim()
+                : 'no alliance';
+
+            const summaryEntry = {
+                name: playerInfo.name || playerInfo.kingdomId || 'Unknown',
+                kingdomId: playerInfo.kingdomId || 'Unknown',
+                level: Number.isFinite(Number(playerInfo.level)) ? Number(playerInfo.level) : 'Unknown',
+                alliance: allianceTag,
+                power: Number.isFinite(Number(playerInfo.power)) ? Number(playerInfo.power) : null,
+                licenseSummary
+            };
+
+            const embed = buildPlayerEmbed(
+                playerInfo,
+                discordDetails,
+                economyDetails,
+                combatStats,
+                combatDeltas,
+                socialStats,
+                licenseSummary,
+                blacklistEntries,
+                pastNamesHistory,
+                kingdomCoordinates
+            );
+
+            const embedEntry = { embed, attachment: null, filePath: null };
+
+            if (playerInfo.kingdomId) {
+                const imageArtifacts = await fetchPlayerProfileImageAttachment(api, playerInfo.kingdomId);
+                if (imageArtifacts?.attachment && imageArtifacts?.imageName) {
+                    embed.setThumbnail(`attachment://${imageArtifacts.imageName}`);
+                    embedEntry.attachment = imageArtifacts.attachment;
+                    embedEntry.filePath = imageArtifacts.filePath || null;
+                } else if (imageArtifacts?.filePath) {
+                    embedEntry.filePath = imageArtifacts.filePath;
+                }
+            }
+            console.log(`Prepared embed result for kingdom ID: ${playerInfo.kingdomId}`);
+
+            return {
+                embedEntry,
+                summaryEntry,
+                discordDetails,
+                economyDetails,
+                socialStats
+            };
+        })
+    );
+
+    const successfulResults = kingdomResults.filter(Boolean);
+
+    if (successfulResults.length === 0) {
+        await interaction.editReply({ content: "Unable to retrieve information for the linked kingdoms at this time.", ...ephemeral });
+        return;
+    }
+
+    const embedResults = successfulResults.map(result => result.embedEntry);
+
     const summaryData = {
         discordDetails: null,
         economyDetails: null,
         socialTotals: null,
         accountEntries: []
     };
-    for (const kingdom of kingdoms) {
-        const token = (await sql.getRandomManagerTokenFromGuild(effectiveGuildId))[0]?.token;
-        if (!token) continue;
 
-        const playerInfo = await getPlayerInfo(kingdom.kingdomId, token, sql, api, encryption, effectiveGuildId);
-        if (!playerInfo) continue;
-
-        const discordDetails = await getDiscordVerificationDetails(interaction, sql, playerInfo.kingdomId, verificationCache);
-        let economyDetails = null;
-        if (discordDetails) {
-            if (economyCache.has(discordDetails.discordId)) {
-                economyDetails = economyCache.get(discordDetails.discordId);
-            } else {
-                economyDetails = await getEconomyDetails(sql, effectiveGuildId, discordDetails.discordId);
-                economyCache.set(discordDetails.discordId, economyDetails);
-            }
-        }
-
-        const combatStats = await getCombatStats(sql, playerInfo.kingdomId);
-        const combatDeltas = await getCombatDeltaStats(sql, playerInfo.kingdomId, combatStats);
-        const socialStats = await getSocialStats(sql, playerInfo.kingdomId, effectiveGuildId);
-        const licenseSummary = await getKingdomLicenseSummary(sql, playerInfo.kingdomId, playerInfo.continent, effectiveGuildId);
-        const blacklistEntries = await getBlacklistStatus(sql, playerInfo.kingdomId, effectiveGuildId);
-        const pastNamesHistory = await getPastNamesHistory(sql, playerInfo.kingdomId);
-        const kingdomCoordinates = await getKingdomCoordinates(sql, playerInfo.kingdomId);
+    for (const result of successfulResults) {
+        const { summaryEntry, discordDetails, economyDetails, socialStats } = result;
 
         if (!summaryData.discordDetails && discordDetails) {
             summaryData.discordDetails = discordDetails;
@@ -232,42 +314,7 @@ async function handleDiscordUserInfo(interaction, discordUser, sql, api, encrypt
             summaryData.socialTotals.ralliesStarted += Number(socialStats.ralliesStarted) || 0;
         }
 
-        const allianceTag = playerInfo.allianceTag && playerInfo.allianceTag.trim() !== ''
-            ? playerInfo.allianceTag.trim()
-            : 'no alliance';
-
-        summaryData.accountEntries.push({
-            name: playerInfo.name || playerInfo.kingdomId || 'Unknown',
-            kingdomId: playerInfo.kingdomId || 'Unknown',
-            level: Number.isFinite(Number(playerInfo.level)) ? Number(playerInfo.level) : 'Unknown',
-            alliance: allianceTag,
-            power: Number.isFinite(Number(playerInfo.power)) ? Number(playerInfo.power) : null,
-            licenseSummary
-        });
-
-        const embed = buildPlayerEmbed(playerInfo, discordDetails, economyDetails, combatStats, combatDeltas, socialStats, licenseSummary, blacklistEntries, pastNamesHistory, kingdomCoordinates);
-
-        const resultEntry = { embed, attachment: null, filePath: null };
-
-        if (playerInfo.kingdomId) {
-            const imageArtifacts = await fetchPlayerProfileImageAttachment(api, playerInfo.kingdomId);
-            if (imageArtifacts?.attachment && imageArtifacts?.imageName) {
-                embed.setThumbnail(`attachment://${imageArtifacts.imageName}`);
-                resultEntry.attachment = imageArtifacts.attachment;
-                resultEntry.filePath = imageArtifacts.filePath || null;
-            } else if (imageArtifacts?.filePath) {
-                resultEntry.filePath = imageArtifacts.filePath;
-            }
-        }
-        console.log(`Prepared embed result for kingdom ID: ${playerInfo.kingdomId}`);
-
-        embedResults.push(resultEntry);
-    }
-
-    if (embedResults.length === 0) {
-        cleanupTempFiles(embedResults.map(entry => entry.filePath));
-        await interaction.editReply({ content: "Unable to retrieve information for the linked kingdoms at this time.", ...ephemeral });
-        return;
+        summaryData.accountEntries.push(summaryEntry);
     }
 
     const isEphemeral = Boolean(ephemeral?.flags);
@@ -335,38 +382,6 @@ async function handleOwnKingdomsSelection(interaction, sql, ephemeral, guildId) 
         console.error('Error in handleOwnKingdomsSelection:', error);
         await interaction.editReply({ content: "An error occurred while loading your kingdoms.", ...ephemeral });
     }
-}
-
-async function getAdditionalKingdomData(kingdomId, guildId, sql) {
-    const data = {};
-
-    try {
-        // Blacklist status
-        const blacklist = await sql.isKingdomBlacklisted(kingdomId, guildId);
-        data.blacklist = blacklist;
-    } catch (error) {
-        console.error('Error getting blacklist status:', error);
-        data.blacklist = null;
-    }
-
-    try {
-        // Past names
-        data.pastNames = await sql.getPastKingdomNames(kingdomId);
-    } catch (error) {
-        console.error('Error getting past names:', error);
-        data.pastNames = [];
-    }
-    return data;
-}
-
-function calculateStatsChange(latest, older) {
-    if (!latest || !older) return null;
-
-    return {
-        powerChange: (latest.power || 0) - (older.power || 0),
-        killsChange: (latest.kills || 0) - (older.kills || 0),
-        gatheringChange: (latest.gathering || 0) - (older.gathering || 0)
-    };
 }
 
 function buildPlayerEmbed(playerInfo, discordDetails, economyDetails, combatStats, combatDeltas, socialStats, licenseSummary, blacklistEntries, pastNamesHistory, kingdomCoordinates) {
@@ -577,31 +592,17 @@ async function getBlacklistStatus(sql, kingdomId, guildId) {
     }
 }
 
-async function getPastNamesHistory(sql, kingdomId) {
-    try {
-        const rows = await sql.getPastKingdomNames(kingdomId);
-        if (!rows || rows.length === 0) {
-            return [];
-        }
+async function resolveKingdomCoordinates(sql, playerInfo) {
+    const xNumber = Number(playerInfo?.x);
+    const yNumber = Number(playerInfo?.y);
 
-        return rows
-            .filter(entry => entry?.name && entry?.date)
-            .map(entry => {
-                const firstUsed = new Date(entry.date);
-                return Number.isNaN(firstUsed.getTime())
-                    ? null
-                    : { name: entry.name, firstUsed };
-            })
-            .filter(Boolean);
-    } catch (error) {
-        console.error('Error retrieving past kingdom names:', error);
-        return [];
+    // If x is 0 or not finite, use the SQL query
+    if ((Number.isFinite(xNumber) && xNumber !== 0) && Number.isFinite(yNumber)) {
+        return { x: xNumber, y: yNumber };
     }
-}
 
-async function getKingdomCoordinates(sql, kingdomId) {
     try {
-        const rows = await sql.getKingdomLocation(kingdomId);
+        const rows = await sql.getKingdomLocation(playerInfo.kingdomId);
         if (!rows || rows.length === 0) {
             return null;
         }
@@ -1367,6 +1368,21 @@ async function getPlayerInfo(kingdomId, token, sql, api, encryption, guildId) {
     let location = await getMemberLocation(kingdomId, basicPlayerInfo.alliance?._id, token, api, sql);
     const ralliesDone = await sql.getRalliesCount(kingdomId, guildId);
     const pastKingdomNames = await sql.getPastKingdomNames(kingdomId);
+    const pastNamesHistory = pastKingdomNames
+        .filter(obj => !!obj.name && !!obj.date)
+        .map(obj => {
+            const firstUsed = new Date(obj.date);
+            return Number.isNaN(firstUsed.getTime())
+                ? null
+                : { name: obj.name, firstUsed };
+        })
+        .filter(Boolean);
+
+    const formattedPastNames = pastNamesHistory.length > 0
+        ? pastNamesHistory
+            .map(entry => `${entry.name} - __Date: ${entry.firstUsed.toLocaleDateString("en-US", { year: 'numeric', month: 'long', day: 'numeric' })}__`)
+            .join("\n")
+        : "None";
 
     return {
         _id: kingdomId,
@@ -1387,10 +1403,8 @@ async function getPlayerInfo(kingdomId, token, sql, api, encryption, guildId) {
         x: location.x,
         y: location.y,
         ralliesDone: ralliesDone,
-        pastKingdomNames: pastKingdomNames
-            .filter(obj => !!obj.name && !!obj.date)
-            .map(obj => `${obj.name} - __Date: ${new Date(obj.date).toLocaleDateString("en-US", { year: 'numeric', month: 'long', day: 'numeric' })}__`)
-            .join("\n") || "None"
+        pastNamesHistory,
+        pastKingdomNames: formattedPastNames
     };
 }
 
