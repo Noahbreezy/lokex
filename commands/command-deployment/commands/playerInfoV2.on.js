@@ -18,6 +18,11 @@ module.exports = {
                 .setDescription("Tag a discord user to get their kingdom info")
                 .setRequired(false)
         )
+        .addBooleanOption(option =>
+            option.setName("summary_only")
+                .setDescription("Only return the summary embed when searching by Discord user")
+                .setRequired(false)
+        )
         .setDefaultMemberPermissions(PermissionFlagsBits.KickMembers),
 
     async execute(interaction) {
@@ -46,13 +51,14 @@ module.exports = {
 
             const playerOption = interaction.options.getString("player");
             const discordOption = interaction.options.getUser("discord");
+            const summaryOnly = interaction.options.getBoolean("summary_only") === true;
 
             if (playerOption) {
                 // Handle specific kingdom
                 await handleKingdomInfo(interaction, playerOption, sql, api, encryption, ephemeral, guildId);
             } else if (discordOption) {
                 // Handle all kingdoms for a discord user
-                await handleDiscordUserInfo(interaction, discordOption, sql, api, encryption, ephemeral, guildId);
+                await handleDiscordUserInfo(interaction, discordOption, sql, api, encryption, ephemeral, guildId, summaryOnly);
             } else {
                 // No options provided - show user's own kingdoms
                 await handleOwnKingdomsSelection(interaction, sql, ephemeral, guildId);
@@ -176,9 +182,9 @@ async function handleKingdomInfo(interaction, kingdomId, sql, api, encryption, e
             }
 
             const replyPayload = { embeds: [embed], ...ephemeral };
-            const actionRow = buildAccountActionRow(playerInfo.kingdomId);
-            if (actionRow) {
-                replyPayload.components = [actionRow];
+            const actionRows = buildAccountActionRows(playerInfo.kingdomId);
+            if (actionRows.length > 0) {
+                replyPayload.components = actionRows;
             }
             if (imageArtifacts?.attachment) {
                 replyPayload.files = [imageArtifacts.attachment];
@@ -197,7 +203,7 @@ async function handleKingdomInfo(interaction, kingdomId, sql, api, encryption, e
     }
 }
 
-async function handleDiscordUserInfo(interaction, discordUser, sql, api, encryption, ephemeral, guildId) {
+async function handleDiscordUserInfo(interaction, discordUser, sql, api, encryption, ephemeral, guildId, summaryOnly = false) {
     const effectiveGuildId = guildId || interaction.guild?.id;
     if (!effectiveGuildId) {
         await interaction.editReply({ content: "Unable to resolve guild context for this request.", ...ephemeral });
@@ -246,15 +252,13 @@ async function handleDiscordUserInfo(interaction, discordUser, sql, api, encrypt
                 ? playerInfo.pastNamesHistory
                 : [];
 
-            const allianceTag = playerInfo.allianceTag && playerInfo.allianceTag.trim() !== ''
-                ? playerInfo.allianceTag.trim()
-                : 'no alliance';
+            const allianceDisplay = formatAllianceWithRank(playerInfo.allianceTag, playerInfo.allianceRank);
 
             const summaryEntry = {
                 name: playerInfo.name || playerInfo.kingdomId || 'Unknown',
                 kingdomId: playerInfo.kingdomId || 'Unknown',
                 level: Number.isFinite(Number(playerInfo.level)) ? Number(playerInfo.level) : 'Unknown',
-                alliance: allianceTag,
+                alliance: allianceDisplay,
                 power: Number.isFinite(Number(playerInfo.power)) ? Number(playerInfo.power) : null,
                 licenseSummary
             };
@@ -272,12 +276,12 @@ async function handleDiscordUserInfo(interaction, discordUser, sql, api, encrypt
                 kingdomCoordinates
             );
 
-            const actionRow = buildAccountActionRow(playerInfo.kingdomId);
+            const actionRows = buildAccountActionRows(playerInfo.kingdomId);
             const embedEntry = {
                 embed,
                 attachment: null,
                 filePath: null,
-                components: actionRow ? [actionRow] : undefined
+                components: actionRows.length > 0 ? actionRows : undefined
             };
 
             if (playerInfo.kingdomId) {
@@ -349,6 +353,24 @@ async function handleDiscordUserInfo(interaction, discordUser, sql, api, encrypt
     }
 
     const isEphemeral = Boolean(ephemeral?.flags);
+    const summaryEmbed = buildDiscordAccountsSummaryEmbed(discordUser, summaryData);
+
+    if (summaryOnly) {
+        try {
+            if (summaryEmbed) {
+                await interaction.editReply({ embeds: [summaryEmbed], components: [] });
+            } else {
+                await interaction.editReply({ content: "Summary information is unavailable at this time.", components: [] });
+            }
+        } finally {
+            const leftoverFiles = embedResults
+                .map(entry => entry.filePath)
+                .filter(filePath => filePath && fs.existsSync(filePath));
+            cleanupTempFiles(leftoverFiles);
+        }
+        return;
+    }
+
     const [firstResult, ...remainingResults] = embedResults;
 
     try {
@@ -358,11 +380,10 @@ async function handleDiscordUserInfo(interaction, discordUser, sql, api, encrypt
             await sendEmbedResponse(interaction, result, { isEphemeral, isInitial: false });
         }
 
-        const summaryEmbed = buildDiscordAccountsSummaryEmbed(discordUser, summaryData);
         if (summaryEmbed) {
             const summaryPayload = { embeds: [summaryEmbed] };
             if (isEphemeral) {
-                summaryPayload.ephemeral = true;
+                summaryPayload.flags = 64;
             }
             await interaction.followUp(summaryPayload);
         }
@@ -423,15 +444,13 @@ function buildPlayerEmbed(playerInfo, discordDetails, economyDetails, combatStat
         .setColor("#007ACC")
         .setTimestamp();
 
-    const allianceTag = playerInfo.allianceTag && playerInfo.allianceTag.trim() !== ''
-        ? playerInfo.allianceTag.trim()
-        : 'no alliance';
+    const allianceDisplay = formatAllianceWithRank(playerInfo.allianceTag, playerInfo.allianceRank);
 
     const accountInfoValue = [
         `• Kingdom ID: ${playerInfo.kingdomId || 'Unknown'}`,
         `• Continent: ${playerInfo.continent ?? 'Unknown'}`,
         `• Level: ${playerInfo.level ?? 'Unknown'}`,
-        `• Alliance: ${allianceTag}`,
+        `• Alliance: ${allianceDisplay}`,
         `• Power: ${formatNumberWithSuffix2(playerInfo.power)}`
     ].join('\n');
 
@@ -1548,6 +1567,7 @@ const INVITE_BUTTON_PREFIX = 'player-info_invite_';
 const INVITE_SELECT_PREFIX = 'player-info_invite_select_';
 const RANK_BUTTON_PREFIX = 'player-info_rank_';
 const RANK_SELECT_PREFIX = 'player-info_rank_select_';
+const KICK_BUTTON_PREFIX = 'player-info_kick_';
 const BLACKLIST_MODAL_PREFIX = 'player-info_blacklist_modal_';
 const MAIL_MODAL_PREFIX = 'player-info_mail_modal_';
 const RANK_MODAL_PREFIX = 'player-info_rank_modal_';
@@ -1560,9 +1580,9 @@ const RANK_CHOICES = [
     { label: 'R5', value: 99 }
 ];
 
-function buildAccountActionRow(kingdomId) {
+function buildAccountActionRows(kingdomId) {
     if (!kingdomId) {
-        return null;
+        return [];
     }
 
     const blacklistButton = new ButtonBuilder()
@@ -1574,6 +1594,11 @@ function buildAccountActionRow(kingdomId) {
         .setCustomId(`${UBL_BUTTON_PREFIX}${kingdomId}`)
         .setLabel('UBL')
         .setStyle(ButtonStyle.Secondary);
+
+    const kickButton = new ButtonBuilder()
+        .setCustomId(`${KICK_BUTTON_PREFIX}${kingdomId}`)
+        .setLabel('Kick')
+        .setStyle(ButtonStyle.Danger);
 
     const mailButton = new ButtonBuilder()
         .setCustomId(`${MAIL_BUTTON_PREFIX}${kingdomId}`)
@@ -1590,7 +1615,10 @@ function buildAccountActionRow(kingdomId) {
         .setLabel('Rank')
         .setStyle(ButtonStyle.Primary);
 
-    return new ActionRowBuilder().addComponents(blacklistButton, unblacklistButton, mailButton, inviteButton, rankButton);
+    const primaryRow = new ActionRowBuilder().addComponents(blacklistButton, unblacklistButton, kickButton);
+    const secondaryRow = new ActionRowBuilder().addComponents(mailButton, inviteButton, rankButton);
+
+    return [primaryRow, secondaryRow];
 }
 
 async function handleButtonInteraction(interaction, sql, api) {
@@ -1623,6 +1651,12 @@ async function handleButtonInteraction(interaction, sql, api) {
     if (customId.startsWith(RANK_BUTTON_PREFIX)) {
         const kingdomId = customId.slice(RANK_BUTTON_PREFIX.length);
         await handleRankButton(interaction, kingdomId, sql);
+        return;
+    }
+
+    if (customId.startsWith(KICK_BUTTON_PREFIX)) {
+        const kingdomId = customId.slice(KICK_BUTTON_PREFIX.length);
+        await handleKickButton(interaction, kingdomId, sql, api);
         return;
     }
 
@@ -2057,6 +2091,59 @@ async function handleInviteButton(interaction, kingdomId, sql, api) {
     });
 }
 
+async function handleKickButton(interaction, kingdomId, sql, api) {
+    if (!memberHasKickPermission(interaction)) {
+        await interaction.reply({ content: 'You need Kick Members permission to kick kingdoms.', flags: 64 });
+        return;
+    }
+
+    if (!interaction.guild) {
+        await interaction.reply({ content: 'This action can only be performed inside a server.', flags: 64 });
+        return;
+    }
+
+    if (!isValidKingdomId(kingdomId)) {
+        await interaction.reply({ content: 'The selected kingdom ID appears to be invalid.', flags: 64 });
+        return;
+    }
+
+    await interaction.deferReply({ flags: 64 });
+
+    const guildId = interaction.guild.id;
+
+    let nameRecord;
+    try {
+        nameRecord = await sql.getKingdomNameAndAlliance(kingdomId);
+    } catch (error) {
+        console.error('Failed to resolve kingdom information for kick request:', error);
+    }
+
+    const recordEntry = Array.isArray(nameRecord) ? nameRecord[0] : null;
+    const displayName = recordEntry?.name || kingdomId;
+    const allianceId = recordEntry?.allianceId || null;
+    const allianceTag = recordEntry?.allianceTag || null;
+
+    if (!allianceId) {
+        await interaction.editReply({ content: `${displayName} (${kingdomId}) is not currently a member of an alliance.` });
+        return;
+    }
+
+    await interaction.editReply({ content: `Attempting to remove ${displayName} (${kingdomId}) from the alliance...` });
+
+    await attemptKickFromAlliance({
+        sql,
+        api,
+        kingdomId,
+        displayName,
+        allianceId,
+        allianceTag,
+        guildId,
+        interaction
+    });
+
+    await interaction.editReply({ content: `Kick attempt processed for ${displayName} (${kingdomId}). Check the follow-up message for the result.` });
+}
+
 async function handleRankButton(interaction, kingdomId, sql) {
     if (!memberHasKickPermission(interaction)) {
         await interaction.reply({ content: 'You need Kick Members permission to change ranks.', flags: 64 });
@@ -2483,6 +2570,18 @@ function formatRankLabel(rankValue) {
     }
 
     return null;
+}
+
+function formatAllianceWithRank(tag, rankValue) {
+    const normalizedTag = typeof tag === 'string' ? tag.trim() : '';
+    const hasAllianceTag = normalizedTag.length > 0;
+    const rankLabel = formatRankLabel(rankValue);
+
+    if (!hasAllianceTag) {
+        return 'no alliance';
+    }
+
+    return rankLabel ? `${normalizedTag} (${rankLabel})` : normalizedTag;
 }
 
 function memberHasKickPermission(interaction) {
