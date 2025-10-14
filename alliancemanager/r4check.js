@@ -1,17 +1,46 @@
+const AccountInfo = require("../general/accountInfo.js");
+
 class R4Check {
     constructor(sql, api) {
         this.api = api;
         this.sql = sql;
+        this.accountInfo = new AccountInfo(sql, api);
     }
 
-    async checkR4(token, kingdomId, allianceId, retries = 40, delay = 30000) { // delay in milliseconds
+    async refreshTokenFromLogin(kingdomId, allianceId) {
+        try {
+            await this.accountInfo.updateSingleBotToken(kingdomId);
+            const refreshedToken = (await this.sql.getManagerToken(allianceId))[0]?.token;
+            if (!refreshedToken) {
+                console.warn("Token refresh via login returned no token for", allianceId);
+            }
+            return refreshedToken;
+        } catch (refreshError) {
+            console.error("Failed to refresh token via login for", allianceId, refreshError);
+            return null;
+        }
+    }
+
+    async checkR4(token, kingdomId, allianceId, retries = 40, delay = 30000, maxRetries = null) { // delay in milliseconds
         let allianceMembers;
         let allianceRequestStatus;
         let reloadedToken;
+        const totalRetries = maxRetries ?? retries;
+        const attemptNumber = totalRetries - retries + 1;
+
         if (!token) {
             console.error("No token provided for r4Check in:", allianceId);
             return false;
         }
+
+        if ((attemptNumber === 30 || attemptNumber === 40) && kingdomId && allianceId) {
+            console.log(`Attempt ${attemptNumber} - refreshing token via login for`, allianceId);
+            const refreshedToken = await this.refreshTokenFromLogin(kingdomId, allianceId);
+            if (refreshedToken) {
+                token = refreshedToken;
+            }
+        }
+
         try {
             allianceMembers = (await this.api.request(
                 "https://api-lok-live.leagueofkingdoms.com/api/alliance/members/list",
@@ -31,7 +60,7 @@ class R4Check {
                 console.log("Reloaded token:", reloadedToken);
                 await new Promise(resolve => setTimeout(resolve, delay));
                 console.log(reloadedToken, kingdomId, allianceId, retries - 1, delay);
-                return this.checkR4(reloadedToken, kingdomId, allianceId, retries - 1, delay);
+                return this.checkR4(reloadedToken, kingdomId, allianceId, retries - 1, delay, totalRetries);
             } else if (allianceMembers?.result === false) {
                 console.log(allianceMembers);
                 console.log("No alliance members found!");
@@ -58,7 +87,7 @@ class R4Check {
                 // Introduce a delay before retrying
                 await new Promise(resolve => setTimeout(resolve, delay));
 
-                return this.checkR4(reloadedToken, kingdomId, allianceId, retries - 1, delay);
+                return this.checkR4(reloadedToken, kingdomId, allianceId, retries - 1, delay, totalRetries);
             } else {
                 console.log("returning false for", allianceId);
                 console.error("Error checking R4, probably not R4 or retries exhausted:", error);
