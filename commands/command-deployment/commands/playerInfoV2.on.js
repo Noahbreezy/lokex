@@ -1234,8 +1234,12 @@ function buildBlacklistFieldValue(entries) {
 
     const entry = entries[0];
     const expiration = entry?.expiration ? formatDateTime(entry.expiration) : 'No expiry set';
+    const rawReason = typeof entry?.reason === 'string' && entry.reason.trim()
+        ? entry.reason.trim()
+        : (typeof entry?.description === 'string' && entry.description.trim() ? entry.description.trim() : null);
+    const formattedReason = rawReason ? `• Reason: ${rawReason}` : null;
 
-    return ['• Status: ❌ Blacklisted', `• Expires: ${expiration}`].join('\n');
+    return ['• Status: ❌ Blacklisted', `• Expires: ${expiration}`, formattedReason].filter(Boolean).join('\n');
 }
 
 function buildPastNamesFieldValue(history) {
