@@ -2518,6 +2518,107 @@ class sqlFunctions {
         return this.query(query, [guildId, limit]);
     }
 
+    // Polls functions
+
+    async createPoll(guildId, channelId, messageId, question, discordId, points = null) {
+        const query = `
+            INSERT INTO polls (guild_id, channel_id, message_id, question, discord_id, points)
+            VALUES (?, ?, ?, ?, ?, ?);
+        `;
+        const result = await this.query(query, [guildId, channelId, messageId, question, discordId, points]);
+        return result.insertId;
+    }
+
+    async updatePollMessageId(pollId, messageId) {
+        const query = `UPDATE polls SET message_id = ? WHERE id = ?;`;
+        return this.query(query, [messageId, pollId]);
+    }
+
+    async getPollById(pollId) {
+        const query = `
+            SELECT 
+                id,
+                CAST(guild_id AS CHAR) AS guild_id,
+                CAST(channel_id AS CHAR) AS channel_id,
+                CAST(message_id AS CHAR) AS message_id,
+                question,
+                CAST(discord_id AS CHAR) AS discord_id,
+                created_at,
+                is_active,
+                CAST(points AS SIGNED) AS points
+            FROM polls 
+            WHERE id = ?;
+        `;
+        return this.query(query, [pollId]);
+    }
+
+    async addPollOption(pollId, optionText) {
+        const query = `
+            INSERT INTO poll_options (poll_id, option_text)
+            VALUES (?, ?);
+        `;
+        const result = await this.query(query, [pollId, optionText]);
+        return result.insertId;
+    }
+
+    async getPollOptions(pollId) {
+        const query = `
+            SELECT id, option_text
+            FROM poll_options
+            WHERE poll_id = ?
+            ORDER BY id ASC;
+        `;
+        return this.query(query, [pollId]);
+    }
+
+    async getPollOptionsWithCounts(pollId) {
+        const query = `
+            SELECT po.id, po.option_text, COALESCE(COUNT(pv.id), 0) AS vote_count
+            FROM poll_options po
+            LEFT JOIN poll_votes pv ON pv.option_id = po.id
+            WHERE po.poll_id = ?
+            GROUP BY po.id, po.option_text
+            ORDER BY po.id ASC;
+        `;
+        return this.query(query, [pollId]);
+    }
+
+    async getPollOptionById(optionId) {
+        const query = `SELECT * FROM poll_options WHERE id = ?;`;
+        return this.query(query, [optionId]);
+    }
+
+    async getPollVoteByUser(pollId, userId) {
+        const query = `SELECT option_id FROM poll_votes WHERE poll_id = ? AND user_id = ?;`;
+        return this.query(query, [pollId, userId]);
+    }
+
+    async upsertPollVote(pollId, optionId, userId) {
+        const query = `
+            INSERT INTO poll_votes (poll_id, option_id, user_id)
+            VALUES (?, ?, ?)
+            ON DUPLICATE KEY UPDATE
+                option_id = VALUES(option_id),
+                voted_at = CURRENT_TIMESTAMP;
+        `;
+        return this.query(query, [pollId, optionId, userId]);
+    }
+
+    async deactivatePoll(pollId) {
+        const query = `UPDATE polls SET is_active = FALSE WHERE id = ?;`;
+        return this.query(query, [pollId]);
+    }
+
+    async reactivatePoll(pollId) {
+        const query = `UPDATE polls SET is_active = TRUE WHERE id = ?;`;
+        return this.query(query, [pollId]);
+    }
+
+    async deletePoll(pollId) {
+        const query = `DELETE FROM polls WHERE id = ?;`;
+        return this.query(query, [pollId]);
+    }
+
     // Points management functions
 
     // Get user's total points balance in a guild

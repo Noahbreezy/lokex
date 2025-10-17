@@ -160,6 +160,24 @@ client.on(Events.InteractionCreate, async (interaction) => {
           flags: 64,
         });
       }
+    } else if (interaction.customId.startsWith("poll_vote:")) {
+      const command = client.commands.get("vote");
+      if (!command || typeof command.handleButtonInteraction !== "function") return;
+      try {
+        await command.handleButtonInteraction(interaction);
+      } catch (error) {
+        console.error("Poll vote error:", error);
+        if (!interaction.replied && !interaction.deferred) {
+          try {
+            await interaction.reply({
+              content: "There was an error while recording your vote!",
+              flags: 64,
+            });
+          } catch (replyError) {
+            console.error("Poll vote error reply failed:", replyError);
+          }
+        }
+      }
     }
   } else if (interaction.isModalSubmit()) {
     if (interaction.customId === 'wallet_modal') {
