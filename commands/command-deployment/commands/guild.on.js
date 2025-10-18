@@ -547,7 +547,18 @@ module.exports = {
                             recentKingdomAdds30,
                             recentDiscordAdds30,
                             availableCmineLevels24,
-                            availableDsaLevels24
+                            availableDsaLevels24,
+                            economySummary,
+                            pointsDistributed7d,
+                            pointsDistributed30d,
+                            landPointsDistributed7d,
+                            landPointsDistributed30d,
+                            rallyPointsDistributed7d,
+                            rallyPointsDistributed30d,
+                            paymentPointsDistributed7d,
+                            paymentPointsDistributed30d,
+                            populationStats,
+                            currencyEmojiRaw
                         ] = await Promise.all([
                             sql.getGuildContinent(guildId),
                             sql.getActiveVerifiedKingdoms(guildId),
@@ -556,7 +567,18 @@ module.exports = {
                             sql.getVerifiedKingdomsAddedWithin(guildId, 30),
                             sql.getVerifiedDiscordsAddedWithin(guildId, 30),
                             sql.getAvailableCmineCountsByLevel(guildId, 24),
-                            sql.getAvailableDsaCountsByLevel(guildId, 24)
+                            sql.getAvailableDsaCountsByLevel(guildId, 24),
+                            sql.getGuildPointsEconomy(guildId),
+                            sql.getPointsDistributedWithin(guildId, 7),
+                            sql.getPointsDistributedWithin(guildId, 30),
+                            sql.getLandPointsDistributedWithin(guildId, 7),
+                            sql.getLandPointsDistributedWithin(guildId, 30),
+                            sql.getRallyPointsDistributedWithin(guildId, 7),
+                            sql.getRallyPointsDistributedWithin(guildId, 30),
+                            sql.getPaymentPointsDistributedWithin(guildId, 7),
+                            sql.getPaymentPointsDistributedWithin(guildId, 30),
+                            sql.getVerifiedLevelStats(guildId),
+                            sql.getGuildCurrencyEmoji(guildId)
                         ]);
 
                         const uniqueContinentList = Array.isArray(continentRows)
@@ -579,6 +601,10 @@ module.exports = {
                         }
 
                         const formatCount = (value) => Number(value || 0).toLocaleString();
+                        const formatDecimal = (value) => Number(value || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                        const currencyEmoji = currencyEmojiRaw || "🪙";
+                        const formatPoints = (value) => `${formatCount(value)} ${currencyEmoji}`.trim();
+                        const formatPointsDecimal = (value) => `${formatDecimal(value)} ${currencyEmoji}`.trim();
                         const continentValueLines = [
                             `Continents: ${uniqueContinentList.length ? uniqueContinentList.join(", ") : "None linked"}`,
                             `Verified kingdoms: ${formatCount(activeKingdomRows.length)}`,
@@ -639,6 +665,34 @@ module.exports = {
                         const dsaFieldValue = dsaLevelsText === "None"
                             ? "Mines: 0"
                             : `Mines: ${formatCount(totalDsaAvailable24)}\n${dsaLevelsText}`;
+
+                        const totalEconomyPoints = Number(economySummary?.totalPoints || 0);
+                        const economyOwnerCount = Number(economySummary?.ownerCount || 0);
+                        const averageEconomyPoints = economyOwnerCount > 0
+                            ? totalEconomyPoints / economyOwnerCount
+                            : 0;
+
+                        const level35Count = Number(populationStats?.level35 || 0);
+                        const level33Count = Number(populationStats?.level33 || 0);
+                        const level30OrBelowCount = Number(populationStats?.level30OrBelow || 0);
+                        const averageLevel = populationStats?.averageLevel ? Number(populationStats.averageLevel) : 0;
+
+                        const economyValueLines = [
+                            `Total points: ${formatPoints(totalEconomyPoints)}`,
+                            `Average per owner: ${economyOwnerCount > 0 ? formatPointsDecimal(averageEconomyPoints) : `0.00 ${currencyEmoji}`.trim()}`,
+                            `Distributed last 7d: ${formatPoints(pointsDistributed7d)}`,
+                            `Distributed last 30d: ${formatPoints(pointsDistributed30d)}`,
+                            `Land program (7d/30d): ${formatPoints(landPointsDistributed7d)} / ${formatPoints(landPointsDistributed30d)}`,
+                            `Rally points (7d/30d): ${formatPoints(rallyPointsDistributed7d)} / ${formatPoints(rallyPointsDistributed30d)}`,
+                            `Payment points (7d/30d): ${formatPoints(paymentPointsDistributed7d)} / ${formatPoints(paymentPointsDistributed30d)}`
+                        ];
+
+                        const populationValueLines = [
+                            `Level 35: ${formatCount(level35Count)}`,
+                            `Level 33: ${formatCount(level33Count)}`,
+                            `Level 30 or below: ${formatCount(level30OrBelowCount)}`,
+                            `Average level: ${formatDecimal(averageLevel || 0)}`
+                        ];
 
                         const mineAvailabilityFields = {
                             cmine: {
@@ -758,6 +812,16 @@ module.exports = {
                                     inline: false
                                 },
                                 {
+                                    name: "__Population Stats__",
+                                    value: populationValueLines.join("\n"),
+                                    inline: true
+                                },
+                                {
+                                    name: "\u200B",
+                                    value: "\u200B",
+                                    inline: false
+                                },
+                                {
                                     name: "__Whitelist Stats (DSA)__",
                                     value: whitelistDsaValue,
                                     inline: true
@@ -774,6 +838,16 @@ module.exports = {
                                 },
                                 mineAvailabilityFields.dsa,
                                 mineAvailabilityFields.cmine,
+                                {
+                                    name: "\u200B",
+                                    value: "\u200B",
+                                    inline: false
+                                },
+                                {
+                                    name: "__Economy Stats__",
+                                    value: economyValueLines.join("\n"),
+                                    inline: true
+                                },
                             )
                             .setFooter({ text: "Activity windows: 7d (recent), 30d (growth), 24h (mines)" })
                             .setTimestamp(new Date());

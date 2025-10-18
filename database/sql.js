@@ -1973,6 +1973,112 @@ class sqlFunctions {
         return this.query(query, [userId, guildId]);
     }
 
+    // Points economy functions
+    async getGuildPointsEconomy(guildId) {
+        const query = `
+            SELECT 
+                COALESCE(SUM(total_points), 0) AS totalPoints,
+                COALESCE(SUM(CASE WHEN total_points > 0 THEN 1 ELSE 0 END), 0) AS ownerCount
+            FROM points_totals
+            WHERE guild_id = ?;
+        `;
+
+        const results = await this.query(query, [guildId]);
+        if (!results || !results[0]) {
+            return { totalPoints: 0, ownerCount: 0 };
+        }
+
+        return {
+            totalPoints: Number(results[0].totalPoints || 0),
+            ownerCount: Number(results[0].ownerCount || 0)
+        };
+    }
+
+    async getPointsDistributedWithin(guildId, days = 7) {
+        const query = `
+            SELECT COALESCE(SUM(CASE WHEN amount > 0 THEN amount ELSE 0 END), 0) AS totalDistributed
+            FROM points_transactions
+            WHERE guild_id = ?
+              AND timestamp >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL ? DAY);
+        `;
+
+        const results = await this.query(query, [guildId, days]);
+        return results && results[0] ? Number(results[0].totalDistributed || 0) : 0;
+    }
+
+    async getLandPointsDistributedWithin(guildId, days = 7) {
+        const query = `
+            SELECT COALESCE(SUM(CASE WHEN amount > 0 THEN amount ELSE 0 END), 0) AS totalDistributed
+            FROM points_transactions
+            WHERE guild_id = ?
+              AND reason = 'Land contribution'
+              AND timestamp >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL ? DAY);
+        `;
+
+        const results = await this.query(query, [guildId, days]);
+        return results && results[0] ? Number(results[0].totalDistributed || 0) : 0;
+    }
+
+    async getRallyPointsDistributedWithin(guildId, days = 7) {
+        const query = `
+            SELECT COALESCE(SUM(CASE WHEN amount > 0 THEN amount ELSE 0 END), 0) AS totalDistributed
+            FROM points_transactions
+            WHERE guild_id = ?
+              AND reason IN ('Rally starting', 'Rally joining')
+              AND timestamp >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL ? DAY);
+        `;
+
+        const results = await this.query(query, [guildId, days]);
+        return results && results[0] ? Number(results[0].totalDistributed || 0) : 0;
+    }
+
+    async getPaymentPointsDistributedWithin(guildId, days = 7) {
+        const query = `
+            SELECT COALESCE(SUM(CASE WHEN amount > 0 THEN amount ELSE 0 END), 0) AS totalDistributed
+            FROM points_transactions
+            WHERE guild_id = ?
+              AND reason = 'DST payment'
+              AND timestamp >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL ? DAY);
+        `;
+
+        const results = await this.query(query, [guildId, days]);
+        return results && results[0] ? Number(results[0].totalDistributed || 0) : 0;
+    }
+
+    async getVerifiedLevelStats(guildId) {
+        const query = `
+            SELECT
+                COALESCE(SUM(CASE WHEN li.level = 35 THEN 1 ELSE 0 END), 0) AS level35,
+                COALESCE(SUM(CASE WHEN li.level = 33 THEN 1 ELSE 0 END), 0) AS level33,
+                COALESCE(SUM(CASE WHEN li.level <= 30 THEN 1 ELSE 0 END), 0) AS level30OrBelow,
+                AVG(NULLIF(li.level, 0)) AS averageLevel,
+                COUNT(*) AS totalCount
+            FROM verified v
+            LEFT JOIN latest_info li ON li.kingdomId = v.kingdomId
+            WHERE v.guild = ?
+              AND v.status = 1;
+        `;
+
+        const results = await this.query(query, [guildId]);
+        if (!results || !results[0]) {
+            return {
+                level35: 0,
+                level33: 0,
+                level30OrBelow: 0,
+                averageLevel: 0,
+                totalCount: 0
+            };
+        }
+
+        return {
+            level35: Number(results[0].level35 || 0),
+            level33: Number(results[0].level33 || 0),
+            level30OrBelow: Number(results[0].level30OrBelow || 0),
+            averageLevel: results[0].averageLevel ? Number(results[0].averageLevel) : 0,
+            totalCount: Number(results[0].totalCount || 0)
+        };
+    }
+
     // mines functions
 
     // Inser a new mine into the mines table
