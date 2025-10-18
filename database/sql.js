@@ -510,6 +510,32 @@ class sqlFunctions {
         return this.query(sql, [guildId]);
     }
 
+    // Get count of kingdoms verified within the last N days for a guild
+    async getVerifiedKingdomsAddedWithin(guildId, days = 30) {
+        const sql = `
+            SELECT COUNT(*) AS count
+            FROM verified
+            WHERE guild = ?
+              AND status = 1
+              AND date >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL ? DAY)
+        `;
+        const results = await this.query(sql, [guildId, days]);
+        return results && results[0] ? Number(results[0].count) : 0;
+    }
+
+    // Get count of distinct Discord IDs verified within the last N days for a guild
+    async getVerifiedDiscordsAddedWithin(guildId, days = 30) {
+        const sql = `
+            SELECT COUNT(DISTINCT discordId) AS count
+            FROM verified
+            WHERE guild = ?
+              AND status = 1
+              AND date >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL ? DAY)
+        `;
+        const results = await this.query(sql, [guildId, days]);
+        return results && results[0] ? Number(results[0].count) : 0;
+    }
+
     // After deactivation, find discordIds that no longer have active kingdoms
     async getDiscordIdsFullyInactive(guildId) {
         const sql = `SELECT discordId FROM verified WHERE guild = ? GROUP BY discordId HAVING SUM(status = 1) = 0`;
@@ -2029,6 +2055,103 @@ class sqlFunctions {
             WHERE created_at < NOW() - INTERVAL 24 HOUR;
         `;
         return this.query(query);
+    }
+
+    // Get count of latest available mines for a code within the last N hours
+    async getAvailableMineCount(guildId, code, hours = 24) {
+        const query = `
+            SELECT COUNT(*) AS count
+            FROM (
+                SELECT m1.fid
+                FROM mines m1
+                INNER JOIN (
+                    SELECT fid, MAX(created_at) AS latest_created
+                    FROM mines
+                    WHERE guild = ? AND code = ?
+                    GROUP BY fid
+                ) latest ON latest.fid = m1.fid AND latest.latest_created = m1.created_at
+                WHERE m1.guild = ?
+                  AND m1.code = ?
+                  AND m1.created_at >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL ? HOUR)
+                  AND (m1.expired IS NULL OR m1.expired > UTC_TIMESTAMP())
+                  AND (m1.ended IS NULL OR m1.ended > UTC_TIMESTAMP())
+                GROUP BY m1.fid
+            ) counted;
+        `;
+        const results = await this.query(query, [guildId, code, guildId, code, hours]);
+        return results && results[0] ? Number(results[0].count) : 0;
+    }
+
+    // Get available C-Mine count within the last N hours
+    async getAvailableCmineCount(guildId, hours = 24) {
+        return this.getAvailableMineCount(guildId, 20100105, hours);
+    }
+
+    // Get available C-Mine counts grouped by level within the last N hours
+    async getAvailableCmineCountsByLevel(guildId, hours = 24) {
+        const query = `
+            SELECT m1.level AS level, COUNT(*) AS count
+            FROM mines m1
+            INNER JOIN (
+                SELECT fid, MAX(created_at) AS latest_created
+                FROM mines
+                WHERE guild = ? AND code = 20100105
+                GROUP BY fid
+            ) latest ON latest.fid = m1.fid AND latest.latest_created = m1.created_at
+            WHERE m1.guild = ?
+              AND m1.code = 20100105
+              AND m1.created_at >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL ? HOUR)
+              AND (m1.expired IS NULL OR m1.expired > UTC_TIMESTAMP())
+              AND (m1.ended IS NULL OR m1.ended > UTC_TIMESTAMP())
+            GROUP BY m1.level
+            ORDER BY m1.level;
+        `;
+
+        const results = await this.query(query, [guildId, guildId, hours]);
+        if (!Array.isArray(results)) {
+            return [];
+        }
+
+        return results.map((row) => ({
+            level: row?.level !== null && row?.level !== undefined ? Number(row.level) : null,
+            count: Number(row?.count || 0)
+        }));
+    }
+
+    // Get available DSA mine count within the last N hours
+    async getAvailableDsaMineCount(guildId, hours = 24) {
+        return this.getAvailableMineCount(guildId, 20100106, hours);
+    }
+
+    // Get available DSA mine counts grouped by level within the last N hours
+    async getAvailableDsaCountsByLevel(guildId, hours = 24) {
+        const query = `
+            SELECT m1.level AS level, COUNT(*) AS count
+            FROM mines m1
+            INNER JOIN (
+                SELECT fid, MAX(created_at) AS latest_created
+                FROM mines
+                WHERE guild = ? AND code = 20100106
+                GROUP BY fid
+            ) latest ON latest.fid = m1.fid AND latest.latest_created = m1.created_at
+            WHERE m1.guild = ?
+              AND m1.code = 20100106
+              AND m1.created_at >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL ? HOUR)
+              AND (m1.expired IS NULL OR m1.expired > UTC_TIMESTAMP())
+              AND (m1.ended IS NULL OR m1.ended > UTC_TIMESTAMP())
+            GROUP BY m1.level
+            ORDER BY m1.level;
+        `;
+
+        const results = await this.query(query, [guildId, guildId, hours]);
+        if (!Array.isArray(results)) {
+            return [];
+        }
+
+        return results.map((row) => ({
+            level: row?.level !== null && row?.level !== undefined ? Number(row.level) : null,
+            count: Number(row?.count || 0)
+        }));
     }
 
     // illegal reports functuons

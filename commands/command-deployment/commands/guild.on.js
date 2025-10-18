@@ -105,6 +105,10 @@ module.exports = {
                 .setDescription("Display all current guild settings")
         ).addSubcommand((subcommand) =>
             subcommand
+                .setName("stats")
+                .setDescription("Display guild and continent statistics")
+        ).addSubcommand((subcommand) =>
+            subcommand
                 .setName("unverified-period")
                 .setDescription("Set the period after which users lose their verified role")
                 .addIntegerOption((option) =>
@@ -531,6 +535,252 @@ module.exports = {
                         });
                         break;
                     }
+                case "stats":
+                    {
+                        await interaction.deferReply({ ...ephemeral });
+
+                        const [
+                            continentRows,
+                            activeKingdomRows,
+                            activeDiscordRows,
+                            scannerLevelSettings,
+                            recentKingdomAdds30,
+                            recentDiscordAdds30,
+                            availableCmineLevels24,
+                            availableDsaLevels24
+                        ] = await Promise.all([
+                            sql.getGuildContinent(guildId),
+                            sql.getActiveVerifiedKingdoms(guildId),
+                            sql.getActiveVerifiedDiscordIds(guildId),
+                            sql.getCmineAndDsaLevels(guildId),
+                            sql.getVerifiedKingdomsAddedWithin(guildId, 30),
+                            sql.getVerifiedDiscordsAddedWithin(guildId, 30),
+                            sql.getAvailableCmineCountsByLevel(guildId, 24),
+                            sql.getAvailableDsaCountsByLevel(guildId, 24)
+                        ]);
+
+                        const uniqueContinentList = Array.isArray(continentRows)
+                            ? [...new Set(continentRows.map(row => row?.continent).filter(Boolean))]
+                            : [];
+
+                        const kingdomIds = activeKingdomRows
+                            .map(row => row?.kingdomId)
+                            .filter(Boolean);
+
+                        let recentlyActiveRows = [];
+                        let recentlyActiveRows30 = [];
+                        try {
+                            [recentlyActiveRows, recentlyActiveRows30] = await Promise.all([
+                                sql.getRecentlyActiveKingdoms(kingdomIds, guildId, 7),
+                                sql.getRecentlyActiveKingdoms(kingdomIds, guildId, 30)
+                            ]);
+                        } catch (recentError) {
+                            console.error("Failed to fetch recently active kingdoms", recentError);
+                        }
+
+                        const formatCount = (value) => Number(value || 0).toLocaleString();
+                        const continentValueLines = [
+                            `Continents: ${uniqueContinentList.length ? uniqueContinentList.join(", ") : "None linked"}`,
+                            `Verified kingdoms: ${formatCount(activeKingdomRows.length)}`,
+                            `Verified Discord IDs: ${formatCount(activeDiscordRows.length)}`,
+                            `Active kingdoms last 7d: ${formatCount(recentlyActiveRows.length)}`
+                        ];
+
+                        const growthValueLines = [
+                            `Verified kingdoms 30d: +${formatCount(recentKingdomAdds30)}`,
+                            `Verified Discord IDs 30d: +${formatCount(recentDiscordAdds30)}`,
+                            `Active kingdoms last 30d: ${formatCount(recentlyActiveRows30.length)}`
+                        ];
+
+                        const totalCmineAvailable24 = Array.isArray(availableCmineLevels24)
+                            ? availableCmineLevels24.reduce((sum, entry) => sum + (Number(entry?.count) || 0), 0)
+                            : 0;
+
+                        const cmineLevelsText = Array.isArray(availableCmineLevels24) && availableCmineLevels24.length > 0
+                            ? availableCmineLevels24
+                                .slice()
+                                .sort((a, b) => {
+                                    const levelA = Number(a?.level) || 0;
+                                    const levelB = Number(b?.level) || 0;
+                                    return levelA - levelB;
+                                })
+                                .map((entry) => {
+                                    const level = Number(entry?.level) || 0;
+                                    const label = level > 0 ? `L${level}` : "L?";
+                                    return `${label}: ${formatCount(entry?.count || 0)}`;
+                                })
+                                .join("\n")
+                            : "None";
+
+                        const cmineFieldValue = cmineLevelsText === "None"
+                            ? "Mines: 0"
+                            : `Mines: ${formatCount(totalCmineAvailable24)}\n${cmineLevelsText}`;
+
+                        const totalDsaAvailable24 = Array.isArray(availableDsaLevels24)
+                            ? availableDsaLevels24.reduce((sum, entry) => sum + (Number(entry?.count) || 0), 0)
+                            : 0;
+
+                        const dsaLevelsText = Array.isArray(availableDsaLevels24) && availableDsaLevels24.length > 0
+                            ? availableDsaLevels24
+                                .slice()
+                                .sort((a, b) => {
+                                    const levelA = Number(a?.level) || 0;
+                                    const levelB = Number(b?.level) || 0;
+                                    return levelA - levelB;
+                                })
+                                .map((entry) => {
+                                    const level = Number(entry?.level) || 0;
+                                    const label = level > 0 ? `L${level}` : "L?";
+                                    return `${label}: ${formatCount(entry?.count || 0)}`;
+                                })
+                                .join("\n")
+                            : "None";
+
+                        const dsaFieldValue = dsaLevelsText === "None"
+                            ? "Mines: 0"
+                            : `Mines: ${formatCount(totalDsaAvailable24)}\n${dsaLevelsText}`;
+
+                        const mineAvailabilityFields = {
+                            cmine: {
+                                name: "__Available C-Mines (24h)__",
+                                value: cmineFieldValue,
+                                inline: true
+                            },
+                            dsa: {
+                                name: "__Available DSA Mines (24h)__",
+                                value: dsaFieldValue,
+                                inline: true
+                            }
+                        };
+
+                        let whitelistDsaValue = "No linked continents";
+                        let whitelistCmineValue = "No linked continents";
+
+                        if (uniqueContinentList.length > 0) {
+                            const whitelistResults = await Promise.all(
+                                uniqueContinentList.map(async (continent) => {
+                                    try {
+                                        return await sql.getWhitelist(guildId, continent);
+                                    } catch (whitelistError) {
+                                        console.error(`Failed to fetch whitelist for continent ${continent}`, whitelistError);
+                                        return [];
+                                    }
+                                })
+                            );
+
+                            const whitelistEntries = whitelistResults.flat();
+                            if (whitelistEntries.length === 0) {
+                                whitelistDsaValue = "No active whitelists";
+                                whitelistCmineValue = "No active whitelists";
+                            } else {
+                                const dsaCounts = {};
+                                const cmineCounts = {};
+
+                                for (const entry of whitelistEntries) {
+                                    const dsaLevel = Number(entry?.dsa || 0);
+                                    const cmineLevel = Number(entry?.cmine || 0);
+
+                                    if (dsaLevel > 0) {
+                                        dsaCounts[dsaLevel] = (dsaCounts[dsaLevel] || 0) + 1;
+                                    }
+
+                                    if (cmineLevel > 0) {
+                                        cmineCounts[cmineLevel] = (cmineCounts[cmineLevel] || 0) + 1;
+                                    }
+                                }
+
+                                const minLevels = {
+                                    dsa: Number(scannerLevelSettings?.dsa_lvl) || 0,
+                                    cmine: Number(scannerLevelSettings?.cmine_lvl) || 0
+                                };
+
+                                const formatLevelCounts = (counts, minimumAllowed) => {
+                                    const levels = Object.keys(counts)
+                                        .map((level) => Number(level))
+                                        .filter((level) => level > 0 && (minimumAllowed ? level > minimumAllowed : true))
+                                        .sort((a, b) => a - b);
+
+                                    if (levels.length === 0) {
+                                        return "None";
+                                    }
+
+                                    return levels
+                                        .map((level) => `L${level}: ${formatCount(counts[level])}`)
+                                        .join("\n");
+                                };
+
+                                const sumCounts = (counts, minimumAllowed) =>
+                                    Object.entries(counts)
+                                        .reduce((sum, [level, value]) => {
+                                            const numericLevel = Number(level);
+                                            if (numericLevel > 0 && (!minimumAllowed || numericLevel >= minimumAllowed)) {
+                                                return sum + value;
+                                            }
+                                            return sum;
+                                        }, 0);
+
+                                const dsaLevelsText = formatLevelCounts(dsaCounts, minLevels.dsa);
+                                const cmineLevelsText = formatLevelCounts(cmineCounts, minLevels.cmine);
+
+                                const dsaKingdomCount = formatCount(sumCounts(dsaCounts, minLevels.dsa));
+                                const cmineKingdomCount = formatCount(sumCounts(cmineCounts, minLevels.cmine));
+
+                                const buildValue = (kingdomCount, levelsText) => {
+                                    if (levelsText === "None") {
+                                        return `Kingdoms: ${kingdomCount}\nLevels: None`;
+                                    }
+                                    return `Kingdoms: ${kingdomCount}\n${levelsText}`;
+                                };
+
+                                whitelistDsaValue = buildValue(dsaKingdomCount, dsaLevelsText);
+                                whitelistCmineValue = buildValue(cmineKingdomCount, cmineLevelsText);
+                            }
+                        }
+
+                        const embed = new EmbedBuilder()
+                            .setColor(0x5865F2)
+                            .setTitle(`${guildName}'s stats`)
+                            .addFields(
+                                {
+                                    name: "__Continent Info__",
+                                    value: continentValueLines.join("\n"),
+                                    inline: true
+                                },
+                                {
+                                    name: "__Continent Growth__",
+                                    value: growthValueLines.join("\n"),
+                                    inline: true
+                                },
+                                // Spacer field to create separation
+                                {
+                                    name: "\u200B",
+                                    value: "\u200B",
+                                    inline: false
+                                },
+                                {
+                                    name: "__Whitelist Stats (DSA)__",
+                                    value: whitelistDsaValue,
+                                    inline: true
+                                },
+                                {
+                                    name: "__Whitelist Stats (C-Mine)__",
+                                    value: whitelistCmineValue,
+                                    inline: true
+                                },
+                                {
+                                    name: "\u200B",
+                                    value: "\u200B",
+                                    inline: false
+                                },
+                                mineAvailabilityFields.dsa,
+                                mineAvailabilityFields.cmine,
+                            )
+                            .setFooter({ text: "Activity windows: 7d (recent), 30d (growth), 24h (mines)" })
+                            .setTimestamp(new Date());
+
+                        await interaction.editReply({ embeds: [embed] });
+                        break;
+                    }
                 case "show-settings":
                     {
                         // Define channel-related fields
@@ -608,7 +858,7 @@ module.exports = {
                                     // Handle other fields as before
                                     displayValue = value !== null && value !== undefined ? String(value) : 'Not set';
                                 }
-                                return { name: displayKey, value: displayValue, inline: false };
+                                return { name: displayKey, value: displayValue, inline: true };
                             });
 
                         if (settingsEntries.length === 0) {
