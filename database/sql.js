@@ -2163,102 +2163,74 @@ class sqlFunctions {
         return this.query(query);
     }
 
-    // Get count of latest available mines for a code within the last N hours
-    async getAvailableMineCount(guildId, code, hours = 24) {
+    // Get count of unique available mines for a code by guild
+    async getAvailableMineCount(guildId, code) {
         const query = `
-            SELECT COUNT(*) AS count
-            FROM (
-                SELECT m1.fid
-                FROM mines m1
-                INNER JOIN (
-                    SELECT fid, MAX(created_at) AS latest_created
-                    FROM mines
-                    WHERE guild = ? AND code = ?
-                    GROUP BY fid
-                ) latest ON latest.fid = m1.fid AND latest.latest_created = m1.created_at
-                WHERE m1.guild = ?
-                  AND m1.code = ?
-                  AND m1.created_at >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL ? HOUR)
-                  AND (m1.expired IS NULL OR m1.expired > UTC_TIMESTAMP())
-                  AND (m1.ended IS NULL OR m1.ended > UTC_TIMESTAMP())
-                GROUP BY m1.fid
-            ) counted;
+            SELECT COUNT(DISTINCT fid) AS count
+            FROM mines
+            WHERE guild = ? AND code = ?
         `;
-        const results = await this.query(query, [guildId, code, guildId, code, hours]);
+        const results = await this.query(query, [guildId, code]);
         if (code === 20100105) {
-            console.log(`Available C-Mines for guild ${guildId} in last ${hours} hours: ${results && results[0] ? Number(results[0].count) : 0}`);
+            console.log(`Available C-Mines for guild ${guildId}: ${results && results[0] ? Number(results[0].count) : 0}`);
         } else if (code === 20100106) {
-            console.log(`Available DSA Mines for guild ${guildId} in last ${hours} hours: ${results && results[0] ? Number(results[0].count) : 0}`);
+            console.log(`Available DSA Mines for guild ${guildId}: ${results && results[0] ? Number(results[0].count) : 0}`);
         }
         return results && results[0] ? Number(results[0].count) : 0;
     }
 
-    // Get available C-Mine count within the last N hours
-    async getAvailableCmineCount(guildId, hours = 24) {
-        return this.getAvailableMineCount(guildId, 20100105, hours);
+    // Get available C-Mine count by guild
+    async getAvailableCmineCount(guildId) {
+        return this.getAvailableMineCount(guildId, 20100105);
     }
 
-    // Get available C-Mine counts grouped by level within the last N hours
-    async getAvailableCmineCountsByLevel(guildId, hours = 24) {
+    // Get available C-Mine counts grouped by level by guild
+    async getAvailableCmineCountsByLevel(guildId) {
         const query = `
-            SELECT m1.level AS level, COUNT(*) AS count
-            FROM mines m1
-            INNER JOIN (
-                SELECT fid, MAX(created_at) AS latest_created
-                FROM mines
-                WHERE guild = ? AND code = 20100105
-                GROUP BY fid
-            ) latest ON latest.fid = m1.fid AND latest.latest_created = m1.created_at
-            WHERE m1.guild = ?
-              AND m1.code = 20100105
-              AND m1.created_at >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL ? HOUR)
-              AND (m1.expired IS NULL OR m1.expired > UTC_TIMESTAMP())
-              AND (m1.ended IS NULL OR m1.ended > UTC_TIMESTAMP())
-            GROUP BY m1.level
-            ORDER BY m1.level;
+            SELECT level, COUNT(DISTINCT fid) AS count
+            FROM mines
+            WHERE guild = ? AND code = 20100105
+            GROUP BY level
+            ORDER BY level;
         `;
-
-        const results = await this.query(query, [guildId, guildId, hours]);
+        const results = await this.query(query, [guildId]);
         if (!Array.isArray(results)) {
             return [];
         }
-
+        for (const row of results) {
+            if (row?.level !== null && row?.level !== undefined) {
+                console.log(`Available C-Mines (level ${row.level}) for guild ${guildId}: ${Number(row.count)}`);
+            }
+        }
         return results.map((row) => ({
             level: row?.level !== null && row?.level !== undefined ? Number(row.level) : null,
             count: Number(row?.count || 0)
         }));
     }
 
-    // Get available DSA mine count within the last N hours
-    async getAvailableDsaMineCount(guildId, hours = 24) {
-        return this.getAvailableMineCount(guildId, 20100106, hours);
+    // Get available DSA mine count by guild
+    async getAvailableDsaMineCount(guildId) {
+        return this.getAvailableMineCount(guildId, 20100106);
     }
 
-    // Get available DSA mine counts grouped by level within the last N hours
-    async getAvailableDsaCountsByLevel(guildId, hours = 24) {
+    // Get available DSA mine counts grouped by level by guild
+    async getAvailableDsaCountsByLevel(guildId) {
         const query = `
-            SELECT m1.level AS level, COUNT(*) AS count
-            FROM mines m1
-            INNER JOIN (
-                SELECT fid, MAX(created_at) AS latest_created
-                FROM mines
-                WHERE guild = ? AND code = 20100106
-                GROUP BY fid
-            ) latest ON latest.fid = m1.fid AND latest.latest_created = m1.created_at
-            WHERE m1.guild = ?
-              AND m1.code = 20100106
-              AND m1.created_at >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL ? HOUR)
-              AND (m1.expired IS NULL OR m1.expired > UTC_TIMESTAMP())
-              AND (m1.ended IS NULL OR m1.ended > UTC_TIMESTAMP())
-            GROUP BY m1.level
-            ORDER BY m1.level;
+            SELECT level, COUNT(DISTINCT fid) AS count
+            FROM mines
+            WHERE guild = ? AND code = 20100106
+            GROUP BY level
+            ORDER BY level;
         `;
-
-        const results = await this.query(query, [guildId, guildId, hours]);
+        const results = await this.query(query, [guildId]);
         if (!Array.isArray(results)) {
             return [];
         }
-
+        for (const row of results) {
+            if (row?.level !== null && row?.level !== undefined) {
+                console.log(`Available DSA Mines (level ${row.level}) for guild ${guildId}: ${Number(row.count)}`);
+            }
+        }
         return results.map((row) => ({
             level: row?.level !== null && row?.level !== undefined ? Number(row.level) : null,
             count: Number(row?.count || 0)
