@@ -277,6 +277,20 @@ client.on(Events.InteractionCreate, async (interaction) => {
           flags: 64,
         });
       }
+    } else if (interaction.customId.startsWith("shop_medal_quantity_")) {
+      const command = client.commands.get("shop");
+      if (!command) return;
+      try {
+        await command.handleMedalQuantitySubmit(interaction);
+      } catch (error) {
+        console.error('Medal modal error:', error);
+        if (!interaction.replied && !interaction.deferred) {
+          await interaction.reply({
+            content: "There was an error while processing your medal purchase.",
+            flags: 64,
+          });
+        }
+      }
     }
   } else if (interaction.isStringSelectMenu()) {
     if (interaction.customId === "scanner_freedays_select") {
@@ -328,6 +342,20 @@ client.on(Events.InteractionCreate, async (interaction) => {
           content: "There was an error while handling your subscription selection.",
           flags: 64,
         });
+      }
+    } else if (interaction.customId.startsWith("shop_medal_select_")) {
+      const command = client.commands.get("shop");
+      if (!command) return;
+      try {
+        await command.handleMedalKingdomSelect(interaction);
+      } catch (error) {
+        console.error('Medal select error:', error);
+        if (!interaction.replied && !interaction.deferred) {
+          await interaction.reply({
+            content: "There was an error while processing your medal selection.",
+            flags: 64,
+          });
+        }
       }
     }
   }

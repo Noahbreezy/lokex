@@ -2185,6 +2185,11 @@ class sqlFunctions {
             ) counted;
         `;
         const results = await this.query(query, [guildId, code, guildId, code, hours]);
+        if (code === 20100105) {
+            console.log(`Available C-Mines for guild ${guildId} in last ${hours} hours: ${results && results[0] ? Number(results[0].count) : 0}`);
+        } else if (code === 20100106) {
+            console.log(`Available DSA Mines for guild ${guildId} in last ${hours} hours: ${results && results[0] ? Number(results[0].count) : 0}`);
+        }
         return results && results[0] ? Number(results[0].count) : 0;
     }
 
@@ -2732,6 +2737,95 @@ class sqlFunctions {
     async logShopPurchase(guildId, userId, itemId, quantity, totalPrice) {
         const query = "INSERT INTO shop_purchases (guild_id, user_id, item_id, quantity, total_price) VALUES (?, ?, ?, ?, ?);";
         return this.query(query, [guildId, userId, itemId, quantity, totalPrice]);
+    }
+
+    async recordMedalTransaction(kingdomId, discordId, amount, guildId) {
+        const query = "INSERT INTO medals_transactions (kingdom_id, discord_id, amount, guild_id) VALUES (?, ?, ?, ?);";
+        return this.query(query, [kingdomId, discordId, amount, guildId]);
+    }
+
+    async getMedalTotalForKingdom(kingdomId, guildId) {
+        const query = "SELECT total_medals FROM medals_totals WHERE kingdom_id = ? AND guild_id = ?;";
+        const results = await this.query(query, [kingdomId, guildId]);
+        return results.length > 0 ? parseInt(results[0].total_medals, 10) : 0;
+    }
+
+    async getMedalsHistory(guildId, fromDateTime, toDateTime) {
+        const startingQuery = `
+            SELECT kingdom_id, COALESCE(SUM(amount), 0) AS balance
+            FROM medals_transactions
+            WHERE guild_id = ?
+              AND timestamp < ?
+            GROUP BY kingdom_id;
+        `;
+
+        const rangeQuery = `
+            SELECT
+                kingdom_id,
+                COALESCE(SUM(amount), 0) AS net_change,
+                COALESCE(SUM(CASE WHEN amount > 0 THEN amount ELSE 0 END), 0) AS total_positive,
+                COALESCE(SUM(CASE WHEN amount < 0 THEN amount ELSE 0 END), 0) AS total_negative,
+                COUNT(*) AS transaction_count
+            FROM medals_transactions
+            WHERE guild_id = ?
+              AND timestamp BETWEEN ? AND ?
+            GROUP BY kingdom_id;
+        `;
+
+        const [startingRows, rangeRows] = await Promise.all([
+            this.query(startingQuery, [guildId, fromDateTime]),
+            this.query(rangeQuery, [guildId, fromDateTime, toDateTime])
+        ]);
+
+        const startingMap = new Map();
+        if (Array.isArray(startingRows)) {
+            for (const row of startingRows) {
+                startingMap.set(row.kingdom_id, Number(row.balance || 0));
+            }
+        }
+
+        const rangeMap = new Map();
+        if (Array.isArray(rangeRows)) {
+            for (const row of rangeRows) {
+                rangeMap.set(row.kingdom_id, {
+                    netChange: Number(row.net_change || 0),
+                    totalPositive: Number(row.total_positive || 0),
+                    totalNegative: Number(row.total_negative || 0),
+                    transactionCount: Number(row.transaction_count || 0)
+                });
+            }
+        }
+
+        const allKingdomIds = new Set([
+            ...startingMap.keys(),
+            ...rangeMap.keys()
+        ]);
+
+        const kingdomSummaries = [];
+
+        for (const kingdomId of allKingdomIds) {
+            const startingBalance = startingMap.get(kingdomId) || 0;
+            const rangeData = rangeMap.get(kingdomId) || {
+                netChange: 0,
+                totalPositive: 0,
+                totalNegative: 0,
+                transactionCount: 0
+            };
+
+            const endingBalance = startingBalance + rangeData.netChange;
+
+            kingdomSummaries.push({
+                kingdomId,
+                startingBalance,
+                totalPositive: rangeData.totalPositive,
+                totalNegative: rangeData.totalNegative,
+                netChange: rangeData.netChange,
+                endingBalance,
+                transactionCount: rangeData.transactionCount
+            });
+        }
+
+        return { kingdomSummaries };
     }
 
     // Get shop purchase history

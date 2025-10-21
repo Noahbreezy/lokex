@@ -1,4 +1,8 @@
-const { SlashCommandBuilder, PermissionFlagsBits, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, StringSelectMenuBuilder, StringSelectMenuOptionBuilder, ModalBuilder, TextInputBuilder, TextInputStyle } = require("discord.js");
+const { SlashCommandBuilder, PermissionFlagsBits, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, StringSelectMenuBuilder, ModalBuilder, TextInputBuilder, TextInputStyle, AttachmentBuilder } = require("discord.js");
+const fs = require("fs");
+const path = require("path");
+
+const MAX_MEDALS_PER_KINGDOM = 40000;
 
 // Helper function to format numbers with K, M, B suffixes
 function formatNumber(num) {
@@ -252,6 +256,23 @@ module.exports = {
         )
         .addSubcommand((subcommand) =>
             subcommand
+                .setName("medals-history")
+                .setDescription("Download medal history totals for all kingdoms within a date range")
+                .addStringOption((option) =>
+                    option
+                        .setName("from")
+                        .setDescription("Start date in YYYY-MM-DD format")
+                        .setRequired(true)
+                )
+                .addStringOption((option) =>
+                    option
+                        .setName("to")
+                        .setDescription("End date in YYYY-MM-DD format")
+                        .setRequired(true)
+                )
+        )
+        .addSubcommand((subcommand) =>
+            subcommand
                 .setName("licenses")
                 .setDescription("View your available whitelist licenses")
                 .addUserOption((option) =>
@@ -287,7 +308,7 @@ module.exports = {
             const currencyEmoji = await getCurrencyEmoji(guildId, sql);
 
             // Check admin permissions for admin-only commands
-            const adminOnlyCommands = ['add', 'edit', 'remove', 'refresh', 'history', 'addpoints'];
+            const adminOnlyCommands = ['add', 'edit', 'remove', 'refresh', 'history', 'addpoints', 'medals-history'];
             const subcommand = options.getSubcommand();
 
             if (adminOnlyCommands.includes(subcommand)) {
@@ -814,6 +835,9 @@ module.exports = {
                         }
                         break;
                     }
+                case "medals-history":
+                    await this.handleMedalsHistory(interaction, ephemeral);
+                    break;
                 case "licenses":
                     {
                         // Defer reply immediately to prevent timeout
@@ -1154,6 +1178,120 @@ module.exports = {
             await interaction.reply({ content: "There was an error while managing the shop!", flags: 64 });
         }
     },
+    async handleMedalsHistory(interaction, ephemeral) {
+        const sql = module.exports.sql;
+        const { options, guildId, user } = interaction;
+        const guild = interaction.guild;
+        const fromDateInput = (options.getString("from") || "").trim();
+        const toDateInput = (options.getString("to") || "").trim();
+
+        const isEphemeral = Boolean(ephemeral && ephemeral.flags === 64);
+
+        try {
+            const member = interaction.member || await guild.members.fetch(user.id);
+            if (!member.permissions.has(PermissionFlagsBits.Administrator)) {
+                await interaction.reply({ content: "❌ You need administrator permissions to use this command.", ...ephemeral });
+                return;
+            }
+
+            const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
+            if (!dateRegex.test(fromDateInput) || !dateRegex.test(toDateInput)) {
+                await interaction.reply({ content: "❌ Invalid date format. Use YYYY-MM-DD for both start and end dates.", ...ephemeral });
+                return;
+            }
+
+            const fromDate = new Date(`${fromDateInput}T00:00:00Z`);
+            const toDate = new Date(`${toDateInput}T23:59:59Z`);
+
+            if (Number.isNaN(fromDate.getTime()) || Number.isNaN(toDate.getTime())) {
+                await interaction.reply({ content: "❌ Invalid date values. Please verify the provided dates.", ...ephemeral });
+                return;
+            }
+
+            if (fromDate > toDate) {
+                await interaction.reply({ content: "❌ Start date cannot be after end date.", ...ephemeral });
+                return;
+            }
+
+            const maxRangeDays = 365;
+            const daysDiff = Math.ceil((toDate - fromDate) / (1000 * 60 * 60 * 24)) + 1;
+            if (daysDiff > maxRangeDays) {
+                await interaction.reply({ content: `❌ Date range cannot exceed ${maxRangeDays} days.`, ...ephemeral });
+                return;
+            }
+
+            if (isEphemeral) {
+                await interaction.deferReply({ ephemeral: true });
+            } else {
+                await interaction.deferReply();
+            }
+
+            await interaction.editReply(`🔄 Fetching medal totals for all kingdoms from ${fromDateInput} to ${toDateInput}...`);
+
+            const fromDateTime = `${fromDateInput} 00:00:00`;
+            const toDateTime = `${toDateInput} 23:59:59`;
+            const history = await sql.getMedalsHistory(guildId, fromDateTime, toDateTime);
+
+            const kingdomSummaries = Array.isArray(history?.kingdomSummaries) ? history.kingdomSummaries : [];
+
+            if (kingdomSummaries.length === 0) {
+                await interaction.editReply(`❌ No medal data found for ${fromDateInput} to ${toDateInput}.`);
+                return;
+            }
+
+            kingdomSummaries.sort((a, b) => b.endingBalance - a.endingBalance);
+
+            const totalTransactions = kingdomSummaries.reduce((sum, k) => sum + k.transactionCount, 0);
+
+            const csvContent = this.generateMedalsHistoryCSV({
+                fromDate: fromDateInput,
+                toDate: toDateInput,
+                kingdomSummaries
+            });
+
+            const fileName = `medals_history_${fromDateInput}_to_${toDateInput}.csv`;
+            const tempFilePath = path.join(__dirname, '..', '..', '..', 'temp', fileName);
+            const tempDir = path.dirname(tempFilePath);
+
+            if (!fs.existsSync(tempDir)) {
+                fs.mkdirSync(tempDir, { recursive: true });
+            }
+
+            fs.writeFileSync(tempFilePath, '\ufeff' + csvContent, { encoding: 'utf8' });
+
+            const attachment = new AttachmentBuilder(tempFilePath, { name: fileName });
+
+            const summaryLines = [
+                `✅ **Medal History Report**`,
+                `📅 **Date Range:** ${fromDateInput} to ${toDateInput}`,
+                `👑 **Kingdoms Covered:** ${kingdomSummaries.length.toLocaleString()}`,
+                `📝 **Transactions Processed:** ${totalTransactions.toLocaleString()}`
+            ];
+
+            await interaction.editReply({
+                content: summaryLines.join('\n'),
+                files: [attachment]
+            });
+
+            setTimeout(() => {
+                try {
+                    if (fs.existsSync(tempFilePath)) {
+                        fs.unlinkSync(tempFilePath);
+                    }
+                } catch (cleanupError) {
+                    console.error('Failed to remove temporary medals history file:', cleanupError);
+                }
+            }, 60_000);
+
+        } catch (error) {
+            console.error('Error generating medals history:', error);
+            if (interaction.deferred || interaction.replied) {
+                await interaction.editReply('❌ An error occurred while generating the medal history report. Please try again later.');
+            } else {
+                await interaction.reply({ content: '❌ An error occurred while generating the medal history report. Please try again later.', ...ephemeral });
+            }
+        }
+    },
     async handlePurchase(interaction) {
         const sql = module.exports.sql;
         const { customId, guildId, user } = interaction;
@@ -1188,8 +1326,34 @@ module.exports = {
                 return;
             }
 
-            // Check if user has enough points
+            const itemType = item.type ? item.type.toLowerCase() : null;
             const userBalance = await sql.getUserPointsBalance(user.id, guildId);
+
+            if (itemType === 'medal') {
+                const pricePerMedal = Number(item.price);
+                if (!Number.isFinite(pricePerMedal) || pricePerMedal <= 0) {
+                    await interaction.reply({
+                        content: '❌ This medal item is misconfigured. Please contact an administrator.',
+                        flags: 64
+                    });
+                    return;
+                }
+
+                if (userBalance < pricePerMedal) {
+                    const priceDisplay = pricePerMedal % 1 === 0
+                        ? formatNumber(pricePerMedal)
+                        : pricePerMedal.toFixed(2);
+                    await interaction.reply({
+                        content: `❌ Insufficient funds! You need at least ${priceDisplay} ${currencyEmoji} to buy a single medal.`,
+                        flags: 64
+                    });
+                    return;
+                }
+
+                await this.handleMedalPurchase(interaction, item, currencyEmoji, sql);
+                return;
+            }
+
             const itemPrice = Math.floor(item.price);
             const userBalanceInt = Math.floor(userBalance);
 
@@ -1204,7 +1368,7 @@ module.exports = {
             }
 
             // Check if this item has dsa or cmine type - if so, need to select kingdom for whitelist
-            if (item.type && (item.type.toLowerCase() === 'dsa' || item.type.toLowerCase() === 'cmine')) {
+            if (itemType && (itemType === 'dsa' || itemType === 'cmine')) {
                 await this.handleWhitelistPurchase(interaction, item, currencyEmoji, sql);
                 return;
             }
@@ -1396,6 +1560,363 @@ module.exports = {
         }
     },
 
+    async handleMedalPurchase(interaction, item, currencyEmoji, sql) {
+        const { guildId, user } = interaction;
+
+        try {
+            const kingdoms = await sql.checkVerifiedKingdoms(user.id, guildId);
+            if (!kingdoms || kingdoms.length === 0) {
+                await interaction.reply({
+                    content: '❌ No verified kingdoms found. Verify a kingdom first using `/verify` to purchase medals.',
+                    flags: 64
+                });
+                return;
+            }
+
+            const modal = new ModalBuilder()
+                .setCustomId(`shop_medal_quantity_${item.id}_${user.id}`)
+                .setTitle(`Purchase ${item.name}`);
+
+            const quantityInput = new TextInputBuilder()
+                .setCustomId('medal_quantity')
+                .setLabel('How many medals do you want?')
+                .setPlaceholder(`Enter a number up to ${MAX_MEDALS_PER_KINGDOM}`)
+                .setMinLength(1)
+                .setMaxLength(5)
+                .setStyle(TextInputStyle.Short)
+                .setRequired(true);
+
+            modal.addComponents(new ActionRowBuilder().addComponents(quantityInput));
+
+            await interaction.showModal(modal);
+        } catch (error) {
+            console.error('Error preparing medal purchase modal:', error);
+            await interaction.reply({ content: '❌ There was an error preparing your medal purchase. Please try again later.', flags: 64 });
+        }
+    },
+
+    async handleMedalQuantitySubmit(interaction) {
+        const sql = module.exports.sql;
+        const { guildId, user } = interaction;
+
+        try {
+            const idParts = interaction.customId.split('_');
+            const itemId = parseInt(idParts[3], 10);
+            const requestUserId = idParts[4];
+
+            if (!itemId || !requestUserId) {
+                await interaction.reply({ content: '❌ Invalid medal purchase request.', flags: 64 });
+                return;
+            }
+
+            if (user.id !== requestUserId) {
+                await interaction.reply({ content: "❌ This medal purchase request isn't for you.", flags: 64 });
+                return;
+            }
+
+            const item = await sql.getShopItem(itemId, guildId);
+            if (!item || !item.type || item.type.toLowerCase() !== 'medal') {
+                await interaction.reply({ content: '❌ Medal item not found or no longer available.', flags: 64 });
+                return;
+            }
+
+            const rawQuantity = interaction.fields.getTextInputValue('medal_quantity').trim();
+            const sanitized = rawQuantity.replace(/,/g, '');
+            const quantity = parseInt(sanitized, 10);
+
+            if (!Number.isFinite(quantity) || quantity <= 0) {
+                await interaction.reply({ content: '❌ Please enter a valid positive number of medals.', flags: 64 });
+                return;
+            }
+
+            if (quantity > MAX_MEDALS_PER_KINGDOM) {
+                await interaction.reply({ content: `❌ You can purchase at most ${MAX_MEDALS_PER_KINGDOM} medals per transaction.`, flags: 64 });
+                return;
+            }
+
+            if (quantity > item.stock) {
+                await interaction.reply({ content: `❌ Only ${formatNumber(item.stock)} medals remain in stock for this item.`, flags: 64 });
+                return;
+            }
+
+            const pricePerMedal = Number(item.price);
+            if (!Number.isFinite(pricePerMedal) || pricePerMedal <= 0) {
+                await interaction.reply({ content: '❌ Invalid medal price configuration. Please contact an administrator.', flags: 64 });
+                return;
+            }
+
+            const totalCost = Number((pricePerMedal * quantity).toFixed(2));
+            const balance = await sql.getUserPointsBalance(user.id, guildId);
+
+            if (balance < totalCost) {
+                const emoji = await getCurrencyEmoji(guildId, sql);
+                const totalDisplay = (totalCost % 1 === 0)
+                    ? formatNumber(totalCost)
+                    : totalCost.toFixed(2);
+                const balanceDisplay = (balance % 1 === 0)
+                    ? formatNumber(balance)
+                    : balance.toFixed(2);
+                await interaction.reply({
+                    content: `❌ Insufficient funds! You need ${totalDisplay} ${emoji} but only have ${balanceDisplay}.`,
+                    flags: 64
+                });
+                return;
+            }
+
+            const kingdoms = await sql.checkVerifiedKingdoms(user.id, guildId);
+            if (!kingdoms || kingdoms.length === 0) {
+                await interaction.reply({
+                    content: '❌ No verified kingdoms found. Verify a kingdom first using `/verify` to purchase medals.',
+                    flags: 64
+                });
+                return;
+            }
+
+            const uniqueMap = new Map();
+            for (const k of kingdoms) {
+                const idStr = k.kingdomId.toString();
+                if (!uniqueMap.has(idStr)) {
+                    uniqueMap.set(idStr, k);
+                }
+            }
+            const uniqueKingdoms = Array.from(uniqueMap.values());
+            const currencyEmoji = await getCurrencyEmoji(guildId, sql);
+
+            if (uniqueKingdoms.length === 1) {
+                const target = uniqueKingdoms[0];
+                await this.completeMedalPurchase(interaction, {
+                    respondType: 'reply',
+                    item,
+                    quantity,
+                    totalCost,
+                    kingdomId: target.kingdomId,
+                    kingdomName: target.kingdomName || `Kingdom ${target.kingdomId}`,
+                    currencyEmoji
+                });
+                return;
+            }
+
+            let displayKingdoms = uniqueKingdoms;
+            let truncated = false;
+            if (displayKingdoms.length > 25) {
+                displayKingdoms = displayKingdoms.slice(0, 25);
+                truncated = true;
+            }
+
+            const select = new StringSelectMenuBuilder()
+                .setCustomId(`shop_medal_select_${item.id}_${quantity}_${user.id}`)
+                .setPlaceholder('Select the kingdom that will receive these medals')
+                .addOptions(displayKingdoms.map(k => {
+                    let label = k.kingdomName || `Kingdom ${k.kingdomId}`;
+                    if (label.length > 100) {
+                        label = label.slice(0, 97) + '...';
+                    }
+                    return {
+                        label,
+                        value: k.kingdomId.toString()
+                    };
+                }));
+
+            const row = new ActionRowBuilder().addComponents(select);
+
+            const totalDisplay = (totalCost % 1 === 0)
+                ? formatNumber(totalCost)
+                : totalCost.toFixed(2);
+            const priceDisplay = (pricePerMedal % 1 === 0)
+                ? pricePerMedal.toLocaleString('en-US')
+                : pricePerMedal.toFixed(2);
+
+            let content = `Select which kingdom should receive **${formatNumber(quantity)}** medals from **${item.name}**.`;
+            content += `\nTotal cost: ${totalDisplay} ${currencyEmoji} (price per medal: ${priceDisplay}).`;
+            if (truncated) {
+                content += `\n⚠️ Showing the first 25 of ${uniqueKingdoms.length} verified kingdoms.`;
+            }
+
+            await interaction.reply({ content, components: [row], flags: 64 });
+        } catch (error) {
+            console.error('Error handling medal quantity submission:', error);
+            if (!interaction.replied && !interaction.deferred) {
+                await interaction.reply({ content: '❌ There was an error processing your medal purchase.', flags: 64 });
+            }
+        }
+    },
+
+    async handleMedalKingdomSelect(interaction) {
+        const sql = module.exports.sql;
+        const { guildId, user } = interaction;
+
+        try {
+            const idParts = interaction.customId.split('_');
+            const itemId = parseInt(idParts[3], 10);
+            const quantity = parseInt(idParts[4], 10);
+            const requestUserId = idParts[5];
+
+            if (!itemId || !quantity || !requestUserId) {
+                await interaction.reply({ content: '❌ Invalid medal selection request.', flags: 64 });
+                return;
+            }
+
+            if (user.id !== requestUserId) {
+                await interaction.reply({ content: "❌ This medal selection isn't for you.", flags: 64 });
+                return;
+            }
+
+            const selectedKingdomId = interaction.values && interaction.values[0];
+            if (!selectedKingdomId) {
+                await interaction.reply({ content: '❌ No kingdom selected.', flags: 64 });
+                return;
+            }
+
+            const item = await sql.getShopItem(itemId, guildId);
+            if (!item || !item.type || item.type.toLowerCase() !== 'medal') {
+                await interaction.reply({ content: '❌ Medal item not found or no longer available.', flags: 64 });
+                return;
+            }
+
+            const kingdoms = await sql.checkVerifiedKingdoms(user.id, guildId);
+            const target = Array.isArray(kingdoms) ? kingdoms.find(k => k.kingdomId.toString() === selectedKingdomId.toString()) : null;
+            if (!target) {
+                await interaction.reply({ content: '❌ That kingdom is no longer verified or cannot receive medals.', flags: 64 });
+                return;
+            }
+            const kingdomName = target ? (target.kingdomName || `Kingdom ${selectedKingdomId}`) : `Kingdom ${selectedKingdomId}`;
+            const pricePerMedal = Number(item.price);
+            const totalCost = Number((pricePerMedal * quantity).toFixed(2));
+            const currencyEmoji = await getCurrencyEmoji(guildId, sql);
+
+            await this.completeMedalPurchase(interaction, {
+                respondType: 'update',
+                item,
+                quantity,
+                totalCost,
+                kingdomId: selectedKingdomId,
+                kingdomName,
+                currencyEmoji
+            });
+        } catch (error) {
+            console.error('Error handling medal kingdom selection:', error);
+            if (!interaction.replied && !interaction.deferred) {
+                await interaction.reply({ content: '❌ There was an error finalizing your medal purchase.', flags: 64 });
+            }
+        }
+    },
+
+    async completeMedalPurchase(interaction, { respondType, item, quantity, totalCost, kingdomId, kingdomName, currencyEmoji }) {
+        const sql = module.exports.sql;
+        const { guildId, user } = interaction;
+        let purchaseTotal = totalCost;
+
+        const respond = async (payload) => {
+            if (respondType === 'update') {
+                await interaction.update(payload);
+            } else if (respondType === 'reply') {
+                await interaction.reply({ ...payload, flags: 64 });
+            } else if (respondType === 'followUp') {
+                await interaction.followUp({ ...payload, flags: 64 });
+            }
+        };
+
+        const formatPrice = (value) => {
+            if (!Number.isFinite(value)) return '0';
+            return value % 1 === 0 ? formatNumber(value) : value.toFixed(2);
+        };
+
+        try {
+            const latestItem = await sql.getShopItem(item.id, guildId);
+            if (!latestItem || !latestItem.type || latestItem.type.toLowerCase() !== 'medal') {
+                await respond({ content: '❌ Medal item not found or no longer available.', components: [] });
+                return;
+            }
+
+            const currentStock = latestItem.stock;
+            if (currentStock < quantity) {
+                await respond({ content: `❌ Not enough stock remaining. Only ${formatNumber(currentStock)} medals are available.`, components: [] });
+                return;
+            }
+
+            const pricePerMedal = Number(latestItem.price);
+            if (!Number.isFinite(pricePerMedal) || pricePerMedal <= 0) {
+                await respond({ content: '❌ Invalid medal price configuration. Please contact an administrator.', components: [] });
+                return;
+            }
+
+            const recalculatedTotal = Number((pricePerMedal * quantity).toFixed(2));
+            if (purchaseTotal === undefined || Math.abs(purchaseTotal - recalculatedTotal) > 0.01) {
+                purchaseTotal = recalculatedTotal;
+            }
+
+            const balance = await sql.getUserPointsBalance(user.id, guildId);
+            if (balance < purchaseTotal) {
+                await respond({ content: `❌ Insufficient funds. You need ${formatPrice(purchaseTotal)} ${currencyEmoji} but only have ${formatPrice(balance)}.`, components: [] });
+                return;
+            }
+
+            const existingTotal = await sql.getMedalTotalForKingdom(kingdomId.toString(), guildId);
+            const projected = existingTotal + quantity;
+            if (projected > MAX_MEDALS_PER_KINGDOM) {
+                const remaining = Math.max(MAX_MEDALS_PER_KINGDOM - existingTotal, 0);
+                const remainingMsg = remaining > 0
+                    ? `You can only purchase ${formatNumber(remaining)} more medals for this kingdom.`
+                    : 'This kingdom has already reached the medal cap.';
+                await respond({ content: `❌ Medal cap reached. ${remainingMsg}`, components: [] });
+                return;
+            }
+
+            const purchaseSuccess = await sql.purchaseShopItem(latestItem.id, guildId, quantity);
+            if (!purchaseSuccess) {
+                await respond({ content: '❌ Purchase failed. The item may be out of stock.', components: [] });
+                return;
+            }
+
+            await sql.deductUserPoints(user.id, guildId, purchaseTotal, 'shop purchase');
+            await sql.logShopPurchase(guildId, user.id, latestItem.id, quantity, purchaseTotal);
+            await sql.recordMedalTransaction(kingdomId.toString(), user.id, quantity, guildId);
+
+            const remainingBalance = await sql.getUserPointsBalance(user.id, guildId);
+            const updatedMedalTotal = existingTotal + quantity;
+            const remainingStock = currentStock - quantity;
+
+            const embed = new EmbedBuilder()
+                .setColor(0x00FF00)
+                .setTitle('✅ Medal Purchase Successful!')
+                .setDescription(`You purchased **${formatNumber(quantity)}** medals from **${latestItem.name}** for ${formatPrice(purchaseTotal)} ${currencyEmoji}.`)
+                .addFields(
+                    { name: 'Kingdom', value: `${kingdomName} (ID: ${kingdomId})`, inline: true },
+                    { name: 'Price per Medal', value: `${formatPrice(pricePerMedal)} ${currencyEmoji}`, inline: true },
+                    { name: 'Total Cost', value: `${formatPrice(purchaseTotal)} ${currencyEmoji}`, inline: true },
+                    { name: 'Remaining Balance', value: `${formatNumber(remainingBalance)} ${currencyEmoji}`, inline: true },
+                    { name: 'Medals for Kingdom', value: `${updatedMedalTotal.toLocaleString('en-US')} / ${MAX_MEDALS_PER_KINGDOM.toLocaleString('en-US')}`, inline: true },
+                    { name: 'Stock Remaining', value: formatNumber(Math.max(remainingStock, 0)), inline: true }
+                )
+                .setTimestamp()
+                .setFooter({ text: `Purchased by ${user.username}`, iconURL: user.displayAvatarURL() });
+
+            if (latestItem.description) {
+                embed.addFields({ name: 'Description', value: latestItem.description, inline: false });
+            }
+
+            await respond({ content: '', embeds: [embed], components: [] });
+
+            await logShopAction(guildId, sql, interaction.guild, 'medals_purchased', user, {
+                itemName: latestItem.name,
+                quantity,
+                totalCost: purchaseTotal,
+                kingdom: kingdomName,
+                kingdomId: kingdomId.toString(),
+                remainingStock: Math.max(remainingStock, 0)
+            });
+
+            await refreshShopChannel(guildId, sql, interaction.guild);
+        } catch (error) {
+            console.error('Error completing medal purchase:', error);
+            try {
+                await respond({ content: '❌ There was an error completing your medal purchase. Please contact an administrator.', components: [] });
+            } catch (respondError) {
+                console.error('Failed to notify user about medal purchase error:', respondError);
+            }
+        }
+    },
+
     async applyWhitelistPurchase(interaction, item, kingdomId, kingdomName, currencyEmoji, sql) {
         const { guildId, user } = interaction;
         const guild = interaction.guild;
@@ -1572,6 +2093,40 @@ module.exports = {
             await interaction.reply({ content: "❌ There was an error processing your purchase!", flags: 64 });
         }
     },
+    generateMedalsHistoryCSV({ fromDate, toDate, kingdomSummaries }) {
+        const escapeCsvValue = (value) => {
+            if (value === null || value === undefined) {
+                return '';
+            }
+            const stringValue = String(value);
+            if (stringValue.includes(',') || stringValue.includes('"') || stringValue.includes('\n')) {
+                return '"' + stringValue.replace(/"/g, '""') + '"';
+            }
+            return stringValue;
+        };
+
+    const lines = ['sep=,'];
+    lines.push('Kingdom ID,Starting Balance,Total Gains,Total Losses,Net Change,Ending Balance,Transactions');
+
+        if (kingdomSummaries.length === 0) {
+            lines.push('No medal data in this range,,,,,');
+            return lines.join('\n');
+        }
+
+        for (const summary of kingdomSummaries) {
+            lines.push([
+                escapeCsvValue(summary.kingdomId),
+                summary.startingBalance,
+                summary.totalPositive,
+                summary.totalNegative,
+                summary.netChange,
+                summary.endingBalance,
+                summary.transactionCount
+            ].join(','));
+        }
+
+        return lines.join('\n');
+    },
     async autocomplete(interaction) {
         const sql = module.exports.sql;
         const { guildId } = interaction;
@@ -1618,7 +2173,8 @@ module.exports = {
             // Provide autocomplete for item types
             const typeChoices = [
                 { name: 'DSA', value: 'dsa' },
-                { name: 'C-Mine', value: 'cmine' }
+                { name: 'C-Mine', value: 'cmine' },
+                { name: 'Medal', value: 'medal' }
             ];
 
             const filteredChoices = typeChoices.filter(choice =>
@@ -1738,6 +2294,23 @@ async function logShopAction(guildId, sql, guild, action, user, details = {}) {
                         { name: "Last Price", value: `${formatNumber(details.price)} ${currencyEmoji}`, inline: true },
                         { name: "Last Stock", value: details.stock.toString(), inline: true }
                     );
+                break;
+
+            case 'medals_purchased':
+                {
+                    const formattedCost = (details.totalCost % 1 === 0)
+                        ? formatNumber(details.totalCost)
+                        : Number(details.totalCost).toFixed(2);
+                    embed
+                        .setColor(0x00FF00)
+                        .setTitle("🏅 Medals Purchased")
+                        .setDescription(`<@${user.id}> purchased **${formatNumber(details.quantity)}** medals from **${details.itemName}**`)
+                        .addFields(
+                            { name: "Total Cost", value: `${formattedCost} ${currencyEmoji}`, inline: true },
+                            { name: "Kingdom", value: `${details.kingdom || 'Unknown'}${details.kingdomId ? ` (ID: ${details.kingdomId})` : ''}`, inline: true },
+                            { name: "Remaining Stock", value: details.remainingStock?.toString() || 'Unknown', inline: true }
+                        );
+                }
                 break;
 
             case 'purchase':
@@ -1895,6 +2468,13 @@ async function refreshShopChannel(guildId, sql, guild) {
             // Add fields for each item in stock
             for (const item of inStockItems) {
                 let itemValue = `**Price:** ${formatNumber(item.price)} ${currencyEmoji}\n**Stock:** ${item.stock}`;
+
+                if (item.type && item.type.toLowerCase() === 'medal') {
+                    itemValue += `\n🏅 **Type:** Medals (price per medal)`;
+                    itemValue += `\n📏 **Per-Kingdom Cap:** ${MAX_MEDALS_PER_KINGDOM.toLocaleString('en-US')}`;
+                } else if (item.type) {
+                    itemValue += `\n🏷️ **Type:** ${item.type.toUpperCase()}`;
+                }
 
                 // Add duration if it exists
                 if (item.duration) {
