@@ -6,6 +6,8 @@ const UpdateInfo = require("./updateinfo.js");
 const HelpCheck = require("./helpCheck.js");
 const AcceptCheck = require("./acceptCheck.js");
 const R4Check = require("./r4check.js");
+const AccountLimitCheck = require("./accountLimitCheck.js");
+const MedalDistributor = require("./distributeMedals.js");
 // const LocationCheck = require("./locationCheck.js");
 
 class AllianceManager {
@@ -47,6 +49,10 @@ class AllianceManager {
     this.masteryCheck = new MasteryCheck(this.sql, this.api);
     this.speedCheck = new SpeedCheck(this.sql, this.api);
     this.r4Check = new R4Check(this.sql, this.api);
+    this.accountLimitCheck = new AccountLimitCheck(this.sql);
+  this.medalDistributor = new MedalDistributor(this.sql, this.api, this.discordClient);
+  this.managerRank = null;
+  this.canDistributeMedals = false;
     // this.locationCheck = new LocationCheck(this.sql, this.api);
 
     // Initialize alliance settings
@@ -171,6 +177,20 @@ class AllianceManager {
               continue;
             }
 
+            if (this.canDistributeMedals) {
+              if (this.canDistributeMedals) {
+                await this.medalDistributor.distributeMedalsForKingdom(
+                  kingdomid.toString(),
+                  this.guild,
+                  token
+                );
+              } else {
+                // console.log(`${this.allianceTag}: Skipping medal distribution for ${kingdomname} (${kingdomid}) because manager rank is ${this.managerRank ?? "unknown"}.`);
+              }
+            } else {
+              // console.log(`${this.allianceTag}: Skipping medal distribution for ${kingdomname} (${kingdomid}) because manager rank is ${this.managerRank ?? "unknown"}.`);
+            }
+
             const disbandResponse = await this.api.request(
               "https://api-lok-live.leagueofkingdoms.com/api/alliance/member/disband",
               { memberKingdomId: kingdomid },
@@ -235,6 +255,12 @@ class AllianceManager {
                 continue;
               }
 
+              await this.medalDistributor.distributeMedalsForKingdom(
+                kingdomid.toString(),
+                this.guild,
+                token
+              );
+
               const disbandResponse = await this.api.request(
                 "https://api-lok-live.leagueofkingdoms.com/api/alliance/member/disband",
                 { memberKingdomId: kingdomid },
@@ -293,8 +319,11 @@ class AllianceManager {
       const subscriptionFlagInfo = await this.sql.checkSubscriptionValid(this.guild, "1");
       // console.log('test sub2', subscriptionFlagInfo);
 
-      const roleFlag = await this.sql.checkManagerRole(this.managerId);
-      const r4Flag = (await this.r4Check.checkR4(tokenResponse[0].token, this.managerId, this.allianceId));
+  const roleFlag = await this.sql.checkManagerRole(this.managerId);
+  const r4Status = await this.r4Check.checkR4(tokenResponse[0].token, this.managerId, this.allianceId);
+  const r4Flag = r4Status?.hasRank === true;
+  this.managerRank = r4Status?.rank ?? null;
+  this.canDistributeMedals = r4Status?.isR5 === true;
 
 
       if (tokenResponseFlag || !roleFlag || tokenResponse === undefined || !r4Flag || !subscriptionFlagInfo) {
@@ -309,8 +338,10 @@ class AllianceManager {
           errorMessage += "Token response is empty";
         } else if (!subscriptionFlagInfo) {
           errorMessage += "No valid subscription found";
+        } else if (!r4Flag) {
+          errorMessage += "R4/R5 check failed";
         } else {
-          errorMessage += "R4 check failed";
+          errorMessage += "Unknown";
         }
 
         console.error(errorMessage);
@@ -493,6 +524,92 @@ class AllianceManager {
                 console.log("already accepted but still continuing... fix code");
               }
 
+              let membersListResponse = null;
+              const maxEntryRaw = await this.sql.getAllianceMaxEntry(this.allianceId, this.guild);
+              const maxEntry = Number(maxEntryRaw);
+              if (Number.isFinite(maxEntry) && maxEntry > 0) {
+                const linkedKingdoms = await this.sql.checkOtherVerifiedKingdoms(kid, this.guild);
+                if (linkedKingdoms && linkedKingdoms.length) {
+                  let allianceMembers = [];
+
+                  try {
+                    membersListResponse = await this.api.request(
+                      "https://api-lok-live.leagueofkingdoms.com/api/alliance/members/list",
+                      { allianceId: "" },
+                      {
+                        "x-access-token": token,
+                        "Content-Type": "application/json",
+                      }
+                    );
+
+                    if (
+                      membersListResponse.status === 200 &&
+                      membersListResponse.data &&
+                      Array.isArray(membersListResponse.data.members)
+                    ) {
+                      allianceMembers = membersListResponse.data.members;
+                    } else {
+                      console.warn(
+                        `${this.allianceTag}: alliance member list response missing data while checking account limits`
+                      );
+                    }
+                  } catch (fetchError) {
+                    console.error(
+                      `${this.allianceTag}: failed to fetch alliance members for account limit check`,
+                      fetchError
+                    );
+                  }
+
+                  const limitStatus = await this.accountLimitCheck.hasReachedLimit(
+                    this.guild,
+                    this.allianceId,
+                    linkedKingdoms,
+                    allianceMembers,
+                    maxEntry
+                  );
+
+                  if (limitStatus.reached) {
+                    await this.api.request(
+                      "https://api-lok-live.leagueofkingdoms.com/api/alliance/request/deny",
+                      { kingdomId: kid },
+                      {
+                        "x-access-token": token,
+                        "Content-Type": "application/json",
+                      }
+                    );
+
+                    const matchingNames = limitStatus.matchingKingdoms
+                      .map((kingdom) => kingdom.kingdomName)
+                      .slice(0, 5)
+                      .join(", ");
+
+                    await this.api.request(
+                      "https://api-lok-live.leagueofkingdoms.com/api/mail/send",
+                      new URLSearchParams({
+                        json: JSON.stringify({
+                          toName: name,
+                          subject: `Rejected from ${this.allianceTag}`,
+                          content: `You have been rejected because your Discord account already has ${limitStatus.activeCount} kingdom(s) in ${this.allianceTag}. The maximum allowed is ${limitStatus.maxEntry}.
+                                    Existing kingdoms: ${matchingNames || "Hidden"}
+                                    \n${requirementMessage}`,
+                        }),
+                      }),
+                      { "x-access-token": mailAccountToken }
+                    );
+
+                    this.discordClient.channels.cache
+                      .get(this.rejectLogChannel)
+                      .send(
+                        `**${this.allianceTag}**\nRejected: ${name} (${kid}), linked accounts limit reached (${limitStatus.activeCount}/${limitStatus.maxEntry}).`
+                      );
+                    console.log(
+                      `rejected from ${this.allianceTag} by account limit: ${name} (${kid})`
+                    );
+                    continue;
+                  }
+                }
+              }
+
               const titles = await this.sql.getLastTitleUsers(this.guild);
 
               const holders = titles.map(title => title.kingdomId);
@@ -507,6 +624,15 @@ class AllianceManager {
                 ) {
 
                   await this.sql.addAcceptLog(kid, name);
+                  if (this.canDistributeMedals) {
+                    await this.medalDistributor.distributeMedalsForKingdom(
+                      kid.toString(),
+                      this.guild,
+                      token
+                    );
+                  } else {
+                    // console.log(`${this.allianceTag}: Skipping medal distribution for ${name} (${kid}) because manager rank is ${this.managerRank ?? "unknown"}.`);
+                  }
 
                   this.discordClient.channels.cache
                     .get(this.acceptLogChannel)
@@ -803,6 +929,15 @@ class AllianceManager {
                   await this.sql.addAcceptLog(kid, name);
                   console.log(`accepted in ${this.allianceTag}: ${name} (${kid})`);
                   numtkn++;
+                  if (this.canDistributeMedals) {
+                    await this.medalDistributor.distributeMedalsForKingdom(
+                      kid.toString(),
+                      this.guild,
+                      token
+                    );
+                  } else {
+                    // console.log(`${this.allianceTag}: Skipping medal distribution for ${name} (${kid}) because manager rank is ${this.managerRank ?? "unknown"}.`);
+                  }
 
                   // console.log(this.discordClient.channels.cache.get(this.acceptLogChannel));
 

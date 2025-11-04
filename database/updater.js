@@ -11,6 +11,8 @@ const UpdateAnnouncements = require('./updaters/updateAnnouncement.js');
 const UpdateTransactions = require('./updaters/updateTransactions.js');
 const UpdateLandPoints = require('./updaters/updateLandPoints.js');
 const UpdateRalliesPoints = require('./updaters/updateRalliesPoints.js');
+const UpdateMedals = require('./updaters/updateMedals.js');
+const UpdateBooster = require('./updaters/updateBooster.js');
 
 const sql = new sqlFunctions();
 const api = new Api(sql);
@@ -25,11 +27,13 @@ const updateAnnouncements = new UpdateAnnouncements(sql, api);
 const updateTransactions = new UpdateTransactions(sql, api);
 const updateLandPoints = new UpdateLandPoints(sql, api);
 const updateRalliesPoints = new UpdateRalliesPoints(sql, api);
+const updateMedals = new UpdateMedals(sql, api);
+const updateBooster = new UpdateBooster(sql, api);
 
 async function startUpdaters() {
     updateBots.updateBotsToken(); // Midnight utc
     updateBots.updateBotsInfo(); // Every 10 minutes
-    await new Promise(resolve => setTimeout(resolve, 300000));
+    await new Promise(resolve => setTimeout(resolve, 300000)); // wait 5 minutes
     updatePlayers.updatePlayers(); // Noon utc
     updateVerified.updateVerified(); // Midnight utc
     updateStakers.runStakeUpdate(); // Every 5 minutes
@@ -41,6 +45,8 @@ async function startUpdaters() {
     updateLandPoints.runLandPointsDistribution(); // Daily at 1am utc
     updateRalliesPoints.runRalliesPointsDistribution(); // Daily at 2am utc
     updateWhitelistReminders.runWhitelistReminder(); // Every day at 8am utc
+    updateMedals.start(); // Daily at 9am utc
+    updateBooster.start(); // Daily at 11:50pm utc
 }
 
 startUpdaters();

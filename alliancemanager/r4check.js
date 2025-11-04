@@ -1,5 +1,17 @@
 const AccountInfo = require("../general/accountInfo.js");
 
+function buildRankResult(rank = null) {
+    const isR5 = rank === 99;
+    const isR4 = rank === 4;
+    const hasRank = isR4 || isR5;
+    return {
+        hasRank,
+        rank: hasRank ? rank : null,
+        isR4,
+        isR5
+    };
+}
+
 class R4Check {
     constructor(sql, api) {
         this.api = api;
@@ -30,7 +42,7 @@ class R4Check {
 
         if (!token) {
             console.error("No token provided for r4Check in:", allianceId);
-            return false;
+            return buildRankResult();
         }
 
         if ((attemptNumber === 30 || attemptNumber === 40) && kingdomId && allianceId) {
@@ -65,19 +77,29 @@ class R4Check {
                 console.log(allianceMembers);
                 console.log("No alliance members found!");
                 console.log("returning false for", allianceId);
-                return false;
+                return buildRankResult();
             }
 
-            const filteredMembers = allianceMembers.members.filter(member => member._id === 99 || member._id === 4);
-            const allianceR4s = filteredMembers.flatMap(member => member.members);
-            const allianceR4sIds = allianceR4s.map(member => member.kingdomId);
-            if (allianceR4sIds.includes(kingdomId)) {
-                return true;
-            } else {
-                console.log("returning false for", allianceId);
-                console.log("R4 not found!");
-                return false;
+            const filteredMembers = Array.isArray(allianceMembers?.members)
+                ? allianceMembers.members.filter(member => member && (member._id === 99 || member._id === 4))
+                : [];
+
+            let detectedRank = null;
+            for (const group of filteredMembers) {
+                if (!Array.isArray(group?.members)) continue;
+                const match = group.members.some(member => member?.kingdomId === kingdomId);
+                if (match) {
+                    detectedRank = group._id;
+                    break;
+                }
             }
+
+            if (detectedRank === null) {
+                console.log("returning false for", allianceId);
+                console.log("R4/R5 not found!");
+            }
+
+            return buildRankResult(detectedRank);
         } catch (error) {
             console.log(allianceRequestStatus, error?.response?.status, allianceMembers?.data?.err?.code);
             if (error?.response?.status >= 400 && retries > 0) {
@@ -91,7 +113,7 @@ class R4Check {
             } else {
                 console.log("returning false for", allianceId);
                 console.error("Error checking R4, probably not R4 or retries exhausted:", error);
-                return false;
+                return buildRankResult();
             }
         }
     }

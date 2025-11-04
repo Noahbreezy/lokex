@@ -30,7 +30,8 @@ async function addAlliance(kingdomId, sql, r4Check) {
     const guildId = managerInfo.guild;
     const allianceTag = managerInfo.allianceTag;
     // console.log(managerInfo);
-    const r4Flag = await r4Check.checkR4(token, kingdomId, allianceId);
+    const r4Status = await r4Check.checkR4(token, kingdomId, allianceId);
+    const r4Flag = r4Status?.hasRank === true;
     const allianceExistsFlag = await sql.allianceExists(allianceId);
     if (r4Flag && !allianceExistsFlag) {
         await sql.addAllianceSettings(allianceId, allianceTag, guildId);

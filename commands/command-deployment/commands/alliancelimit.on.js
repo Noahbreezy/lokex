@@ -65,6 +65,10 @@ module.exports = {
                     option.setName('governor')
                         .setDescription('Governor mastery point limit')
                 )
+                .addIntegerOption(option =>
+                    option.setName('max_entry')
+                        .setDescription('Max alliance entries. Set to 0 (zero) to disable.')
+                )
                 .addBooleanOption(option =>
                     option.setName('verified')
                         .setDescription('If need to be verified on discord')
@@ -126,7 +130,7 @@ module.exports = {
             case "setlimit":
                 {
                     const alliance = options.getString('alliance');
-                    const columns = ['castle', 'power', 'kills', 'speed', 'combat', 'monster', 'infantry', 'cavalry', 'ranged', 'governor', 'verified', 'interval', 'accept', 'kick', 'maxkick', 'cvcmode', 'titlegrace'];
+                    const columns = ['castle', 'power', 'kills', 'speed', 'combat', 'monster', 'infantry', 'cavalry', 'ranged', 'governor', 'max_entry', 'verified', 'interval', 'accept', 'kick', 'maxkick', 'cvcmode', 'titlegrace'];
                     const updates = [];
 
                     for (const column of columns) {
@@ -195,6 +199,7 @@ module.exports = {
                             cavalry: row.cavalry,
                             ranged: row.ranged,
                             governor: row.governor,
+                            max_entry: row.max_entry,
                             verified: row.verified,
                             interval: row.interval,
                             accept: row.accept,
@@ -265,8 +270,9 @@ function createAllianceEmbed(allianceInfo) {
     embed.addFields({ name: 'Monster', value: allianceInfo.monster > 0 ? allianceInfo.monster.toString() : 'no limits', inline: true });
     embed.addFields({ name: 'Infantry', value: allianceInfo.infantry > 0 ? allianceInfo.infantry.toString() : 'no limits', inline: true });
     embed.addFields({ name: 'Cavalry', value: allianceInfo.cavalry > 0 ? allianceInfo.cavalry.toString() : 'no limits', inline: true });
-    embed.addFields({ name: 'Ranged', value: allianceInfo.archers > 0 ? allianceInfo.archers.toString() : 'no limits', inline: true });
+    embed.addFields({ name: 'Ranged', value: allianceInfo.ranged > 0 ? allianceInfo.ranged.toString() : 'no limits', inline: true });
     embed.addFields({ name: 'Governor', value: allianceInfo.governor > 0 ? allianceInfo.governor.toString() : 'no limits', inline: true });
+    embed.addFields({ name: 'Max Entry', value: allianceInfo.max_entry > 0 ? allianceInfo.max_entry.toString() : 'no limits', inline: true });
     embed.addFields({ name: 'Discord', value: allianceInfo.verified > 0 ? "Yes" : 'No', inline: true });
     embed.addFields({ name: 'Interval', value: allianceInfo.interval > 0 ? allianceInfo.interval.toString() : '30 sec', inline: true });
     embed.addFields({ name: 'Accept', value: allianceInfo.accept > 0 ? "Yes" : 'No', inline: true });

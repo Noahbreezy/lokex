@@ -280,13 +280,19 @@ class sqlFunctions {
         return this.query(query, [guild]);
     }
 
+    async getAllianceMaxEntry(allianceId, guild) {
+        const query = `SELECT max_entry FROM allianceinf WHERE allianceId = ? AND guild = ? LIMIT 1;`;
+        const results = await this.query(query, [allianceId, guild]);
+        return results.length ? results[0].max_entry : null;
+    }
+
     // Get all alliance settings
     async getAllAllianceSettings(guild) {
         const query = `
             SELECT 
                 tag, power, kills, speed, combat, monster, infantry, cavalry, 
                 ranged, governor, verified, \`interval\`, \`accept\`, kick, 
-                maxkick, cvcmode, titlegrace 
+                maxkick, cvcmode, titlegrace, max_entry
             FROM allianceinf 
             WHERE guild = ?;
         `;
@@ -330,6 +336,7 @@ class sqlFunctions {
             \`accept\` = DEFAULT,
             kick = DEFAULT,
             maxkick = DEFAULT,
+            max_entry = DEFAULT,
             cvcmode = DEFAULT,
             titlegrace = DEFAULT
         WHERE allianceId = ?;`
@@ -636,6 +643,22 @@ class sqlFunctions {
         const query = 'SELECT kingdomId, kingdomName FROM verified WHERE discordId = ? AND guild = ? AND status = 1';
         const results = await this.query(query, [discordId, guild]);
         return results.length > 0 ? results : false;
+    }
+
+    // Check if a kingdom has other verified kingdoms linked to the same discord user
+    async checkOtherVerifiedKingdoms(kingdomId, guild) {
+        const ownerRows = await this.query(
+            'SELECT discordId FROM verified WHERE kingdomId = ? AND guild = ? AND status = 1 LIMIT 1',
+            [kingdomId, guild]
+        );
+        if (!ownerRows.length) return false;
+
+        const discordId = ownerRows[0].discordId;
+        const results = await this.query(
+            'SELECT kingdomId, kingdomName FROM verified WHERE guild = ? AND discordId = ? AND status = 1 AND kingdomId != ?',
+            [guild, discordId, kingdomId]
+        );
+        return results.length ? results : false;
     }
 
     // Check if a discord user has verified account with a wallet
@@ -1187,6 +1210,32 @@ class sqlFunctions {
         const query = "SELECT point_price FROM guild_settings WHERE guild_id=?;";
         const results = await this.query(query, [guildId]);
         return results.length > 0 ? results[0].point_price : null;
+    }
+
+    // Set guild booster point value
+    async setGuildBoosterPoint(points, guildId) {
+        const query = "UPDATE guild_settings SET boost_point=? WHERE guild_id=?;";
+        return this.query(query, [points, guildId]);
+    }
+
+    // Get guild booster point value
+    async getGuildBoosterPoint(guildId) {
+        const query = "SELECT boost_point FROM guild_settings WHERE guild_id=?;";
+        const results = await this.query(query, [guildId]);
+        return results.length > 0 ? results[0].boost_point : null;
+    }
+
+    // Get guilds with an active subscription window
+    async getGuildsWithActiveSubscription() {
+        const query = `
+            SELECT DISTINCT guild_id
+            FROM guild_continent_link
+            WHERE guild_id IS NOT NULL
+              AND guild_id != ''
+              AND valid_until > NOW()
+              AND (subscription_type IS NOT NULL AND subscription_type != '');
+        `;
+        return this.query(query);
     }
 
     // Set guild land price
@@ -2720,6 +2769,17 @@ class sqlFunctions {
         const query = "SELECT total_medals FROM medals_totals WHERE kingdom_id = ? AND guild_id = ?;";
         const results = await this.query(query, [kingdomId, guildId]);
         return results.length > 0 ? parseInt(results[0].total_medals, 10) : 0;
+    }
+
+    // Get total medals for all kingdoms in a guild
+    async getAllMedalTotals(guildId) {
+        const query = "SELECT kingdom_id, total_medals FROM medals_totals WHERE guild_id = ?;";
+        const results = await this.query(query, [guildId]);
+        const totalsMap = new Map();
+        for (const row of results) {
+            totalsMap.set(row.kingdom_id, Number(row.total_medals || 0));
+        }
+        return totalsMap;
     }
 
     async getMedalsHistory(guildId, fromDateTime, toDateTime) {

@@ -227,8 +227,8 @@ class AccountInfo {
     }
 
     let location = false;
-    // console.log('R4 Flag: ', r4Flag);
-    if (r4Flag) {
+    const canAccessLocations = r4Flag === true || (r4Flag && typeof r4Flag === 'object' && r4Flag.hasRank);
+    if (canAccessLocations) {
       // console.log('Is R4: can get locations');
       location = await this.getMemberLocation(token, kingdomId);
     }

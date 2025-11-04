@@ -55,10 +55,12 @@ class UpdatePlayers {
 
                 for (const account of botAccountsFiltered) {
                     let token = account.token;
-                    let r4Flag = false;
+                    let r4Status = null;
+                    let hasR4Privileges = false;
                     try {
                         const kingdomIds = await this.getAllAllianceMemberId(token, account.allianceId);
-                        r4Flag = await this.r4Check.checkR4(token, account.kingdomId, account.allianceId);
+                        r4Status = await this.r4Check.checkR4(token, account.kingdomId, account.allianceId);
+                        hasR4Privileges = r4Status?.hasRank === true;
 
                         for (const kingdomId of kingdomIds) {
                             if (updatesThisMinute >= MAX_UPDATES_PER_MINUTE) {
@@ -72,20 +74,22 @@ class UpdatePlayers {
                                 minuteStart = Date.now();
                             }
                             try {
-                                const accountInfo = await this.AccountInfo.getMemberProfileInfo(token, account.allianceId, kingdomId, r4Flag);
+                                const accountInfo = await this.AccountInfo.getMemberProfileInfo(token, account.allianceId, kingdomId, hasR4Privileges);
                                 if (accountInfo) {
                                     await this.sql.updateFullKingdomInfo(accountInfo);
                                 }
                                 updatesThisMinute++;
                             } catch (error) {
                                 token = (await this.sql.getManagerTokenByKingdomId(kingdomId))[0].token;
-                                r4Flag = await this.r4Check.checkR4(token, kingdomId, account.allianceId);
+                                r4Status = await this.r4Check.checkR4(token, kingdomId, account.allianceId);
+                                hasR4Privileges = r4Status?.hasRank === true;
                                 console.error(`Error updating kingdom info for kingdomId ${kingdomId}:`, error);
                             }
                         }
                     } catch (error) {
                         token = (await this.sql.getManagerTokenByKingdomId(account.kingdomId))[0].token;
-                        r4Flag = await this.r4Check.checkR4(token, account.kingdomId, account.allianceId);
+                        r4Status = await this.r4Check.checkR4(token, account.kingdomId, account.allianceId);
+                        hasR4Privileges = r4Status?.hasRank === true;
                         console.error(`Error processing account with allianceId ${account.allianceId}:`, error);
                     }
                 }

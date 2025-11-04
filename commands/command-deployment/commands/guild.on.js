@@ -195,6 +195,17 @@ module.exports = {
                 )
         ).addSubcommand((subcommand) =>
             subcommand
+                .setName("booster-point")
+                .setDescription("Set the shop points awarded per booster completion")
+                .addIntegerOption((option) =>
+                    option
+                        .setName("points")
+                        .setDescription("Shop points awarded per booster completion")
+                        .setRequired(true)
+                        .setMinValue(0)
+                )
+        ).addSubcommand((subcommand) =>
+            subcommand
                 .setName("land-point")
                 .setDescription("Set the shop points per land development point in decimal format")
                 .addNumberOption((option) =>
@@ -436,6 +447,18 @@ module.exports = {
                         await interaction.reply({ 
                             content: `✅ Point price has been set to: **${price.toFixed(2)} DST**`, 
                             ...ephemeral 
+                        });
+                        break;
+                    }
+                case "booster-point":
+                    {
+                        const points = options.getInteger("points");
+
+                        await sql.setGuildBoosterPoint(points, guildId);
+
+                        await interaction.reply({
+                            content: `✅ Booster point reward set to: **${points.toLocaleString()} shop points per booster per day**`,
+                            ...ephemeral
                         });
                         break;
                     }
@@ -889,7 +912,7 @@ module.exports = {
                         const numericFields = ['main_verify_bonus', 'alt_verify_bonus'];
 
                         // Define decimal fields that should be formatted as currency/price
-                        const decimalFields = ['point_price', 'land_point', 'rally_point', 'rally_join_point'];
+                        const decimalFields = ['point_price', 'land_point', 'rally_point', 'rally_join_point', 'boost_point'];
 
                         // Define boolean fields that should be formatted as YES/NO
                         const booleanFields = ['unverify', 'ephemeral'];
