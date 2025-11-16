@@ -59,7 +59,16 @@ class Api {
         };
 
         // Make the Axios POST request
-        const response = await axios.post(url, body, config);
+        let response;
+        try {
+            response = await axios.post(url, body, config);
+            if (response.status !== 200) {
+            console.error(`Request with IP ${proxyUrl} failed with status ${response.status}`);
+            }
+        } catch (error) {
+            console.error(`Request with IP ${proxyUrl} threw`, error);
+            throw error;
+        }
 
         return response;
     }

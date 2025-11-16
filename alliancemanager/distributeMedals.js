@@ -2,6 +2,8 @@ const { EmbedBuilder } = require("discord.js");
 const Api = require("../general/api.js");
 
 const MAX_MEDALS_PER_DISTRIBUTION = 40000;
+const MEDAL_DISTRIBUTION_ENDPOINT = "https://api-lok-live.leagueofkingdoms.com/api/alliance/medal/distribute";
+const MEDAL_HISTORY_ENDPOINT = "https://api-lok-live.leagueofkingdoms.com/api/alliance/medal/history";
 const UTC_BLOCK_START = { day: 6, hour: 20, minute: 59 }; // Saturday 20:59 UTC
 const UTC_BLOCK_END = { day: 6, hour: 23, minute: 59 };   // Saturday 23:59 UTC
 
@@ -74,7 +76,78 @@ class MedalDistributor {
 			return { success: false, medalsOwed };
 		}
 
-		const formPayload = new URLSearchParams({
+		let distributionResponse = null;
+		let distributedAmount = 0;
+
+		const initialResult = await this.requestMedalDistribution(token, kingdomId.toString(), delta);
+
+		if (!initialResult.success) {
+			if (initialResult.errorCode === "medal_distribution_exceed") {
+				console.warn(`[MedalDistributor] Medal distribution exceed for ${kingdomId}; attempting incremental payout.`);
+				const exceedResult = await this.handleMedalDistributionExceed({
+					token,
+					kingdomId: kingdomId.toString(),
+					delta
+				});
+				if (!exceedResult.success) {
+					const errorPayload = exceedResult.error || exceedResult.response || initialResult.response || initialResult.error || null;
+					if (errorPayload) {
+						console.warn(`[MedalDistributor] Medal distribution aborted for ${kingdomId} after exceed handling:`, errorPayload);
+					}
+					return { success: false, medalsOwed, response: exceedResult.response ?? initialResult.response ?? null, error: errorPayload };
+				}
+				distributedAmount = exceedResult.distributed;
+				distributionResponse = exceedResult.response ?? null;
+			} else if (initialResult.response) {
+				console.warn(`[MedalDistributor] Medal distribution rejected for ${kingdomId}:`, initialResult.response);
+				return { success: false, medalsOwed, response: initialResult.response };
+			} else {
+				const errorPayload = initialResult.error || initialResult.errorCode || null;
+				if (errorPayload) {
+					console.error(`[MedalDistributor] Failed to distribute medals to ${kingdomId}:`, errorPayload);
+				}
+				return { success: false, medalsOwed, error: errorPayload };
+			}
+		} else {
+			distributedAmount = delta;
+			distributionResponse = initialResult.response ?? null;
+		}
+
+		if (distributedAmount <= 0) {
+			return { success: false, medalsOwed, response: distributionResponse };
+		}
+
+		if (!discordId) {
+			const verifiedRows = await this.sql.getVerifiedDiscordId(kingdomId.toString(), guildId);
+			if (verifiedRows?.[0]?.discordId) {
+				discordId = verifiedRows[0].discordId;
+			}
+		}
+
+		await this.sql.recordMedalTransaction(kingdomId.toString(), discordId, -distributedAmount, guildId);
+		await this.logMedalDistribution({
+			guildId,
+			kingdomId: kingdomId.toString(),
+			amount: distributedAmount,
+			discordId,
+			remaining: Math.max(medalsOwed - distributedAmount, 0)
+		});
+		if (distributedAmount === delta) {
+			console.log(`[MedalDistributor] Distributed ${distributedAmount} medals to kingdom ${kingdomId} (guild ${guildId}).`);
+		} else {
+			console.log(`[MedalDistributor] Distributed ${distributedAmount} medals to kingdom ${kingdomId} (guild ${guildId}) (requested ${delta}).`);
+		}
+
+		return {
+			success: true,
+			medalsOwed,
+			distributed: distributedAmount,
+			response: distributionResponse
+		};
+	}
+
+	async requestMedalDistribution(token, kingdomId, delta) {
+		const payload = new URLSearchParams({
 			json: JSON.stringify({
 				members: [
 					{
@@ -85,50 +158,107 @@ class MedalDistributor {
 			})
 		});
 
-		const requestHeaders = {
+		const headers = {
 			"x-access-token": token
 		};
 
 		try {
-			const response = await this.api.request(
-				"https://api-lok-live.leagueofkingdoms.com/api/alliance/medal/distribute",
-				formPayload,
-				requestHeaders
-			);
-
+			const response = await this.api.request(MEDAL_DISTRIBUTION_ENDPOINT, payload, headers);
 			if (response?.data?.result === false) {
-				console.warn(`[MedalDistributor] Medal distribution rejected for ${kingdomId}:`, response.data);
-				return { success: false, medalsOwed, response: response.data };
+				return {
+					success: false,
+					errorCode: response?.data?.err?.code || null,
+					response: response.data
+				};
 			}
-
-            if (!discordId) {
-                const verifiedRows = await this.sql.getVerifiedDiscordId(kingdomId.toString(), guildId);
-                if (verifiedRows?.[0]?.discordId) {
-                    discordId = verifiedRows[0].discordId;
-                }
-            }
-
-			await this.sql.recordMedalTransaction(kingdomId.toString(), discordId, -delta, guildId);
-			await this.logMedalDistribution({
-				guildId,
-				kingdomId: kingdomId.toString(),
-				amount: delta,
-				discordId,
-				remaining: Math.max(medalsOwed - delta, 0)
-			});
-			console.log(`[MedalDistributor] Distributed ${delta} medals to kingdom ${kingdomId} (guild ${guildId}).`);
-
 			return {
 				success: true,
-				medalsOwed,
-				distributed: delta,
 				response: response?.data ?? null
 			};
 		} catch (error) {
-			const errorPayload = error?.response?.data || error?.message || error;
-			console.error(`[MedalDistributor] Failed to distribute medals to ${kingdomId}:`, errorPayload);
-			return { success: false, medalsOwed, error: errorPayload };
+			return {
+				success: false,
+				errorCode: error?.response?.data?.err?.code || error?.err?.code || null,
+				error: error?.response?.data || error?.message || error
+			};
 		}
+	}
+
+	async fetchLatestMedalTotal(token, kingdomId) {
+		const payload = new URLSearchParams({
+			json: JSON.stringify({})
+		});
+		const headers = {
+			"x-access-token": token
+		};
+
+		try {
+			const response = await this.api.request(MEDAL_HISTORY_ENDPOINT, payload, headers);
+			const history = Array.isArray(response?.data?.history) ? response.data.history : [];
+			const entry = history.find((record) => record?.kingdom?._id?.toString() === kingdomId.toString());
+			if (!entry) {
+				return { success: false, response: response?.data ?? null };
+			}
+			const afterValue = Number(entry.after);
+			if (!Number.isFinite(afterValue)) {
+				return { success: false, response: response?.data ?? null };
+			}
+			return {
+				success: true,
+				total: afterValue,
+				response: response?.data ?? null
+			};
+		} catch (error) {
+			return {
+				success: false,
+				error: error?.response?.data || error?.message || error
+			};
+		}
+	}
+
+	async handleMedalDistributionExceed({ token, kingdomId, delta }) {
+		let distributed = 0;
+		let latestResponse = null;
+
+		const singleResult = await this.requestMedalDistribution(token, kingdomId, 1);
+		if (!singleResult.success) {
+			return {
+				success: false,
+				errorCode: singleResult.errorCode,
+				error: singleResult.error || singleResult.response || null,
+				response: singleResult.response ?? null
+			};
+		}
+
+		distributed += 1;
+		latestResponse = singleResult.response ?? null;
+
+		const historyResult = await this.fetchLatestMedalTotal(token, kingdomId);
+		if (historyResult.success) {
+			const remainingAllowance = Math.max(0, MAX_MEDALS_PER_DISTRIBUTION - historyResult.total);
+			const outstandingRequest = Math.max(0, delta - distributed);
+			const followUpDelta = Math.min(remainingAllowance, outstandingRequest);
+			if (followUpDelta > 0) {
+				const followUpResult = await this.requestMedalDistribution(token, kingdomId, followUpDelta);
+				if (followUpResult.success) {
+					distributed += followUpDelta;
+					latestResponse = followUpResult.response ?? latestResponse;
+				} else {
+					const followUpError = followUpResult.error || followUpResult.response || followUpResult.errorCode || null;
+					if (followUpError) {
+						console.warn(`[MedalDistributor] Follow-up medal distribution failed for ${kingdomId}:`, followUpError);
+					}
+				}
+			}
+		} else {
+			console.warn(`[MedalDistributor] Unable to fetch medal history for ${kingdomId}; additional medals skipped.`);
+		}
+
+		return {
+			success: distributed > 0,
+			distributed,
+			response: latestResponse
+		};
 	}
 
 	async logMedalDistribution({ guildId, kingdomId, amount, discordId, remaining }) {

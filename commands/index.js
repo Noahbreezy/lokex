@@ -253,6 +253,24 @@ client.on(Events.InteractionCreate, async (interaction) => {
           flags: 64,
         });
       }
+    } else if (interaction.customId === "medals_bulkadd_modal") {
+      const command = client.commands.get("medals");
+      if (!command) return;
+      try {
+        await command.modalSubmit(interaction);
+      } catch (error) {
+        console.error("Medals bulk modal error:", error);
+        if (!interaction.replied && !interaction.deferred) {
+          try {
+            await interaction.reply({
+              content: "There was an error while processing the medal bulk add.",
+              flags: 64,
+            });
+          } catch (replyError) {
+            console.error("Medals bulk modal fallback reply failed:", replyError);
+          }
+        }
+      }
     } else if (interaction.customId === "whitelist_bulkadd_modal") {
       const command = client.commands.get("whitelist");
       if (!command) return;

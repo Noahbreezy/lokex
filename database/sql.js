@@ -594,6 +594,25 @@ class sqlFunctions {
         return this.query(query, [kingdomId, guild]);
     }
 
+    // Get a verified kingdom's info by ID
+    async getVerifiedKingdomInfo(kingdomId, guild) {
+        const query = "SELECT * FROM verified WHERE kingdomId=? AND guild=? AND status=1";
+        const results = await this.query(query, [kingdomId, guild]);
+        return results.length > 0 ? results[0] : null;
+    }
+
+    // Get verified info for multiple kingdoms in a guild
+    async getVerifiedInfoForKingdoms(kingdomIds, guild) {
+        if (!Array.isArray(kingdomIds) || kingdomIds.length === 0) {
+            return [];
+        }
+
+        const uniqueIds = [...new Set(kingdomIds)];
+        const placeholders = uniqueIds.map(() => '?').join(', ');
+        const query = `SELECT kingdomId, discordId, kingdomName FROM verified WHERE kingdomId IN (${placeholders}) AND guild = ? AND status = 1`;
+        return this.query(query, [...uniqueIds, guild]);
+    }
+
     // Add a kingdom to the verified list
     async addVerified(kingdomId, kingdomName, userId, userName, guildId, wallet) {
         const query = "INSERT INTO verified (kingdomId, kingdomName, discordId, name, guild, wallet) VALUES (?, ?, ?, ?, ?, ?)";
@@ -873,6 +892,22 @@ class sqlFunctions {
     async getAllGuildsWithUnverifyFlag() {
         const query = `SELECT guild_id FROM guild_settings WHERE unverify = 1;`;
         return this.query(query);
+    }
+
+    // Query function to search for the most recent verified kingdom by kingdom name (supports partial matches) within a guild
+    async getVerifiedKingdomByName(kingdomName, guildId) {
+        const query = `
+            SELECT *
+            FROM verified
+            WHERE status = 1
+              AND guild = ?
+              AND kingdomName LIKE ?
+            ORDER BY kingdomName = ? DESC, date DESC, id DESC
+            LIMIT 1
+        `;
+        const likeParam = `%${kingdomName}%`;
+        const results = await this.query(query, [guildId, likeParam, kingdomName]);
+        return results.length > 0 ? results[0] : null;
     }
 
     // Guild settings functions
@@ -1461,6 +1496,22 @@ class sqlFunctions {
     async getKingdomName(kingdomId) {
         const query = "SELECT name FROM latest_info WHERE kingdomId = ?;";
         return this.query(query, [kingdomId]);
+    }
+
+    // Get kingdom names for multiple IDs
+    async getKingdomNamesBulk(kingdomIds) {
+        if (!Array.isArray(kingdomIds) || kingdomIds.length === 0) {
+            return [];
+        }
+
+        const uniqueIds = [...new Set(kingdomIds.map(id => id?.toString()).filter(Boolean))];
+        if (uniqueIds.length === 0) {
+            return [];
+        }
+
+        const placeholders = uniqueIds.map(() => '?').join(', ');
+        const query = `SELECT kingdomId, name FROM latest_info WHERE kingdomId IN (${placeholders});`;
+        return this.query(query, uniqueIds);
     }
 
     // Get a list of past kingdom names by Id
