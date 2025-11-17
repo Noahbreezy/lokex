@@ -2497,10 +2497,170 @@ class sqlFunctions {
     }
 
     // Add/edit a kingdom to the whitelist
-    async addToWhitelist(kingdomId, continent, guild, dsa, cmine, expiry = null) {
-        // For temporary licenses, check if an existing entry with same type and level exists
+    async addToWhitelist(kingdomId, continent, guild, dsa, cmine, expiry = null, options = {}) {
+        if (expiry && typeof expiry === 'object' && options && Object.keys(options).length === 0) {
+            options = expiry;
+            expiry = null;
+        }
+
+        const {
+            durationWeeks = null,
+            maxDurationWeeks = null,
+            validateOnly = false,
+            referenceTime = null
+        } = options || {};
+
+        const useAdvancedLogic = durationWeeks !== null && durationWeeks !== undefined;
+
+        if (useAdvancedLogic) {
+            const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+            const now = referenceTime ? new Date(referenceTime) : new Date();
+            const dsaLevel = parseInt(dsa, 10) || 0;
+            const cmineLevel = parseInt(cmine, 10) || 0;
+            const level = dsaLevel > 0 ? dsaLevel : cmineLevel;
+            const type = dsaLevel > 0 ? 'dsa' : 'cmine';
+
+            if (level <= 0) {
+                return { success: false, reason: 'invalid_level' };
+            }
+
+            const entries = await this.query(
+                `SELECT id, dsa, cmine, expiry, created_at
+                 FROM whitelist
+                 WHERE kingdomid = ?
+                   AND continent = ?
+                   AND guild = ?
+                   AND (expiry IS NULL OR expiry > NOW())
+                   AND ${type} > '0'
+                 ORDER BY expiry ASC, created_at DESC`,
+                [kingdomId, continent, guild]
+            );
+
+            let sameLevelEntry = null;
+            let highestHigherLevelExpiry = null;
+
+            for (const entry of entries) {
+                const entryLevel = parseInt(entry[type], 10) || 0;
+                if (entryLevel === level) {
+                    if (!sameLevelEntry) {
+                        sameLevelEntry = entry;
+                    } else {
+                        const currentExpiryDate = sameLevelEntry.expiry ? new Date(sameLevelEntry.expiry) : null;
+                        const candidateExpiryDate = entry.expiry ? new Date(entry.expiry) : null;
+
+                        if (candidateExpiryDate && (!currentExpiryDate || candidateExpiryDate > currentExpiryDate)) {
+                            sameLevelEntry = entry;
+                        }
+                    }
+                } else if (entryLevel > level) {
+                    if (entry.expiry) {
+                        const expiryDate = new Date(entry.expiry);
+                        if (!highestHigherLevelExpiry || expiryDate > highestHigherLevelExpiry) {
+                            highestHigherLevelExpiry = expiryDate;
+                        }
+                    }
+                }
+            }
+
+            if (sameLevelEntry && sameLevelEntry.expiry === null) {
+                return {
+                    success: false,
+                    reason: 'permanent_exists',
+                    level,
+                    type
+                };
+            }
+
+            if (durationWeeks <= 0) {
+                return { success: false, reason: 'invalid_duration' };
+            }
+
+            const durationMs = durationWeeks * WEEK_MS;
+
+            let scheduleBase = new Date(now);
+            let scheduleSource = 'now';
+
+            if (sameLevelEntry && sameLevelEntry.expiry) {
+                const existingExpiryDate = new Date(sameLevelEntry.expiry);
+                if (existingExpiryDate > scheduleBase) {
+                    scheduleBase = existingExpiryDate;
+                    scheduleSource = 'same_level_expiry';
+                }
+            } else if (highestHigherLevelExpiry && highestHigherLevelExpiry > scheduleBase) {
+                scheduleBase = new Date(highestHigherLevelExpiry);
+                scheduleSource = 'higher_level_expiry';
+            }
+
+            const proposedExpiryDate = new Date(scheduleBase.getTime() + durationMs);
+
+            let maxAllowedDate = null;
+            const hasMaxDuration = maxDurationWeeks !== null && maxDurationWeeks !== undefined && Number(maxDurationWeeks) > 0;
+
+            if (hasMaxDuration) {
+                const limitWeeks = Number(maxDurationWeeks);
+                if (sameLevelEntry) {
+                    maxAllowedDate = new Date(now.getTime() + (limitWeeks * WEEK_MS));
+                } else {
+                    const baseForLimit = (highestHigherLevelExpiry && highestHigherLevelExpiry > now)
+                        ? highestHigherLevelExpiry
+                        : now;
+                    maxAllowedDate = new Date(baseForLimit.getTime() + (limitWeeks * WEEK_MS));
+                }
+
+                if (proposedExpiryDate > maxAllowedDate) {
+                    const waitMs = proposedExpiryDate.getTime() - maxAllowedDate.getTime();
+                    return {
+                        success: false,
+                        reason: 'maxduration_exceeded',
+                        level,
+                        type,
+                        maxAllowed: maxAllowedDate.toISOString(),
+                        proposedExpiry: proposedExpiryDate.toISOString(),
+                        waitMs
+                    };
+                }
+            }
+
+            const expiryString = proposedExpiryDate.toISOString().slice(0, 19).replace('T', ' ');
+            const scheduleBaseString = scheduleBase.toISOString().slice(0, 19).replace('T', ' ');
+
+            const plan = {
+                success: true,
+                extended: Boolean(sameLevelEntry),
+                action: sameLevelEntry ? 'extend' : 'insert',
+                targetId: sameLevelEntry ? sameLevelEntry.id : null,
+                originalExpiry: sameLevelEntry ? sameLevelEntry.expiry : null,
+                newExpiry: expiryString,
+                scheduleBase: scheduleBaseString,
+                scheduleSource,
+                level,
+                type,
+                durationWeeks,
+                maxDurationWeeks: hasMaxDuration ? Number(maxDurationWeeks) : null,
+                referenceTime: now.toISOString()
+            };
+
+            if (validateOnly) {
+                return plan;
+            }
+
+            if (plan.action === 'extend') {
+                await this.query(`UPDATE whitelist SET expiry = ? WHERE id = ?`, [expiryString, plan.targetId]);
+            } else {
+                const insertDsa = type === 'dsa' ? dsa : '0';
+                const insertCmine = type === 'cmine' ? cmine : '0';
+                await this.query(
+                    `INSERT INTO whitelist (kingdomid, continent, guild, dsa, cmine, expiry)
+                     VALUES (?, ?, ?, ?, ?, ?)`,
+                    [kingdomId, continent, guild, insertDsa, insertCmine, expiryString]
+                );
+            }
+
+            return plan;
+        }
+
+        // Legacy logic for callers that do not provide duration/maxduration metadata
         if (expiry !== null) {
-            // Check for existing entries with same kingdom, type, and level
             const existingEntries = await this.query(
                 `SELECT * FROM whitelist 
                  WHERE kingdomid = ? AND continent = ? AND guild = ? 
@@ -2512,54 +2672,56 @@ class sqlFunctions {
 
             if (existingEntries && existingEntries.length > 0) {
                 const existing = existingEntries[0];
-                // Check if the levels match exactly for the same type
-                const dsaLevel = parseInt(dsa) || 0;
-                const cmineLevel = parseInt(cmine) || 0;
-                const existingDsaLevel = parseInt(existing.dsa) || 0;
-                const existingCmineLevel = parseInt(existing.cmine) || 0;
+                const dsaLevel = parseInt(dsa, 10) || 0;
+                const cmineLevel = parseInt(cmine, 10) || 0;
+                const existingDsaLevel = parseInt(existing.dsa, 10) || 0;
+                const existingCmineLevel = parseInt(existing.cmine, 10) || 0;
 
-                // If DSA levels match (and we're adding DSA) or CMINE levels match (and we're adding CMINE)
                 const dsaMatches = (dsaLevel > 0 && dsaLevel === existingDsaLevel);
                 const cmineMatches = (cmineLevel > 0 && cmineLevel === existingCmineLevel);
 
                 if (dsaMatches || cmineMatches) {
-                    // Extend the existing entry by calculating new expiry
                     const existingExpiry = new Date(existing.expiry);
                     const newExpiryDate = new Date(expiry);
-                    const currentTime = new Date();
-
-                    // Calculate the duration being added
+                    const currentTime = referenceTime ? new Date(referenceTime) : new Date();
                     const durationToAdd = newExpiryDate.getTime() - currentTime.getTime();
-
-                    // Add duration to existing expiry (if existing expiry is in the future) or current time (if expired)
                     const baseTime = existingExpiry > currentTime ? existingExpiry : currentTime;
                     const extendedExpiry = new Date(baseTime.getTime() + durationToAdd);
                     const extendedExpiryString = extendedExpiry.toISOString().slice(0, 19).replace('T', ' ');
 
-                    // Update the existing entry with extended expiry
-                    const result = await this.query(
-                        `UPDATE whitelist SET expiry = ? WHERE id = ?`,
-                        [extendedExpiryString, existing.id]
-                    );
-                    return { success: true, extended: true, originalExpiry: existing.expiry, newExpiry: extendedExpiryString };
+                    if (!validateOnly) {
+                        await this.query(
+                            `UPDATE whitelist SET expiry = ? WHERE id = ?`,
+                            [extendedExpiryString, existing.id]
+                        );
+                    }
+
+                    return {
+                        success: true,
+                        extended: true,
+                        originalExpiry: existing.expiry,
+                        newExpiry: extendedExpiryString
+                    };
                 }
             }
 
-            // If no matching entry found or levels are different, create new entry
-            const result = await this.query(
-                `INSERT INTO whitelist (kingdomid, continent, guild, dsa, cmine, expiry)
-                 VALUES (?, ?, ?, ?, ?, ?)`,
-                [kingdomId, continent, guild, dsa, cmine, expiry]
-            );
+            if (!validateOnly) {
+                await this.query(
+                    `INSERT INTO whitelist (kingdomid, continent, guild, dsa, cmine, expiry)
+                     VALUES (?, ?, ?, ?, ?, ?)`
+                    , [kingdomId, continent, guild, dsa, cmine, expiry]
+                );
+            }
             return { success: true, extended: false, newExpiry: expiry };
         } else {
-            // For permanent licenses, use ON DUPLICATE KEY UPDATE to replace existing permanent license
-            const result = await this.query(
-                `INSERT INTO whitelist (kingdomid, continent, guild, dsa, cmine, expiry)
-                 VALUES (?, ?, ?, ?, ?, ?)
-                 ON DUPLICATE KEY UPDATE dsa = ?, cmine = ?`,
-                [kingdomId, continent, guild, dsa, cmine, expiry, dsa, cmine]
-            );
+            if (!validateOnly) {
+                await this.query(
+                    `INSERT INTO whitelist (kingdomid, continent, guild, dsa, cmine, expiry)
+                     VALUES (?, ?, ?, ?, ?, ?)
+                     ON DUPLICATE KEY UPDATE dsa = ?, cmine = ?`,
+                    [kingdomId, continent, guild, dsa, cmine, expiry, dsa, cmine]
+                );
+            }
             return { success: true, extended: false, permanent: true };
         }
     }
@@ -2781,15 +2943,15 @@ class sqlFunctions {
     }
 
     // Add a new shop item (now supports mincastle and maxowned)
-    async addShopItem(guildId, name, price, stock, description = null, type = null, level = null, duration = null, mincastle = null, maxowned = null) {
-        const query = "INSERT INTO shop_items (guild_id, name, price, stock, description, type, level, duration, mincastle, maxowned) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);";
-        return this.query(query, [guildId, name, price, stock, description, type, level, duration, mincastle, maxowned]);
+    async addShopItem(guildId, name, price, stock, description = null, type = null, level = null, duration = null, mincastle = null, maxowned = null, maxduration = null) {
+        const query = "INSERT INTO shop_items (guild_id, name, price, stock, description, type, level, duration, mincastle, maxowned, maxduration) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);";
+        return this.query(query, [guildId, name, price, stock, description, type, level, duration, mincastle, maxowned, maxduration]);
     }
 
     // Update shop item (now supports mincastle and maxowned)
-    async updateShopItem(itemId, guildId, name, price, stock, description = null, type = null, level = null, duration = null, mincastle = null, maxowned = null) {
-        const query = "UPDATE shop_items SET name = ?, price = ?, stock = ?, description = ?, type = ?, level = ?, duration = ?, mincastle = ?, maxowned = ? WHERE id = ? AND guild_id = ?;";
-        return this.query(query, [name, price, stock, description, type, level, duration, mincastle, maxowned, itemId, guildId]);
+    async updateShopItem(itemId, guildId, name, price, stock, description = null, type = null, level = null, duration = null, mincastle = null, maxowned = null, maxduration = null) {
+        const query = "UPDATE shop_items SET name = ?, price = ?, stock = ?, description = ?, type = ?, level = ?, duration = ?, mincastle = ?, maxowned = ?, maxduration = ? WHERE id = ? AND guild_id = ?;";
+        return this.query(query, [name, price, stock, description, type, level, duration, mincastle, maxowned, maxduration, itemId, guildId]);
     }
 
     // Delete shop item

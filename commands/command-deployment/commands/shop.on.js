@@ -20,6 +20,47 @@ function formatNumber(num) {
     }
 }
 
+function formatFullNumber(num) {
+    if (num === null || num === undefined) {
+        return '0';
+    }
+
+    const original = typeof num === 'string' ? num.trim() : num.toString();
+    if (!original) {
+        return '0';
+    }
+
+    const hasNegativeSign = original.startsWith('-');
+    const sanitized = (hasNegativeSign ? original.slice(1) : original).replace(/,/g, '');
+
+    if (!/^\d*\.?\d*$/.test(sanitized)) {
+        const numericValue = Number(num);
+        if (!Number.isFinite(numericValue)) {
+            return original;
+        }
+        return numericValue.toLocaleString('en-US', {
+            useGrouping: true,
+            maximumFractionDigits: 20
+        });
+    }
+
+    let [integerPart, fractionPart] = sanitized.split('.');
+    if (!integerPart || integerPart.length === 0) {
+        integerPart = '0';
+    }
+
+    integerPart = integerPart.replace(/^0+(?=\d)/, '');
+    if (integerPart === '') {
+        integerPart = '0';
+    }
+
+    const formattedInteger = integerPart.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+    const formattedFraction = fractionPart ? `.${fractionPart}` : '';
+
+    const result = `${hasNegativeSign ? '-' : ''}${formattedInteger}${formattedFraction}`;
+    return result === '-0' ? '0' : result;
+}
+
 
 
 module.exports = {
@@ -91,6 +132,13 @@ module.exports = {
                     option
                         .setName("maxowned")
                         .setDescription("Max number this item a user can own (licenses across kingdoms). 0 or empty = unlimited.")
+                        .setRequired(false)
+                        .setMinValue(0)
+                )
+                .addIntegerOption((option) =>
+                    option
+                        .setName("maxduration")
+                        .setDescription("Maximum stacked duration for this item in weeks (0 or empty = unlimited)")
                         .setRequired(false)
                         .setMinValue(0)
                 )
@@ -167,6 +215,13 @@ module.exports = {
                     option
                         .setName("maxowned")
                         .setDescription("New max number this item a user can own (use 0 to clear)")
+                        .setRequired(false)
+                        .setMinValue(0)
+                )
+                .addIntegerOption((option) =>
+                    option
+                        .setName("maxduration")
+                        .setDescription("New maximum stacked duration in weeks (use 0 to clear)")
                         .setRequired(false)
                         .setMinValue(0)
                 )
@@ -330,6 +385,8 @@ module.exports = {
                         const duration = options.getInteger("duration") || null;
                         const mincastle = options.getInteger("mincastle") || null;
                         const maxowned = options.getInteger("maxowned"); // preserve 0 as unlimited
+                        const maxdurationInput = options.getInteger("maxduration");
+                        const maxduration = (maxdurationInput === null || maxdurationInput <= 0) ? null : maxdurationInput;
 
                         // Validate that dsa and cmine items have required level and duration
                         if (type && (type.toLowerCase() === 'dsa' || type.toLowerCase() === 'cmine')) {
@@ -343,7 +400,7 @@ module.exports = {
                             }
                         }
 
-                        await sql.addShopItem(guildId, name, price, stock, description, type, level, duration, mincastle, maxowned);
+                        await sql.addShopItem(guildId, name, price, stock, description, type, level, duration, mincastle, maxowned, maxduration);
                         const items = await sql.getShopItems(guildId);
                         const addedItem = items.find(i => i.name === name && i.price === price && i.stock === stock);
                         const itemIdMsg = addedItem ? ` (ID: ${addedItem.id})` : '';
@@ -361,7 +418,8 @@ module.exports = {
                                 level,
                                 duration,
                                 mincastle,
-                                maxowned
+                                maxowned,
+                                maxduration
                             });
                         }
 
@@ -389,6 +447,7 @@ module.exports = {
                         const duration = options.getInteger("duration");
                         const mincastle = options.getInteger("mincastle");
                         const maxowned = options.getInteger("maxowned");
+                        const maxdurationOption = options.getInteger("maxduration");
 
                         // Get current item data
                         const currentItem = await sql.getShopItem(itemId, guildId);
@@ -420,6 +479,12 @@ module.exports = {
                         } else {
                             updatedMaxowned = currentItem.maxowned;
                         }
+                        let updatedMaxduration;
+                        if (maxdurationOption !== null) {
+                            updatedMaxduration = maxdurationOption === 0 ? null : maxdurationOption;
+                        } else {
+                            updatedMaxduration = currentItem.maxduration ?? null;
+                        }
 
                         // Validate that dsa and cmine items have required level and duration
                         if (updatedType && (updatedType.toLowerCase() === 'dsa' || updatedType.toLowerCase() === 'cmine')) {
@@ -433,7 +498,7 @@ module.exports = {
                             }
                         }
 
-                        await sql.updateShopItem(itemId, guildId, updatedName, updatedPrice, updatedStock, updatedDescription, updatedType, updatedLevel, updatedDuration, updatedMincastle, updatedMaxowned);
+                        await sql.updateShopItem(itemId, guildId, updatedName, updatedPrice, updatedStock, updatedDescription, updatedType, updatedLevel, updatedDuration, updatedMincastle, updatedMaxowned, updatedMaxduration);
 
                         let responseMessage = `✅ Item "${updatedName}" (ID: ${itemId}) updated successfully.`;
                         if (description === "CLEAR") {
@@ -453,7 +518,8 @@ module.exports = {
                             level: updatedLevel,
                             duration: updatedDuration,
                             mincastle: updatedMincastle,
-                            maxowned: updatedMaxowned
+                            maxowned: updatedMaxowned,
+                            maxduration: updatedMaxduration
                         });
 
                         // Refresh shop channel if it exists
@@ -563,6 +629,7 @@ module.exports = {
                             if (item.duration) description += ` | Duration: ${item.duration} weeks`;
                             if (item.mincastle) description += ` | Min Castle: ${item.mincastle}`;
                             if (item.maxowned) description += ` | Max Owned: ${item.maxowned}`;
+                            if (item.maxduration) description += ` | Max Duration: ${item.maxduration}w`;
                             description += `\n${item.description || 'No description'}\n\n`;
                         }
 
@@ -636,11 +703,12 @@ module.exports = {
                         const checkUserId = targetUser ? targetUser.id : user.id;
                         const checkUsername = targetUser ? targetUser.username : user.username;
                         const balance = await sql.getUserPointsBalance(checkUserId, guildId);
+                        const balanceDisplay = formatFullNumber(balance);
 
                         const embed = new EmbedBuilder()
                             .setColor(0xFFD700)
                             .setTitle("💰 Points Balance")
-                            .setDescription(`${targetUser ? `**${checkUsername}**` : 'You'} currently ${targetUser ? 'has' : 'have'} **${formatNumber(balance)} ${currencyEmoji}**`)
+                            .setDescription(`${targetUser ? `**${checkUsername}**` : 'You'} currently ${targetUser ? 'has' : 'have'} **${balanceDisplay} ${currencyEmoji}**`)
                             .setTimestamp();
 
                         if (targetUser) {
@@ -1931,6 +1999,64 @@ module.exports = {
                 return;
             }
 
+            const whitelistType = (item.type || '').toLowerCase();
+            if (!['dsa', 'cmine'].includes(whitelistType)) {
+                await interaction.reply({ content: "❌ This shop item is not configured as a whitelist license.", flags: 64 });
+                return;
+            }
+
+            const licenseLevel = item.level || 1;
+            const durationWeeks = item.duration ? Number(item.duration) : null;
+            const maxDurationWeeks = (item.maxduration === null || item.maxduration === undefined || item.maxduration <= 0)
+                ? null
+                : Number(item.maxduration);
+
+            if (!durationWeeks || durationWeeks <= 0) {
+                await interaction.reply({ content: "❌ This whitelist item is missing a valid duration in weeks.", flags: 64 });
+                return;
+            }
+
+            const dsaLevel = whitelistType === 'dsa' ? licenseLevel : 0;
+            const cmineLevel = whitelistType === 'cmine' ? licenseLevel : 0;
+
+            // Validate whitelist limits before charging the user
+            const validation = await sql.addToWhitelist(
+                kingdomId,
+                continent,
+                guildId,
+                dsaLevel.toString(),
+                cmineLevel.toString(),
+                null,
+                {
+                    durationWeeks,
+                    maxDurationWeeks,
+                    validateOnly: true
+                }
+            );
+
+            if (!validation || validation.success === false) {
+                let errorMessage = "❌ Unable to apply this whitelist license.";
+                if (validation?.reason === 'permanent_exists') {
+                    errorMessage = `❌ This kingdom already has a permanent ${whitelistType.toUpperCase()} level ${licenseLevel} license.`;
+                } else if (validation?.reason === 'maxduration_exceeded') {
+                    const limitLabel = maxDurationWeeks ? `${maxDurationWeeks} weeks` : 'the configured limit';
+                    if (validation.waitMs) {
+                        const waitUntil = Date.now() + validation.waitMs;
+                        const timestamp = Math.floor(waitUntil / 1000);
+                        errorMessage = `❌ This purchase would exceed the maximum duration (${limitLabel}) for ${whitelistType.toUpperCase()} level ${licenseLevel}. Try again <t:${timestamp}:R>.`;
+                    } else {
+                        errorMessage = `❌ This purchase would exceed the maximum duration (${limitLabel}) for ${whitelistType.toUpperCase()} level ${licenseLevel}.`;
+                    }
+                } else if (validation?.reason === 'invalid_level' || validation?.reason === 'invalid_duration') {
+                    errorMessage = "❌ This whitelist item configuration is invalid. Please contact an administrator.";
+                }
+
+                await interaction.reply({ content: errorMessage, flags: 64 });
+                return;
+            }
+
+            const referenceTime = validation.referenceTime;
+
             // Attempt to purchase (this will decrease stock if successful)
             const purchaseSuccess = await sql.purchaseShopItem(item.id, guildId, 1);
 
@@ -1942,33 +2068,35 @@ module.exports = {
             // Deduct points from user
             await sql.deductUserPoints(user.id, guildId, item.price, 'shop purchase');
 
-            // Log the purchase
-            await sql.logShopPurchase(guildId, user.id, item.id, 1, item.price);
+            // Apply whitelist with previously validated plan
+            const whitelistResult = await sql.addToWhitelist(
+                kingdomId,
+                continent,
+                guildId,
+                dsaLevel.toString(),
+                cmineLevel.toString(),
+                null,
+                {
+                    durationWeeks,
+                    maxDurationWeeks,
+                    referenceTime
+                }
+            );
 
-            // Apply whitelist based on item type
-            const whitelistType = item.type.toLowerCase();
-            let dsaLevel = 0;
-            let cmineLevel = 0;
-
-            if (whitelistType === 'dsa') {
-                dsaLevel = item.level || 1;
-            } else if (whitelistType === 'cmine') {
-                cmineLevel = item.level || 1;
+            if (!whitelistResult || whitelistResult.success === false) {
+                // This should not happen, but if it does, refund user and restore stock
+                await sql.query(`UPDATE shop_items SET stock = stock + 1 WHERE id = ? AND guild_id = ?`, [item.id, guildId]);
+                await sql.deductUserPoints(user.id, guildId, -item.price, 'shop refund');
+                console.error('Whitelist application failed post-purchase:', whitelistResult);
+                await interaction.reply({ content: "❌ Purchase was refunded because the whitelist could not be applied. Please contact an administrator.", flags: 64 });
+                await refreshShopChannel(guildId, sql, guild);
+                return;
             }
-
-            // Calculate expiry date if duration is specified
-            let expiry = null;
-            if (item.duration) {
-                const expiryDate = new Date();
-                expiryDate.setDate(expiryDate.getDate() + (item.duration * 7)); // duration is in weeks
-                expiry = expiryDate.toISOString().slice(0, 19).replace('T', ' ');
-            }
-
-            // Add to whitelist
-            const whitelistResult = await sql.addToWhitelist(kingdomId, continent, guildId, dsaLevel.toString(), cmineLevel.toString(), expiry);
 
             // Get user's remaining balance
             const remainingBalance = await sql.getUserPointsBalance(user.id, guildId);
+
+            await sql.logShopPurchase(guildId, user.id, item.id, 1, item.price);
 
             // Create purchase confirmation embed with appropriate messaging
             const isExtended = whitelistResult && whitelistResult.extended;
@@ -1981,11 +2109,15 @@ module.exports = {
                     { name: "Price", value: `${formatNumber(item.price)} ${currencyEmoji}`, inline: true },
                     { name: "Kingdom", value: kingdomName, inline: true },
                     { name: "Whitelist Applied", value: `${whitelistType.toUpperCase()}: Level ${item.level || 1}`, inline: true },
-                    { name: "Duration", value: item.duration ? `${item.duration} weeks` : "Permanent", inline: true },
+                    { name: "Duration", value: `${durationWeeks} weeks`, inline: true },
                     { name: "Remaining Balance", value: `${formatNumber(remainingBalance)} ${currencyEmoji}`, inline: true }
                 )
                 .setTimestamp()
                 .setFooter({ text: `Purchased by ${user.username}`, iconURL: user.displayAvatarURL() });
+
+            if (maxDurationWeeks) {
+                embed.addFields({ name: "Max Duration", value: `${maxDurationWeeks} weeks`, inline: true });
+            }
 
             if (item.description) {
                 embed.addFields({ name: "Description", value: item.description, inline: false });
@@ -1995,18 +2127,18 @@ module.exports = {
             if (isExtended) {
                 embed.addFields({
                     name: "🔄 License Extended",
-                    value: `Your existing ${whitelistType.toUpperCase()} Level ${item.level || 1} license has been extended by ${item.duration} weeks.`,
+                    value: `Your existing ${whitelistType.toUpperCase()} Level ${licenseLevel} license has been extended by ${durationWeeks} weeks.`,
                     inline: false
                 });
-            } else if (expiry) {
+            } else if (whitelistResult.newExpiry) {
                 embed.addFields({
                     name: "🆕 New License",
-                    value: `A new ${whitelistType.toUpperCase()} Level ${item.level || 1} license has been created.`,
+                    value: `A new ${whitelistType.toUpperCase()} Level ${licenseLevel} license has been created.`,
                     inline: false
                 });
             }
 
-            if (expiry && whitelistResult && whitelistResult.newExpiry) {
+            if (whitelistResult && whitelistResult.newExpiry) {
                 const expiryDate = new Date(whitelistResult.newExpiry);
                 const timestamp = Math.floor(expiryDate.getTime() / 1000);
                 embed.addFields({ name: "Expires", value: `<t:${timestamp}:F> (<t:${timestamp}:R>)`, inline: true });
@@ -2023,7 +2155,10 @@ module.exports = {
                 kingdom: kingdomName,
                 whitelistType: whitelistType,
                 level: item.level || 1,
-                duration: item.duration ? (isExtended ? 'Extended' : `${item.duration} weeks`) : 'Permanent'
+                duration: `${durationWeeks} weeks`,
+                maxduration: maxDurationWeeks,
+                extended: isExtended,
+                newExpiry: whitelistResult.newExpiry
             });
 
             // Refresh the shop channel to update stock
@@ -2267,6 +2402,8 @@ async function logShopAction(guildId, sql, guild, action, user, details = {}) {
                 if (details.type) embed.addFields({ name: "Type", value: details.type, inline: true });
                 if (details.level) embed.addFields({ name: "Level", value: details.level.toString(), inline: true });
                 if (details.duration) embed.addFields({ name: "Duration", value: `${details.duration} weeks`, inline: true });
+                if (details.maxowned) embed.addFields({ name: "Max Owned", value: details.maxowned.toString(), inline: true });
+                if (details.maxduration) embed.addFields({ name: "Max Duration", value: `${details.maxduration} weeks`, inline: true });
                 if (details.description) embed.addFields({ name: "Description", value: details.description, inline: false });
                 break;
 
@@ -2282,6 +2419,8 @@ async function logShopAction(guildId, sql, guild, action, user, details = {}) {
                 if (details.type) embed.addFields({ name: "Type", value: details.type, inline: true });
                 if (details.level) embed.addFields({ name: "Level", value: details.level.toString(), inline: true });
                 if (details.duration) embed.addFields({ name: "Duration", value: `${details.duration} weeks`, inline: true });
+                if (details.maxowned !== undefined && details.maxowned !== null) embed.addFields({ name: "Max Owned", value: details.maxowned.toString(), inline: true });
+                if (details.maxduration !== undefined && details.maxduration !== null) embed.addFields({ name: "Max Duration", value: `${details.maxduration} weeks`, inline: true });
                 if (details.description) embed.addFields({ name: "Description", value: details.description, inline: false });
                 break;
 
@@ -2326,6 +2465,13 @@ async function logShopAction(guildId, sql, guild, action, user, details = {}) {
                 if (details.kingdom) embed.addFields({ name: "Kingdom", value: details.kingdom, inline: true });
                 if (details.whitelistType) embed.addFields({ name: "Whitelist Applied", value: `${details.whitelistType.toUpperCase()}: Level ${details.level || 1}`, inline: true });
                 if (details.duration) embed.addFields({ name: "Duration", value: details.duration, inline: true });
+                if (details.maxduration) embed.addFields({ name: "Max Duration", value: `${details.maxduration} weeks`, inline: true });
+                if (typeof details.extended === 'boolean') embed.addFields({ name: "Extended", value: details.extended ? 'Yes' : 'No', inline: true });
+                if (details.newExpiry) {
+                    const expiryDate = new Date(details.newExpiry);
+                    const expiryTs = Math.floor(expiryDate.getTime() / 1000);
+                    embed.addFields({ name: "Expires", value: `<t:${expiryTs}:F>`, inline: true });
+                }
                 break;
 
             case 'points_added':
