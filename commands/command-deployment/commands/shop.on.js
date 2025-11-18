@@ -1564,8 +1564,10 @@ module.exports = {
                 };
             });
 
+            const menuCustomId = `select_kingdom_shop_${user.id}_${item.id}_${interaction.id}`;
+
             const selectMenu = new StringSelectMenuBuilder()
-                .setCustomId(`select_kingdom_shop_${user.id}_${item.id}`)
+                .setCustomId(menuCustomId)
                 .setPlaceholder(hasMaxOwned && atLimit ? 'Select a kingdom to extend' : 'Select a kingdom for the whitelist')
                 .addOptions(kingdomOptions);
 
@@ -1583,21 +1585,40 @@ module.exports = {
             });
 
             // Set up collector for kingdom selection
-            const filter = i => i.customId.startsWith(`select_kingdom_shop_${user.id}_${item.id}`) && i.user.id === user.id;
+            const filter = i => i.customId === menuCustomId && i.user.id === user.id;
             const collector = interaction.channel.createMessageComponentCollector({ filter, time: 60000 });
 
             collector.on('collect', async i => {
                 const selectedKingdomId = i.values[0];
                 const selectedKingdom = uniqueKingdoms.find(k => k.kingdomId.toString() === selectedKingdomId);
 
-                if (selectedKingdom) {
-                    // If at limit, ensure selected kingdom is eligible for extension
-                    if (hasMaxOwned && atLimit && !eligibleKingdomIds.has(selectedKingdomId.toString())) {
-                        await i.reply({ content: `❌ You already own the maximum of **${item.maxowned}** ${item.type.toUpperCase()} Level ${item.level} license(s). Please select one of your kingdoms that already has this license to extend.`, flags: 64 });
+                let acknowledged = true;
+                try {
+                    await i.deferUpdate({}).catch(error => {
+                        if (error?.code === 10062) {
+                            acknowledged = false;
+                            return;
+                        }
+                        throw error;
+                    });
+
+                    if (!acknowledged) {
                         collector.stop();
                         return;
                     }
-                    // Enforce mincastle on the specifically selected kingdom
+
+                    if (!selectedKingdom) {
+                        await i.editReply({ content: '❌ Invalid selection. Please try again.', components: [] });
+                        collector.stop();
+                        return;
+                    }
+
+                    if (hasMaxOwned && atLimit && !eligibleKingdomIds.has(selectedKingdomId.toString())) {
+                        await i.editReply({ content: `❌ You already own the maximum of **${item.maxowned}** ${item.type.toUpperCase()} Level ${item.level} license(s). Please select one of your kingdoms that already has this license to extend.`, components: [] });
+                        collector.stop();
+                        return;
+                    }
+
                     if (item.mincastle) {
                         const levelRows = await sql.getKingdomLevel(selectedKingdom.kingdomId);
                         let level = null;
@@ -1607,17 +1628,30 @@ module.exports = {
                             level = parseInt(levelRows.level);
                         }
                         if (level === null || level < item.mincastle) {
-                            await i.reply({ content: `❌ Kingdom **${selectedKingdom.kingdomName}** does not meet the required castle level ${item.mincastle}+ (current: ${level ?? 'unknown'}).`, flags: 64 });
+                            await i.editReply({ content: `❌ Kingdom **${selectedKingdom.kingdomName}** does not meet the required castle level ${item.mincastle}+ (current: ${level ?? 'unknown'}).`, components: [] });
                             collector.stop();
                             return;
                         }
                     }
-                    await this.applyWhitelistPurchase(i, item, selectedKingdom.kingdomId, selectedKingdom.kingdomName, currencyEmoji, sql);
-                } else {
-                    await i.reply({ content: '❌ Invalid selection. Please try again.', flags: 64 });
-                }
 
-                collector.stop();
+                    await i.editReply({
+                        content: `Processing **${item.name}** for kingdom **${selectedKingdom.kingdomName}**...`,
+                        components: []
+                    });
+
+                    await this.applyWhitelistPurchase(i, item, selectedKingdom.kingdomId, selectedKingdom.kingdomName, currencyEmoji, sql);
+                    collector.stop();
+                } catch (error) {
+                    console.error('Error handling whitelist kingdom selection:', error);
+                    if (acknowledged) {
+                        try {
+                            await i.editReply({ content: '❌ There was an error processing that selection. Please try again.', components: [] });
+                        } catch (editErr) {
+                            console.error('Failed to edit reply after whitelist selection error:', editErr);
+                        }
+                    }
+                    collector.stop();
+                }
             });
 
             collector.on('end', collected => {
@@ -1989,30 +2023,61 @@ module.exports = {
         const { guildId, user } = interaction;
         const guild = interaction.guild;
 
+        const respond = async (payload = {}) => {
+            if (interaction.deferred) {
+                const { flags, ...rest } = payload;
+                return interaction.editReply(rest);
+            }
+            if (interaction.replied) {
+                return interaction.followUp({ ...payload, flags: payload.flags ?? 64 });
+            }
+            return interaction.reply({ ...payload, flags: payload.flags ?? 64 });
+        };
+
         try {
+            let currentItem = item;
+            const latestItem = await sql.getShopItem(item.id, guildId);
+            if (latestItem) {
+                currentItem = latestItem;
+            }
+
+            const itemPrice = Number(currentItem.price);
+            if (!Number.isFinite(itemPrice) || itemPrice <= 0) {
+                await respond({ content: "❌ This whitelist item is misconfigured. Please contact an administrator." });
+                return;
+            }
+
+            const balance = await sql.getUserPointsBalance(user.id, guildId);
+            if (balance < itemPrice) {
+                await respond({
+                    content: `❌ Insufficient funds! You need ${formatFullNumber(itemPrice)} ${currencyEmoji} but only have ${formatFullNumber(balance)} ${currencyEmoji}.`
+                });
+                return;
+            }
+
             // Get continent for this guild (needed for whitelist)
             const continentArr = await sql.getGuildContinents(guildId);
             const continent = continentArr && continentArr.length > 0 ? continentArr[0].continent : null;
 
             if (!continent) {
-                await interaction.reply({ content: "❌ No continent linked to this guild. Cannot apply whitelist.", flags: 64 });
+                await respond({ content: "❌ No continent linked to this guild. Cannot apply whitelist." });
                 return;
             }
 
-            const whitelistType = (item.type || '').toLowerCase();
+            const whitelistType = (currentItem.type || '').toLowerCase();
             if (!['dsa', 'cmine'].includes(whitelistType)) {
-                await interaction.reply({ content: "❌ This shop item is not configured as a whitelist license.", flags: 64 });
+                await respond({ content: "❌ This shop item is not configured as a whitelist license." });
                 return;
             }
 
-            const licenseLevel = item.level || 1;
-            const durationWeeks = item.duration ? Number(item.duration) : null;
-            const maxDurationWeeks = (item.maxduration === null || item.maxduration === undefined || item.maxduration <= 0)
+            const licenseLevel = currentItem.level || 1;
+            const durationWeeks = currentItem.duration ? Number(currentItem.duration) : null;
+            const maxDurationWeeks = (currentItem.maxduration === null || currentItem.maxduration === undefined || currentItem.maxduration <= 0)
                 ? null
-                : Number(item.maxduration);
+                : Number(currentItem.maxduration);
 
             if (!durationWeeks || durationWeeks <= 0) {
-                await interaction.reply({ content: "❌ This whitelist item is missing a valid duration in weeks.", flags: 64 });
+                await respond({ content: "❌ This whitelist item is missing a valid duration in weeks." });
                 return;
             }
 
@@ -2051,22 +2116,22 @@ module.exports = {
                     errorMessage = "❌ This whitelist item configuration is invalid. Please contact an administrator.";
                 }
 
-                await interaction.reply({ content: errorMessage, flags: 64 });
+                await respond({ content: errorMessage });
                 return;
             }
 
             const referenceTime = validation.referenceTime;
 
             // Attempt to purchase (this will decrease stock if successful)
-            const purchaseSuccess = await sql.purchaseShopItem(item.id, guildId, 1);
+            const purchaseSuccess = await sql.purchaseShopItem(currentItem.id, guildId, 1);
 
             if (!purchaseSuccess) {
-                await interaction.reply({ content: "❌ Purchase failed. Item may be out of stock.", flags: 64 });
+                await respond({ content: "❌ Purchase failed. Item may be out of stock." });
                 return;
             }
 
             // Deduct points from user
-            await sql.deductUserPoints(user.id, guildId, item.price, 'shop purchase');
+            await sql.deductUserPoints(user.id, guildId, itemPrice, 'shop purchase');
 
             // Apply whitelist with previously validated plan
             const whitelistResult = await sql.addToWhitelist(
@@ -2085,10 +2150,10 @@ module.exports = {
 
             if (!whitelistResult || whitelistResult.success === false) {
                 // This should not happen, but if it does, refund user and restore stock
-                await sql.query(`UPDATE shop_items SET stock = stock + 1 WHERE id = ? AND guild_id = ?`, [item.id, guildId]);
-                await sql.deductUserPoints(user.id, guildId, -item.price, 'shop refund');
+                await sql.query(`UPDATE shop_items SET stock = stock + 1 WHERE id = ? AND guild_id = ?`, [currentItem.id, guildId]);
+                await sql.deductUserPoints(user.id, guildId, -itemPrice, 'shop refund');
                 console.error('Whitelist application failed post-purchase:', whitelistResult);
-                await interaction.reply({ content: "❌ Purchase was refunded because the whitelist could not be applied. Please contact an administrator.", flags: 64 });
+                await respond({ content: "❌ Purchase was refunded because the whitelist could not be applied. Please contact an administrator." });
                 await refreshShopChannel(guildId, sql, guild);
                 return;
             }
@@ -2096,19 +2161,19 @@ module.exports = {
             // Get user's remaining balance
             const remainingBalance = await sql.getUserPointsBalance(user.id, guildId);
 
-            await sql.logShopPurchase(guildId, user.id, item.id, 1, item.price);
+            await sql.logShopPurchase(guildId, user.id, currentItem.id, 1, itemPrice);
 
             // Create purchase confirmation embed with appropriate messaging
             const isExtended = whitelistResult && whitelistResult.extended;
             const embed = new EmbedBuilder()
                 .setColor(0x00FF00)
                 .setTitle("✅ Purchase Successful!")
-                .setDescription(`You have successfully purchased **${item.name}** for ${formatNumber(item.price)} ${currencyEmoji}`)
+                .setDescription(`You have successfully purchased **${currentItem.name}** for ${formatNumber(itemPrice)} ${currencyEmoji}`)
                 .addFields(
-                    { name: "Item", value: item.name, inline: true },
-                    { name: "Price", value: `${formatNumber(item.price)} ${currencyEmoji}`, inline: true },
+                    { name: "Item", value: currentItem.name, inline: true },
+                    { name: "Price", value: `${formatNumber(itemPrice)} ${currencyEmoji}`, inline: true },
                     { name: "Kingdom", value: kingdomName, inline: true },
-                    { name: "Whitelist Applied", value: `${whitelistType.toUpperCase()}: Level ${item.level || 1}`, inline: true },
+                    { name: "Whitelist Applied", value: `${whitelistType.toUpperCase()}: Level ${licenseLevel}`, inline: true },
                     { name: "Duration", value: `${durationWeeks} weeks`, inline: true },
                     { name: "Remaining Balance", value: `${formatNumber(remainingBalance)} ${currencyEmoji}`, inline: true }
                 )
@@ -2119,8 +2184,8 @@ module.exports = {
                 embed.addFields({ name: "Max Duration", value: `${maxDurationWeeks} weeks`, inline: true });
             }
 
-            if (item.description) {
-                embed.addFields({ name: "Description", value: item.description, inline: false });
+            if (currentItem.description) {
+                embed.addFields({ name: "Description", value: currentItem.description, inline: false });
             }
 
             // Add information about license extension or new license
@@ -2144,17 +2209,17 @@ module.exports = {
                 embed.addFields({ name: "Expires", value: `<t:${timestamp}:F> (<t:${timestamp}:R>)`, inline: true });
             }
 
-            await interaction.reply({ embeds: [embed], flags: 64 });
+            await respond({ content: '', embeds: [embed], components: [] });
 
             // Log the purchase
             await logShopAction(guildId, sql, guild, 'purchase', user, {
-                itemName: item.name,
-                price: item.price,
+                itemName: currentItem.name,
+                price: itemPrice,
                 quantity: 1,
-                remainingStock: item.stock - 1,
+                remainingStock: currentItem.stock - 1,
                 kingdom: kingdomName,
                 whitelistType: whitelistType,
-                level: item.level || 1,
+                level: licenseLevel,
                 duration: `${durationWeeks} weeks`,
                 maxduration: maxDurationWeeks,
                 extended: isExtended,
@@ -2166,7 +2231,11 @@ module.exports = {
 
         } catch (error) {
             console.error('Error applying whitelist purchase:', error);
-            await interaction.reply({ content: "❌ There was an error applying the whitelist. Please contact an administrator.", flags: 64 });
+            try {
+                await respond({ content: "❌ There was an error applying the whitelist. Please contact an administrator." });
+            } catch (respondError) {
+                console.error('Failed to notify user about whitelist error:', respondError);
+            }
         }
     },
 
