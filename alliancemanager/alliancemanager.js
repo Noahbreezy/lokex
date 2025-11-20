@@ -648,6 +648,50 @@ class AllianceManager {
                 }
               }
 
+              let playerKills = 0;
+              try {
+                playerKills = (await this.sql.getKingdomKills(kid))[0].kills;
+              } catch (error) {
+                console.log(`${this.allianceTag}: cannot find kills for ${kid}, updating data`);
+                await this.updateInfo.updateInfo(token, kid, this.allianceId, this.allianceTag);
+              }
+
+              if (this.kills > playerKills) {
+                await this.updateInfo.updateInfo(token, kid, this.allianceId, this.allianceTag);
+                await this.api.request(
+                  "https://api-lok-live.leagueofkingdoms.com/api/alliance/request/deny",
+                  { kingdomId: kid },
+                  {
+                    "x-access-token": token,
+                    "Content-Type": "application/json",
+                  }
+                );
+
+                await this.api.request(
+                  "https://api-lok-live.leagueofkingdoms.com/api/mail/send",
+                  new URLSearchParams({
+                    json: JSON.stringify({
+                      toName: name,
+                      subject: `Rejected from ${this.allianceTag}`,
+                      content: `You have been rejected because you don't meet the required amount of kills. (${this.kills})
+                      \n${requirementMessage}`
+                    })
+                  }),
+                  { "x-access-token": mailAccountToken }
+                );
+
+                this.discordClient.channels.cache
+                  .get(this.rejectLogChannel)
+                  .send(
+                    `**${this.allianceTag
+                    }**\nRejected: ${name} (${kid}), power: ${this.addThousandSeparator(
+                      power
+                    )} not enough kills.\n`
+                  );
+                console.log(`rejected from ${this.allianceTag} by kills: ${name} (${kid})`);
+                continue;
+              }
+
               const powerlimit = this.power || 0;
               if (power < powerlimit) {
                 await this.api.request(
@@ -769,50 +813,6 @@ class AllianceManager {
                 console.log(
                   `rejected from ${this.allianceTag} by discord verification: ${name} (${kid})`
                 );
-                continue;
-              }
-
-              let playerKills = 0;
-              try {
-                playerKills = (await this.sql.getKingdomKills(kid))[0].kills;
-              } catch (error) {
-                console.log(`${this.allianceTag}: cannot find kills for ${kid}, updating data`);
-                await this.updateInfo.updateInfo(token, kid, this.allianceId, this.allianceTag);
-              }
-
-              if (this.kills > playerKills) {
-                await this.updateInfo.updateInfo(token, kid, this.allianceId, this.allianceTag);
-                await this.api.request(
-                  "https://api-lok-live.leagueofkingdoms.com/api/alliance/request/deny",
-                  { kingdomId: kid },
-                  {
-                    "x-access-token": token,
-                    "Content-Type": "application/json",
-                  }
-                );
-
-                await this.api.request(
-                  "https://api-lok-live.leagueofkingdoms.com/api/mail/send",
-                  new URLSearchParams({
-                    json: JSON.stringify({
-                      toName: name,
-                      subject: `Rejected from ${this.allianceTag}`,
-                      content: `You have been rejected because you don't meet the required amount of kills. (${this.kills})
-                      \n${requirementMessage}`
-                    })
-                  }),
-                  { "x-access-token": mailAccountToken }
-                );
-
-                this.discordClient.channels.cache
-                  .get(this.rejectLogChannel)
-                  .send(
-                    `**${this.allianceTag
-                    }**\nRejected: ${name} (${kid}), power: ${this.addThousandSeparator(
-                      power
-                    )} not enough kills.\n`
-                  );
-                console.log(`rejected from ${this.allianceTag} by kills: ${name} (${kid})`);
                 continue;
               }
 

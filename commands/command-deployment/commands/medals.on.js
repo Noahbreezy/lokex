@@ -128,6 +128,45 @@ function createMedalNavigationRow(currentPage, totalPages, disabled = false) {
 	return row;
 }
 
+function chunkDiscordMessages(sections, maxLength = 2000) {
+	const chunks = [];
+	let current = "";
+
+	for (const section of sections) {
+		if (!section) {
+			continue;
+		}
+
+		const candidate = current ? `${current}\n\n${section}` : section;
+		if (candidate.length <= maxLength) {
+			current = candidate;
+			continue;
+		}
+
+		if (current) {
+			chunks.push(current);
+			current = "";
+		}
+
+		if (section.length <= maxLength) {
+			current = section;
+			continue;
+		}
+
+		let start = 0;
+		while (start < section.length) {
+			chunks.push(section.slice(start, start + maxLength));
+			start += maxLength;
+		}
+	}
+
+	if (current) {
+		chunks.push(current);
+	}
+
+	return chunks;
+}
+
 module.exports = {
 	data: new SlashCommandBuilder()
 		.setName("medals")
@@ -463,7 +502,8 @@ module.exports = {
 
 		try {
 			const ephemeralFlag = await sql.getEphemeral(guildId);
-			const deferOptions = ephemeralFlag ? { flags: 64 } : {};
+			const isEphemeral = Boolean(ephemeralFlag);
+			const deferOptions = isEphemeral ? { flags: 64 } : {};
 			await interaction.deferReply(deferOptions);
 
 			const rawInput = interaction.fields.getTextInputValue("bulkadd_list") || "";
@@ -496,7 +536,7 @@ module.exports = {
 
 				parsedEntries.push({
 					kingdomId: kingdomIdRaw,
-					amount: Math.abs(amount)
+					amount
 				});
 			}
 
@@ -537,7 +577,7 @@ module.exports = {
 
 			const responseSections = [];
 			if (added.length) {
-				responseSections.push(`✅ Added medals:\n${added.join("\n")}`);
+				responseSections.push(`✅ Processed medals:\n${added.join("\n")}`);
 			}
 			if (failed.length) {
 				responseSections.push(`❌ Failed:\n${failed.join("\n")}`);
@@ -549,17 +589,19 @@ module.exports = {
 				responseSections.push(`⚠️ Invalid input:\n${invalidInputs.join("\n")}`);
 			}
 
-			let reply = responseSections.join("\n\n");
-			if (!reply) {
-				reply = "No valid entries.";
+			let responses = responseSections.length ? chunkDiscordMessages(responseSections) : ["No valid entries."];
+			if (!responses.length) {
+				responses = ["No valid entries."];
 			}
 
-			const MAX_REPLY_LENGTH = 2000;
-			if (reply.length > MAX_REPLY_LENGTH) {
-				reply = `${reply.slice(0, MAX_REPLY_LENGTH - 20)}\n...(truncated)`;
+			await interaction.editReply({ content: responses[0] });
+			for (const extra of responses.slice(1)) {
+				const followUpPayload = { content: extra };
+				if (isEphemeral) {
+					followUpPayload.flags = 64;
+				}
+				await interaction.followUp(followUpPayload);
 			}
-
-			await interaction.editReply({ content: reply });
 		} catch (error) {
 			console.error("Medals bulk modal error:", error);
 			const errorMessage = "There was an error while processing the bulk medal update.";

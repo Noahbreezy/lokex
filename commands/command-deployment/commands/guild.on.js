@@ -343,6 +343,15 @@ module.exports = {
                 case "unverified-period":
                     {
                         const period = options.getInteger("days");
+
+                        if (period !== 0 && period < 7) {
+                            await interaction.reply({
+                                content: "❌ Unverification period must be at least 7 days.",
+                                flags: 64
+                            });
+                            return;
+                        }
+
                         await sql.setUnverifiedPeriod(period, guildId);
                         if (period === 0) {
                             await interaction.reply({ content: `Unverification period has been disabled.`, ...ephemeral });

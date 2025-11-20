@@ -1528,19 +1528,26 @@ class sqlFunctions {
 
     // Get a kingdom's name and alliance
     async getKingdomNameAndAlliance(kingdomId) {
-        const query = "SELECT name, allianceId, allianceTag FROM info WHERE kingdomId=? ORDER BY id DESC";
+        const query = "SELECT name, allianceId, allianceTag FROM latest_info WHERE kingdomId=? ORDER BY id DESC";
         return this.query(query, [kingdomId]);
     }
 
     // Get a kingdom's castle level
     async getKingdomLevel(kingdomId) {
-        const query = "SELECT level FROM info WHERE kingdomId=? ORDER BY id DESC LIMIT 1";
+        const query = "SELECT level FROM latest_info WHERE kingdomId=? ORDER BY id DESC LIMIT 1";
         return this.query(query, [kingdomId]);
     }
 
     // Get kills of a kingdom
     async getKingdomKills(kingdomId) {
-        const query = "SELECT kills FROM info WHERE kingdomId=? ORDER BY id DESC LIMIT 1";
+        const query = `
+            SELECT kills
+            FROM latest_info
+            WHERE kingdomId = ?
+              AND \`date\` >= DATE_SUB(NOW(), INTERVAL 2 DAY)
+            ORDER BY id DESC
+            LIMIT 1
+        `;
         return this.query(query, [kingdomId]);
     }
 
@@ -1552,7 +1559,7 @@ class sqlFunctions {
 
     // Get a Kingdom's continent
     async getKingdomContinent(kingdomId) {
-        const query = "SELECT continent FROM info WHERE kingdomId=? ORDER BY id DESC LIMIT 1";
+        const query = "SELECT continent FROM latest_info WHERE kingdomId=? ORDER BY id DESC LIMIT 1";
         return this.query(query, [kingdomId]);
     }
 

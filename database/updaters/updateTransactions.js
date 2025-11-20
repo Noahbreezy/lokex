@@ -33,7 +33,7 @@ class UpdateTransactions {
         };
         
         this.isRunning = false;
-        this.checkInterval = 60000; // Check every minute
+        this.checkInterval = 120000; // Check every 2 minutes
         
         // Initialize Discord client
         this.discordClient = new Client({
