@@ -9,10 +9,10 @@ class HelpCheck {
     };
 
     async checkHelp(kingdomId, titleGrace) {
-        console.log("Checking help for kingdom: ", kingdomId);
+        // console.log("Checking help for kingdom: ", kingdomId);
         const helpKingdoms = await this.sql.getUsersWithTitleGrace(titleGrace);
         if (helpKingdoms.length > 0) {
-            console.log("helpkingdoms: ", helpKingdoms);
+            // console.log("helpkingdoms: ", helpKingdoms);
             if (helpKingdoms.find(kingdom => kingdom.kingdomId == kingdomId)) {
                 console.log("kingdom found: ", kingdomId);
                 return true;

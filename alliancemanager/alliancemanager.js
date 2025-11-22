@@ -93,7 +93,7 @@ class AllianceManager {
   }
 
   async acceptRequest(kid, token) {
-    console.log("accepting start");
+    // console.log("accepting start");
     return this.acceptRequestLock.acquire('acceptRequest', async () => {
       const acceptResponse = await this.api.request(
         "https://api-lok-live.leagueofkingdoms.com/api/alliance/request/accept",
@@ -103,7 +103,7 @@ class AllianceManager {
           "Content-Type": "application/json",
         }
       );
-      console.log("accepting end");
+      // console.log("accepting end");
       return acceptResponse;
     });
   }
@@ -134,7 +134,7 @@ class AllianceManager {
           const helping = helpListResponse.data.otherTasks.map(
             (task) => task.kingdomId
           );
-          console.log(helping);
+          // console.log("helping", helping);
 
           const membersol = membersListResponse.data.members;
           const members3 = [...membersol];
@@ -165,7 +165,7 @@ class AllianceManager {
             const kingdomid = members[counter].kingdomId;
             const kingdomname = members[counter].name;
 
-            console.log(await this.helpCheck.checkHelp(kingdomid, titleGrace));
+            // console.log(await this.helpCheck.checkHelp(kingdomid, titleGrace));
 
             if (await this.helpCheck.checkHelp(kingdomid, titleGrace)) {
               this.discordClient.channels.cache
@@ -236,7 +236,7 @@ class AllianceManager {
           if (x < maxkick && cvcmode) {
 
             let teller = 0;
-            console.log("online members: ", onlineMembers);
+            // console.log("online members: ", onlineMembers);
             // kicking even online members if not in rally
             for (let y = 0; y < onlineMembers.length; y++) {
               const kingdomid = onlineMembers[teller].kingdomId;
