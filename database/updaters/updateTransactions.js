@@ -82,14 +82,15 @@ class UpdateTransactions {
             try {
                 // Get current block number if not set
                 if (!network.lastCheckedBlock) {
-                    const response = await this.api.request(network.rpcUrl, {
+                    const response = await this.callRpc(network, {
                         jsonrpc: "2.0",
                         method: "eth_blockNumber",
                         params: [],
                         id: 1
-                    }, {
-                        'Content-Type': 'application/json'
                     });
+                    if (!response) {
+                        continue;
+                    }
                     
                     network.lastCheckedBlock = parseInt(response.data.result, 16) - 100; // Start from 100 blocks ago
                     console.log(`Starting DST monitoring on ${networkName} from block: ${network.lastCheckedBlock}`);
@@ -144,7 +145,7 @@ class UpdateTransactions {
     async checkNetworkTransactions(networkName, network, guildWallets) {
         try {
             // Get current block number
-            const currentBlock = await this.getCurrentBlock(network.rpcUrl);
+            const currentBlock = await this.getCurrentBlock(network);
             if (!currentBlock || !network.lastCheckedBlock) {
                 console.log(`Unable to get block numbers for ${networkName}`);
                 return;
@@ -179,16 +180,17 @@ class UpdateTransactions {
     }
 
     // Get current block number
-    async getCurrentBlock(rpcUrl = this.networks.polygon.rpcUrl) {
+    async getCurrentBlock(network = this.networks.polygon) {
         try {
-            const response = await this.api.request(rpcUrl, {
+            const response = await this.callRpc(network, {
                 jsonrpc: "2.0",
                 method: "eth_blockNumber",
                 params: [],
                 id: 1
-            }, {
-                'Content-Type': 'application/json'
             });
+            if (!response) {
+                return null;
+            }
             
             return parseInt(response.data.result, 16);
         } catch (error) {
@@ -203,7 +205,7 @@ class UpdateTransactions {
             // ERC20 Transfer event signature: Transfer(address,address,uint256)
             const transferTopic = '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef';
             
-            const response = await this.api.request(network.rpcUrl, {
+            const response = await this.callRpc(network, {
                 jsonrpc: "2.0",
                 method: "eth_getLogs",
                 params: [{
@@ -213,9 +215,10 @@ class UpdateTransactions {
                     topics: [transferTopic]
                 }],
                 id: 1
-            }, {
-                'Content-Type': 'application/json'
             });
+            if (!response) {
+                return [];
+            }
 
             return response.data.result || [];
         } catch (error) {
@@ -347,21 +350,23 @@ class UpdateTransactions {
 
     // Method to manually check a specific transaction hash
     async checkSpecificTransaction(txHash, networkName = 'polygon') {
-        try {
-            const network = this.networks[networkName];
-            if (!network) {
-                console.log(`Unknown network: ${networkName}`);
-                return;
-            }
+        const network = this.networks[networkName];
+        if (!network) {
+            console.log(`Unknown network: ${networkName}`);
+            return;
+        }
 
-            const response = await this.api.request(network.rpcUrl, {
+        try {
+
+            const response = await this.callRpc(network, {
                 jsonrpc: "2.0",
                 method: "eth_getTransactionReceipt",
                 params: [txHash],
                 id: 1
-            }, {
-                'Content-Type': 'application/json'
             });
+            if (!response) {
+                return;
+            }
 
             const receipt = response.data.result;
             if (!receipt) {
@@ -412,7 +417,7 @@ class UpdateTransactions {
         const status = {};
         for (const [networkName, network] of Object.entries(this.networks)) {
             try {
-                const currentBlock = await this.getCurrentBlock(network.rpcUrl);
+                const currentBlock = await this.getCurrentBlock(network);
                 status[networkName] = {
                     rpcUrl: network.rpcUrl,
                     dstContract: network.dstContractAddress,
@@ -506,6 +511,31 @@ class UpdateTransactions {
         } catch (error) {
             console.error('Error sending Discord notification:', error);
         }
+    }
+
+    isArenaZNetwork(networkOrUrl) {
+        const rpcUrl = typeof networkOrUrl === 'string' ? networkOrUrl : networkOrUrl && networkOrUrl.rpcUrl;
+        return typeof rpcUrl === 'string' && rpcUrl.includes('arena-z');
+    }
+
+    resolveNetwork(networkOrUrl) {
+        if (!networkOrUrl) {
+            return this.networks.polygon;
+        }
+        if (typeof networkOrUrl === 'string') {
+            return { rpcUrl: networkOrUrl };
+        }
+        return networkOrUrl;
+    }
+
+    async callRpc(networkOrUrl, body) {
+        const network = this.resolveNetwork(networkOrUrl);
+        const headers = { 'Content-Type': 'application/json' };
+        const useIgnore = this.isArenaZNetwork(network);
+        const requester = useIgnore && typeof this.api.requestIgnore403 === 'function'
+            ? this.api.requestIgnore403.bind(this.api)
+            : this.api.request.bind(this.api);
+        return requester(network.rpcUrl, body, headers);
     }
 }
 

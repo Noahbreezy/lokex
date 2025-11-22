@@ -73,6 +73,33 @@ class Api {
         return response;
     }
 
+    async requestIgnore403(url, body, header) {
+        const proxies = await this.sql.getProxies();
+        proxies.push({ ip: null });
+
+        const randomIndex = Math.floor(Math.random() * proxies.length);
+        const proxyUrl = proxies[randomIndex].ip;
+        const httpsAgent = proxyUrl ? new HttpsProxyAgent(`http://${proxyUrl}:3128`) : null;
+        const config = {
+            headers: header,
+            ...(httpsAgent && { httpsAgent })
+        };
+
+        try {
+            const response = await axios.post(url, body, config);
+            if (response.status !== 200) {
+                console.error(`Request with IP ${proxyUrl} failed with status ${response.status}`);
+            }
+            return response;
+        } catch (error) {
+            if (error && error.response && error.response.status === 403) {
+                return null;
+            }
+            console.error(`Request with IP ${proxyUrl} threw`, error);
+            throw error;
+        }
+    }
+
     async get(url, header) {
         // Fetch proxies from the database
         const proxies = await this.sql.getProxies();
