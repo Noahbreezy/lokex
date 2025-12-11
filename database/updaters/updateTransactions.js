@@ -33,7 +33,9 @@ class UpdateTransactions {
         };
         
         this.isRunning = false;
-        this.checkInterval = 120000; // Check every 2 minutes
+        this.checkInterval = 30000; // Check every 30 seconds
+        this.blockLag = 1;          // Skip newest N blocks to avoid RPC head lag
+        this.blockOverlap = 5;      // Re-query a few past blocks to avoid misses
         
         // Initialize Discord client
         this.discordClient = new Client({
@@ -151,8 +153,12 @@ class UpdateTransactions {
                 return;
             }
 
+            // Add overlap and confirmation lag to avoid missing recent blocks that are not yet indexed
+            const safeToBlock = Math.max(currentBlock - this.blockLag, 0);
+            const fromBlock = Math.max(network.lastCheckedBlock - this.blockOverlap, 0);
+
             // Get DST transfer events since last check
-            const transfers = await this.getDSTTransfers(network, network.lastCheckedBlock, currentBlock);
+            const transfers = await this.getDSTTransfers(network, fromBlock, safeToBlock);
             
             if (transfers.length > 0) {
                 console.log(`Found ${transfers.length} DST transfer events on ${networkName}`);
@@ -161,7 +167,8 @@ class UpdateTransactions {
                 // console.log(`No new DST transfers found on ${networkName}`);
             }
 
-            network.lastCheckedBlock = currentBlock;
+            // Advance the cursor to the last block we actually scanned
+            network.lastCheckedBlock = safeToBlock;
             
         } catch (error) {
             console.error(`Error checking transactions for ${networkName}:`, error);
@@ -201,30 +208,77 @@ class UpdateTransactions {
 
     // Get DST transfer events from blockchain
     async getDSTTransfers(network, fromBlock, toBlock) {
-        try {
-            // ERC20 Transfer event signature: Transfer(address,address,uint256)
-            const transferTopic = '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef';
-            
-            const response = await this.callRpc(network, {
-                jsonrpc: "2.0",
-                method: "eth_getLogs",
-                params: [{
-                    fromBlock: `0x${fromBlock.toString(16)}`,
-                    toBlock: `0x${toBlock.toString(16)}`,
-                    address: network.dstContractAddress,
-                    topics: [transferTopic]
-                }],
-                id: 1
-            });
-            if (!response) {
-                return [];
+        // Polygon RPC rejects wide ranges; fetch in chunks to avoid -32062 errors.
+        const MAX_RANGE = network.maxBlockRange || 2000;
+        const MIN_RANGE = 100;
+        const transfers = [];
+        let start = fromBlock;
+
+        while (start <= toBlock) {
+            let end = Math.min(start + MAX_RANGE - 1, toBlock);
+            let currentRange = end - start + 1;
+
+            // Retry with shrinking ranges when providers complain about large spans.
+            while (true) {
+                try {
+                    const chunk = await this.fetchDSTLogs(network, start, end);
+                    if (chunk) {
+                        transfers.push(...chunk);
+                    }
+                    break; // Success or handled gracefully
+                } catch (error) {
+                    const message = error?.message?.toLowerCase?.() || '';
+                    const code = error?.code;
+                    const tooLarge = code === -32062 || message.includes('block range is too large');
+
+                    if (tooLarge && currentRange > MIN_RANGE) {
+                        currentRange = Math.max(MIN_RANGE, Math.floor(currentRange / 2));
+                        end = start + currentRange - 1;
+                        console.warn(`Block range too large on ${network.rpcUrl}; retrying with range ${currentRange} blocks (${start}-${end}).`);
+                        continue;
+                    }
+
+                    console.error('Error getting DST transfers:', error);
+                    break;
+                }
             }
 
-            return response.data.result || [];
-        } catch (error) {
-            console.error('Error getting DST transfers:', error);
-            return [];
+            start = end + 1;
         }
+
+        return transfers;
+    }
+
+    async fetchDSTLogs(network, fromBlock, toBlock) {
+        // ERC20 Transfer event signature: Transfer(address,address,uint256)
+        const transferTopic = '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef';
+
+        const response = await this.callRpc(network, {
+            jsonrpc: "2.0",
+            method: "eth_getLogs",
+            params: [{
+                fromBlock: `0x${fromBlock.toString(16)}`,
+                toBlock: `0x${toBlock.toString(16)}`,
+                address: network.dstContractAddress,
+                topics: [transferTopic]
+            }],
+            id: 1
+        });
+
+        const result = response?.data?.result;
+        if (!Array.isArray(result)) {
+            const err = response?.data?.error || { message: 'Unknown eth_getLogs response shape' };
+            const error = new Error(err.message || 'eth_getLogs failed');
+            error.code = err.code;
+            throw error;
+        }
+
+        // console.log(`Fetched ${result.length} DST transfer logs from block ${fromBlock} to ${toBlock} on network ${network.rpcUrl}`);
+        // if (result.length) {
+        //     console.log('Most recent DST log:', result.at(-1));
+        // }
+
+        return result;
     }
 
     // Process transfer events and award points
