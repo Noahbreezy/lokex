@@ -1571,6 +1571,23 @@ class sqlFunctions {
 
     // Update a user in info
     async updateKingdomInfo(values) {
+        const safeNumber = (value, fallback = 0) => {
+            const n = Number(value);
+            return Number.isFinite(n) ? n : fallback;
+        };
+
+        // values: [allianceId, allianceTag, kingdomId, name, level, lord, power, kills, death, victory, defeat, gathering, continent]
+        if (Array.isArray(values)) {
+            values[4] = safeNumber(values[4]);
+            values[5] = safeNumber(values[5]);
+            values[6] = safeNumber(values[6]);
+            values[7] = safeNumber(values[7]);
+            values[8] = safeNumber(values[8]);
+            values[9] = safeNumber(values[9]);
+            values[10] = safeNumber(values[10]);
+            values[11] = safeNumber(values[11]);
+            values[12] = safeNumber(values[12]);
+        }
         const query = `
         INSERT INTO info (allianceId, allianceTag, kingdomId, name, level, lord, power, kills, death, victory, defeat, gathering, continent)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
@@ -1579,6 +1596,26 @@ class sqlFunctions {
 
     // Update a user in info
     async updateFullKingdomInfo(values) {
+        const safeNumber = (value, fallback = 0) => {
+            const n = Number(value);
+            return Number.isFinite(n) ? n : fallback;
+        };
+
+        // values: [allianceId, allianceTag, kingdomId, name, level, lord, power, kills, death, victory, defeat, gathering, continent, x, y]
+        if (Array.isArray(values)) {
+            values[4] = safeNumber(values[4]);
+            values[5] = safeNumber(values[5]);
+            values[6] = safeNumber(values[6]);
+            values[7] = safeNumber(values[7]);
+            values[8] = safeNumber(values[8]);
+            values[9] = safeNumber(values[9]);
+            values[10] = safeNumber(values[10]);
+            values[11] = safeNumber(values[11]);
+            values[12] = safeNumber(values[12]);
+            // x/y are coordinates; keep nulls if caller intentionally omits.
+            if (values.length > 13 && values[13] !== null && values[13] !== undefined) values[13] = safeNumber(values[13]);
+            if (values.length > 14 && values[14] !== null && values[14] !== undefined) values[14] = safeNumber(values[14]);
+        }
         const query = `
         INSERT INTO info (allianceId, allianceTag, kingdomId, name, level, lord, power, kills, death, victory, defeat, gathering, continent, x, y)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;

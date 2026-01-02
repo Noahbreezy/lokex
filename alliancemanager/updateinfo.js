@@ -54,6 +54,11 @@ class UpdateInfo {
 
         const historyPlayerInfo = historyPlayerInfoResponse.data.history;
 
+        const safeNumber = (value, fallback = 0) => {
+            const n = Number(value);
+            return Number.isFinite(n) ? n : fallback;
+        };
+
         // console.log('Basic Player Info: ', basicPlayerInfo);
         // console.log('History Player Info: ', historyPlayerInfo);
 
@@ -63,15 +68,15 @@ class UpdateInfo {
             allianceTag: allianceTag,
             kingdomId: kingdomId,
             name: basicPlayerInfo.name,
-            level: basicPlayerInfo.level,
-            lord: basicPlayerInfo.lord.level,
-            power: basicPlayerInfo.power,
-            kills: basicPlayerInfo.kill,
-            death: historyPlayerInfo.stats.battle.death,
-            victory: historyPlayerInfo.stats.battle.victory,
-            defeat: historyPlayerInfo.stats.battle.defeated,
-            gathering: historyPlayerInfo.stats.economy.gathering,
-            continent: basicPlayerInfo.worldId
+            level: safeNumber(basicPlayerInfo.level),
+            lord: safeNumber(basicPlayerInfo.lord && basicPlayerInfo.lord.level),
+            power: safeNumber(basicPlayerInfo.power),
+            kills: safeNumber(basicPlayerInfo.kill),
+            death: safeNumber(historyPlayerInfo?.stats?.battle?.death),
+            victory: safeNumber(historyPlayerInfo?.stats?.battle?.victory),
+            defeat: safeNumber(historyPlayerInfo?.stats?.battle?.defeated),
+            gathering: safeNumber(historyPlayerInfo?.stats?.economy?.gathering),
+            continent: safeNumber(basicPlayerInfo.worldId)
         };
 
         const values = [

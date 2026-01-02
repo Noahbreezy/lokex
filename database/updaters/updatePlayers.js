@@ -80,16 +80,27 @@ class UpdatePlayers {
                                 }
                                 updatesThisMinute++;
                             } catch (error) {
-                                token = (await this.sql.getManagerTokenByKingdomId(kingdomId))[0].token;
-                                r4Status = await this.r4Check.checkR4(token, kingdomId, account.allianceId);
-                                hasR4Privileges = r4Status?.hasRank === true;
+                                // Fallback: try to recover a manager token for the alliance.
+                                const tokenRow = (await this.sql.getManagerToken(account.allianceId))?.[0]
+                                    || (await this.sql.getManagerTokenByKingdomId(account.kingdomId))?.[0]
+                                    || null;
+                                if (tokenRow?.token) {
+                                    token = tokenRow.token;
+                                    r4Status = await this.r4Check.checkR4(token, account.kingdomId, account.allianceId);
+                                    hasR4Privileges = r4Status?.hasRank === true;
+                                }
                                 console.error(`Error updating kingdom info for kingdomId ${kingdomId}:`, error);
                             }
                         }
                     } catch (error) {
-                        token = (await this.sql.getManagerTokenByKingdomId(account.kingdomId))[0].token;
-                        r4Status = await this.r4Check.checkR4(token, account.kingdomId, account.allianceId);
-                        hasR4Privileges = r4Status?.hasRank === true;
+                        const tokenRow = (await this.sql.getManagerToken(account.allianceId))?.[0]
+                            || (await this.sql.getManagerTokenByKingdomId(account.kingdomId))?.[0]
+                            || null;
+                        if (tokenRow?.token) {
+                            token = tokenRow.token;
+                            r4Status = await this.r4Check.checkR4(token, account.kingdomId, account.allianceId);
+                            hasR4Privileges = r4Status?.hasRank === true;
+                        }
                         console.error(`Error processing account with allianceId ${account.allianceId}:`, error);
                     }
                 }

@@ -252,6 +252,11 @@ class AccountInfo {
     const basicPlayerInfo = await (JSON.parse(await this.encryption.decryptXorMessage(basicPlayerInfoResponse.data, xorPass))).profile;
     const historyPlayerInfo = historyPlayerInfoResponse.data.history;
 
+    const safeNumber = (value, fallback = 0) => {
+      const n = Number(value);
+      return Number.isFinite(n) ? n : fallback;
+    };
+
     // console.log(`Basic Player Info of kingdomId ${kingdomId}: `, basicPlayerInfo);
     // console.log('History Player Info: ', historyPlayerInfo);
     
@@ -265,14 +270,14 @@ class AccountInfo {
         allianceTag: basicPlayerInfo.alliance.tag,
         kingdomId: kingdomId,
         name: basicPlayerInfo.name,
-        level: basicPlayerInfo.level,
-        lord: basicPlayerInfo.lord.level,
-        power: basicPlayerInfo.power,
-        kills: basicPlayerInfo.kill,
-        death: historyPlayerInfo.stats.battle.death,
-        victory: historyPlayerInfo.stats.battle.victory,
-        defeat: historyPlayerInfo.stats.battle.defeated,
-        gathering: historyPlayerInfo.stats.economy.gathering,
+        level: safeNumber(basicPlayerInfo.level),
+        lord: safeNumber(basicPlayerInfo.lord && basicPlayerInfo.lord.level),
+        power: safeNumber(basicPlayerInfo.power),
+        kills: safeNumber(basicPlayerInfo.kill),
+        death: safeNumber(historyPlayerInfo?.stats?.battle?.death),
+        victory: safeNumber(historyPlayerInfo?.stats?.battle?.victory),
+        defeat: safeNumber(historyPlayerInfo?.stats?.battle?.defeated),
+        gathering: safeNumber(historyPlayerInfo?.stats?.economy?.gathering),
         cont: location[0],
         x: location[1],
         y: location[2],
@@ -305,14 +310,14 @@ class AccountInfo {
         allianceTag: basicPlayerInfo.alliance.tag,
         kingdomId: kingdomId,
         name: basicPlayerInfo.name,
-        level: basicPlayerInfo.level,
-        lord: basicPlayerInfo.lord.level,
-        power: basicPlayerInfo.power,
-        kills: basicPlayerInfo.kill,
-        death: historyPlayerInfo.stats.battle.death,
-        victory: historyPlayerInfo.stats.battle.victory,
-        defeat: historyPlayerInfo.stats.battle.defeated,
-        gathering: historyPlayerInfo.stats.economy.gathering,
+        level: safeNumber(basicPlayerInfo.level),
+        lord: safeNumber(basicPlayerInfo.lord && basicPlayerInfo.lord.level),
+        power: safeNumber(basicPlayerInfo.power),
+        kills: safeNumber(basicPlayerInfo.kill),
+        death: safeNumber(historyPlayerInfo?.stats?.battle?.death),
+        victory: safeNumber(historyPlayerInfo?.stats?.battle?.victory),
+        defeat: safeNumber(historyPlayerInfo?.stats?.battle?.defeated),
+        gathering: safeNumber(historyPlayerInfo?.stats?.economy?.gathering),
         cont: null,
         x: null,
         y: null,
