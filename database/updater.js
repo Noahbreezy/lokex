@@ -33,7 +33,7 @@ const updateBooster = new UpdateBooster(sql, api);
 async function startUpdaters() {
     updateBots.updateBotsToken(); // Midnight utc
     updateBots.updateBotsInfo(); // Every 10 minutes
-    await new Promise(resolve => setTimeout(resolve, 300000)); // wait 5 minutes
+    await new Promise(resolve => setTimeout(resolve, 360000)); // wait 6 minutes
     updatePlayers.updatePlayers(); // Noon utc
     updateVerified.updateVerified(); // Midnight utc
     updateStakers.runStakeUpdate(); // Every 5 minutes
