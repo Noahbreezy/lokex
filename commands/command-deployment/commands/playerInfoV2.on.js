@@ -1398,8 +1398,8 @@ function formatRelativeTimeFromNow(dateLike) {
 
 // Include the existing helper functions from playerInfo.on.js
 async function getPlayerInfo(kingdomId, token, sql, api, encryption, guildId) {
-    const xorPass = (await sql.getXORPass())[0].value;
-    const b64EncryptedKingdomId = await encryption.createXorMessage(`{"kingdomId":"${kingdomId}"}`, xorPass);
+    const xorPass = (await sql.getXORPass())?.[0]?.value || null;
+    const body = await encryption.buildRequestBody({ kingdomId: String(kingdomId) }, xorPass);
 
     let basicPlayerInfoResponse;
     let historyPlayerInfoResponse;
@@ -1407,7 +1407,7 @@ async function getPlayerInfo(kingdomId, token, sql, api, encryption, guildId) {
     try {
         basicPlayerInfoResponse = await api.request(
             'https://api-lok-live.leagueofkingdoms.com/api/kingdom/profile/other',
-            { json: b64EncryptedKingdomId },
+            body,
             { 'x-access-token': token, 'Content-Type': 'application/json' }
         );
         historyPlayerInfoResponse = await api.request(
@@ -1474,7 +1474,7 @@ async function getMemberLocation(kingdomId, allianceId, token, api, sql) {
     try {
         const response = await api.request(
             "https://api-lok-live.leagueofkingdoms.com/api/alliance/member/fo",
-            { json: `{"targetId":"${kingdomId}"}` },
+            { targetId: String(kingdomId) },
             { "x-access-token": managerToken }
         );
         if (response.data.fo?.loc) {
@@ -1494,7 +1494,7 @@ async function getAllianceRank(kingdomId, allianceId, token, api) {
     try {
         const response = await api.request(
             "https://api-lok-live.leagueofkingdoms.com/api/alliance/members/list",
-            { json: `{"allianceId":"${allianceId}"}` },
+            { allianceId: String(allianceId) },
             { "x-access-token": token }
         );
         for (const memberGroup of response.data.members) {
@@ -2301,21 +2301,16 @@ async function processRankChange({ interaction, sql, api, guildId, kingdomId, re
 
     let xorPass;
     try {
-        xorPass = (await sql.getXORPass())[0]?.value;
+        xorPass = (await sql.getXORPass())?.[0]?.value || null;
     } catch (error) {
         console.error('Failed to retrieve XOR password for rank change:', error);
     }
 
-    if (!xorPass) {
-        await interaction.editReply({ content: 'Unable to retrieve encryption key to process this request.', components: [] });
-        return;
-    }
-
     try {
-        const encryptedPayload = await encryption.createXorMessage(`{"kingdomId":"${kingdomId}"}`, xorPass);
+        const body = await encryption.buildRequestBody({ kingdomId: String(kingdomId) }, xorPass);
         const basicPlayerInfoResponse = await api.request(
             'https://api-lok-live.leagueofkingdoms.com/api/kingdom/profile/other',
-            { json: encryptedPayload },
+            body,
             { 'x-access-token': token, 'Content-Type': 'application/json' }
         );
 
@@ -2401,10 +2396,10 @@ async function processRankChange({ interaction, sql, api, guildId, kingdomId, re
             return;
         }
 
-        const encryptedManagerPayload = await encryption.createXorMessage(`{"kingdomId":"${managerKingdomId}"}`, xorPass);
+        const managerBody = await encryption.buildRequestBody({ kingdomId: String(managerKingdomId) }, xorPass);
         const managerProfileResponse = await api.request(
             'https://api-lok-live.leagueofkingdoms.com/api/kingdom/profile/other',
-            { json: encryptedManagerPayload },
+            managerBody,
             { 'x-access-token': token, 'Content-Type': 'application/json' }
         );
 
@@ -2418,9 +2413,13 @@ async function processRankChange({ interaction, sql, api, guildId, kingdomId, re
             return;
         }
 
+        const rankBody = await encryption.buildRequestBody(
+            { memberKingdomId: String(kingdomId), rank: Number(resolvedRank.value), title: 0 },
+            xorPass
+        );
         await api.request(
             'https://api-lok-live.leagueofkingdoms.com/api/alliance/member/rank',
-            { json: `{"memberKingdomId":"${kingdomId}","rank":${resolvedRank.value},"title":0}` },
+            rankBody,
             { 'x-access-token': managerToken, 'Content-Type': 'application/json' }
         );
 

@@ -123,13 +123,13 @@ async function handleChangeRank(interaction, sql, ephemeral) {
         const token = tokenResult[0].token;
 
         // Step 2: Get XOR password for encryption
-        const xorPass = (await sql.getXORPass())[0].value;
-        const b64EncryptedKingdomId = await encryption.createXorMessage(`{"kingdomId":"${kingdomId}"}`, xorPass);
+        const xorPass = (await sql.getXORPass())?.[0]?.value || null;
+        const body = await encryption.buildRequestBody({ kingdomId: String(kingdomId) }, xorPass);
 
         // Step 3: Get basic player info
         const basicPlayerInfoResponse = await api.request(
             'https://api-lok-live.leagueofkingdoms.com/api/kingdom/profile/other',
-            { json: b64EncryptedKingdomId },
+            body,
             { 'x-access-token': token, 'Content-Type': 'application/json' }
         );
 
@@ -200,10 +200,10 @@ async function handleChangeRank(interaction, sql, ephemeral) {
         const managerKingdomId = managerInfo.kingdomId;
 
         // Step 7: Get manager's basic player info to check their rank
-        const b64EncryptedManagerKingdomId = await encryption.createXorMessage(`{"kingdomId":"${managerKingdomId}"}`, xorPass);
+        const managerBody = await encryption.buildRequestBody({ kingdomId: String(managerKingdomId) }, xorPass);
         const managerPlayerInfoResponse = await api.request(
             'https://api-lok-live.leagueofkingdoms.com/api/kingdom/profile/other',
-            { json: b64EncryptedManagerKingdomId },
+            managerBody,
             { 'x-access-token': token, 'Content-Type': 'application/json' }
         );
 
@@ -236,9 +236,13 @@ async function handleChangeRank(interaction, sql, ephemeral) {
         }
 
         // Step 9: Change the player's rank
+        const rankBody = await encryption.buildRequestBody(
+            { memberKingdomId: String(kingdomId), rank: Number(newRank), title: 0 },
+            xorPass
+        );
         await api.request(
             "https://api-lok-live.leagueofkingdoms.com/api/alliance/member/rank",
-            { json: `{"memberKingdomId":"${kingdomId}","rank":${newRank},"title":0}` },
+            rankBody,
             { "x-access-token": managerToken }
         );
 

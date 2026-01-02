@@ -11,11 +11,10 @@ class UpdateInfo {
 
     async updateInfo(token, kingdomId, allianceId, allianceTag) {
 
-        const xor_password = (await this.sql.getXORPass())[0].value;
-        console.log('XOR Password: ', xor_password);
+        const xorPass = (await this.sql.getXORPass())?.[0]?.value || null;
+        console.log('XOR Password: ', xorPass);
 
-        const encryptedKingdomId = await this.enc.decryptXor(`{"kingdomId":"${kingdomId}"}`, xor_password);
-        const b64EncryptedKingdomId = await this.enc.encryptBase64(encryptedKingdomId);
+        const body = await this.enc.buildRequestBody({ kingdomId: String(kingdomId) }, xorPass);
 
         let basicPlayerInfoResponse;
         let historyPlayerInfoResponse;
@@ -23,7 +22,7 @@ class UpdateInfo {
         try {
             basicPlayerInfoResponse = await this.api.request(
                 'https://api-lok-live.leagueofkingdoms.com/api/kingdom/profile/other',
-                { json: b64EncryptedKingdomId },
+                body,
                 {
                     'x-access-token': token,
                     'Content-Type': 'application/json',
@@ -31,7 +30,7 @@ class UpdateInfo {
             );
         } catch (error) {
             console.log('Error getting player info: ', error);
-            console.log('Error response: ', await this.enc.decryptXor(await this.enc.decryptBase64(error.response.data), xor_password));
+            console.log('Error response: ', await this.enc.decryptXorMessage(error.response.data, xorPass));
             return;
         }
 
@@ -50,8 +49,8 @@ class UpdateInfo {
             return;
         }
 
-        const b64PlayerInfo = basicPlayerInfoResponse.data;
-        const basicPlayerInfo = (JSON.parse(await this.enc.decryptXor(await this.enc.decryptBase64(b64PlayerInfo), xor_password))).profile;
+        const decrypted = await this.enc.decryptXorMessage(basicPlayerInfoResponse.data, xorPass);
+        const basicPlayerInfo = (JSON.parse(decrypted)).profile;
 
         const historyPlayerInfo = historyPlayerInfoResponse.data.history;
 

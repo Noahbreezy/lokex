@@ -79,7 +79,7 @@ class Scanner {
 		Scanner.initShared();
 		this.guildId = guildId;
 		this.continent = continent;
-		this.xorPassword = xorPassword || '.bx0531adex71.'; // updated default
+		this.xorPassword = xorPassword || null;
 		this.key = `${guildId}:${continent}`;
 		this.encryption = new Encryption();
 		this.zoneNumbers = Array.from({ length: ZONE_COUNT }, (_, i) => i);
@@ -132,8 +132,7 @@ class Scanner {
 		try {
 			const row = await Scanner.sql.getXORPass();
 			const val = row && row[0] && row[0].value;
-			if (val) this.xorPassword = val;
-			else this.xorPassword = '.bx0531adex71.'; // fallback if DB empty
+			this.xorPassword = val || null;
 		} catch (_) { /* keep default */ }
 	}
 
@@ -226,7 +225,7 @@ class Scanner {
 	async sendEnter(connection) {
 		try {
 			const enc = await this.encryption.createXorMessage(JSON.stringify({ token: this.token }), this.xorPassword);
-			const msg = `42["/field/enter/v3", "${enc}"]`;
+			const msg = `42["/field/enter/v3", ${JSON.stringify(enc)}]`;
 			connection.sendUTF(msg);
 			this._enterSent = true;
 			this.log('Sent enter message');
@@ -253,7 +252,7 @@ class Scanner {
 		if (this.zoneIndex >= ZONE_COUNT) this.finished = true;
 		const payload = JSON.stringify({ world: this.continent, zones: JSON.stringify(zonesSubset) });
 		const enc = await this.encryption.createXorMessage(payload, this.xorPassword);
-		const msg = `42["/zone/enter/list/v4", "${enc}"]`;
+		const msg = `42["/zone/enter/list/v4", ${JSON.stringify(enc)}]`;
 		await this.delay(BATCH_DELAY_MS);
 		connection.sendUTF(msg);
 	}

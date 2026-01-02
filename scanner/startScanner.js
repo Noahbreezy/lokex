@@ -30,8 +30,6 @@ async function launchAll() {
 		if (!Array.isArray(rows) || rows.length === 0) {
 			console.log('[Manager] No subscribed guild continents found.');
 		}
-		let xorPass = '.bx0531adex71.';
-		try { const xp = await sql.getXORPass(); if (xp && xp[0] && xp[0].value) xorPass = xp[0].value; } catch (_) {}
 		for (const r of rows) {
 			const guildId = r.guild_id || r.guildId || r.guild; // attempt variations
 			const continent = r.continent;
@@ -42,7 +40,7 @@ async function launchAll() {
 				await accountInfo.updateSingleBotToken(scanner.kingdomId);
 			}
 			// Starting a new scanner is idempotent per (guild, continent)
-			new Scanner({ guildId, continent, xorPassword: xorPass });
+			new Scanner({ guildId, continent });
 		}
 		try { await sql.clearOldMines(); } catch (e) { console.error('[Manager] clearOldMines failed:', e); }
 	} catch (e) {

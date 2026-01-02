@@ -8,6 +8,20 @@ class Encryption {
     constructor() {
     }
 
+    shouldUseXor(password) {
+        return typeof password === 'string' && password.length > 0;
+    }
+
+    _toJsonString(input) {
+        if (typeof input === 'string') return input;
+        if (input === undefined) return '';
+        try {
+            return JSON.stringify(input);
+        } catch (_) {
+            return String(input);
+        }
+    }
+
     async decryptBase64(input) {
         let buff = Buffer.from(input, 'base64');
         let text = buff.toString('latin1');
@@ -43,27 +57,66 @@ class Encryption {
     }
 
     async createXorMessage(plaintext, password) {
-        const encryption = new Encryption();
-    
+        const text = this._toJsonString(plaintext);
+        if (!this.shouldUseXor(password)) {
+            // No XOR required for this environment/endpoint.
+            // Return the plaintext that callers would normally obtain after decrypting.
+            return text;
+        }
+
         // Encrypt the message with XOR
-        const xorEncrypted = await this.decryptXor(plaintext, password);
-    
+        const xorEncrypted = await this.decryptXor(text, password);
+
         // Encrypt the XOR encrypted message with Base64
         const base64Encrypted = await this.encryptBase64(xorEncrypted);
-    
+
         return base64Encrypted;
     }
 
     async decryptXorMessage(message, password) {
-        const encryption = new Encryption();
-    
+        // If the server already returned JSON (object or JSON string), bypass XOR.
+        if (message && typeof message === 'object') {
+            return this._toJsonString(message);
+        }
+        if (typeof message === 'string') {
+            const trimmed = message.trim();
+            if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+                return message;
+            }
+        }
+
+        if (!this.shouldUseXor(password)) {
+            // Response is already plaintext. Normalize to string so existing
+            // call sites that do JSON.parse(...) keep working.
+            return this._toJsonString(message);
+        }
+
         // Decrypt the Base64 encrypted message
         const base64Decrypted = await this.decryptBase64(message);
-    
+
         // Decrypt the message with XOR
         const xorDecrypted = await this.decryptXor(base64Decrypted, password);
-    
+
         return xorDecrypted;
+    }
+
+    async buildRequestBody(payload, password) {
+        // For XOR-enabled endpoints, the API expects { json: "<base64>" }.
+        // For non-XOR environments (empty/absent password), the API expects plain JSON.
+        if (this.shouldUseXor(password)) {
+            const encrypted = await this.createXorMessage(payload, password);
+            return { json: encrypted };
+        }
+
+        if (payload && typeof payload === 'object') return payload;
+        if (typeof payload === 'string') {
+            try {
+                return JSON.parse(payload);
+            } catch (_) {
+                return {};
+            }
+        }
+        return {};
     }
 
     async decodeGunzip(payload) {

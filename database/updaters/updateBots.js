@@ -28,17 +28,15 @@ class UpdateBots {
 
     async updateBotsToken() {
         while (true) {
-        let loginInfo;
             try {
                 const accounts = await this.sql.getActiveBotsLogin();
                 for (const account of accounts) {
-                    loginInfo = await this.accountInfo.login(account.email, account.password);
+                    const loginInfo = await this.accountInfo.login(account.email, account.password);
                     if (loginInfo) {
                         await this.sql.updateBotToken(loginInfo.token, account.kingdomId);
                         console.log(account.email + " token updated");
                     }
                 }
-                await this.sql.updateXORPass(loginInfo.xorPass);
             } catch (error) {
                 console.error('Error updating bot tokens:', error);
             }

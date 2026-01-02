@@ -45,24 +45,36 @@ class AccountInfo {
       return false;
     }
 
-    if (loginResponse.status === 200 && loginResponse.data?.regionHash) {
-      console.log(loginResponse.data.regionHash);
-      const xorPass = (await this.encryption.decryptBase64(loginResponse.data.regionHash)).split('-')[1];
-      return {token: loginResponse.data.token, xorPass: xorPass};
-    } else {
-      return false;
+    if (loginResponse.status === 200 && loginResponse.data?.token) {
+      const regionHash = loginResponse.data?.regionHash;
+
+      // regionHash may be an empty string; treat that as "no encryption".
+      if (typeof regionHash === 'string' && regionHash.length > 0) {
+        console.log(regionHash);
+        const xorPass = (await this.encryption.decryptBase64(regionHash)).split('-')[1];
+        // Keep DB in sync: regionHash present => XOR required.
+        try { await this.sql.updateXORPass(xorPass || ''); } catch (_) {}
+        return { token: loginResponse.data.token, xorPass: xorPass, encryptionRequired: true };
+      }
+
+      // No regionHash => no XOR pass is produced and subsequent requests are plain JSON.
+      // Clear DB value to prevent using a stale XOR pass for outgoing requests.
+      try { await this.sql.updateXORPass(''); } catch (_) {}
+      return { token: loginResponse.data.token, xorPass: null, encryptionRequired: false };
     }
+
+    return false;
   }
 
   async getProfile(token) {
     let profileResponse;
-    const xorPass = (await this.sql.getXORPass())[0].value;
-    const encodedString = await this.encryption.createXorMessage(JSON.stringify({}), xorPass);
+    const xorPass = (await this.sql.getXORPass())?.[0]?.value || null;
+    const body = await this.encryption.buildRequestBody({}, xorPass);
 
     try {
       profileResponse = await this.api.request(
         "https://api-lok-live.leagueofkingdoms.com/api/kingdom/profile/my",
-        { json: encodedString },
+        body,
         {
           "x-access-token": token,
           "Content-Type": "application/json",
@@ -88,7 +100,7 @@ class AccountInfo {
 
   async collectInfo(email, password) {
     console.log(email, password);
-    const token = (await this.login(email, password)).token;
+    const token = (await this.login(email, password))?.token;
     if (!token) return false;
 
     const profile = await this.getProfile(token);
@@ -112,12 +124,12 @@ class AccountInfo {
     let profileResponse;
     try {
 
-      const xorPass = (await this.sql.getXORPass())[0].value;
-      const encodedString = await this.encryption.createXorMessage(JSON.stringify({}), xorPass);
+      const xorPass = (await this.sql.getXORPass())?.[0]?.value || null;
+      const body = await this.encryption.buildRequestBody({}, xorPass);
 
       profileResponse = await this.api.request(
         "https://api-lok-live.leagueofkingdoms.com/api/kingdom/profile/my",
-        { json: encodedString },
+        body,
         {
           "x-access-token": token,
           "Content-Type": "application/json",
@@ -148,10 +160,10 @@ class AccountInfo {
 
   async updateSingleBotToken(kingdomId) {
     const account = (await this.sql.getAccountLogin(kingdomId))[0];
-    const { token, xorPass } = (await this.login(account.email, account.password));
+    const { token, xorPass } = (await this.login(account.email, account.password)) || {};
     if (token) {
       await this.sql.updateBotToken(token, kingdomId);
-      await this.sql.updateXORPass(xorPass);
+      // XOR state is persisted inside login().
     }
   }
 
@@ -189,9 +201,9 @@ class AccountInfo {
 
   // Get all the information about a player in the manager's alliance
   async getMemberProfileInfo(token, allianceId, kingdomId, r4Flag) {
-    const xorPass = (await this.sql.getXORPass())[0].value;
+    const xorPass = (await this.sql.getXORPass())?.[0]?.value || null;
 
-    const b64EncryptedKingdomId = await this.encryption.createXorMessage(`{"kingdomId": "${kingdomId}"}`, xorPass);
+    const body = await this.encryption.buildRequestBody({ kingdomId: String(kingdomId) }, xorPass);
 
     let basicPlayerInfoResponse;
     let historyPlayerInfoResponse;
@@ -199,7 +211,7 @@ class AccountInfo {
     try {
       basicPlayerInfoResponse = await this.api.request(
         'https://api-lok-live.leagueofkingdoms.com/api/kingdom/profile/other',
-        { json: b64EncryptedKingdomId },
+        body,
         {
           'x-access-token': token,
           'Content-Type': 'application/json',
@@ -301,9 +313,9 @@ class AccountInfo {
         victory: historyPlayerInfo.stats.battle.victory,
         defeat: historyPlayerInfo.stats.battle.defeated,
         gathering: historyPlayerInfo.stats.economy.gathering,
-        cont: location[0],
-        x: location[1],
-        y: location[2],
+        cont: null,
+        x: null,
+        y: null,
         guild: guild
       };
   
