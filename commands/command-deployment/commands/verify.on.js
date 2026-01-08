@@ -201,18 +201,19 @@ module.exports = {
                     const congressTitle = mail.from.congressTitle;
                     const worldId = mail.from.worldId;
 
-                    const linkExistsFlag = await sql.isContinentLinked(worldId);
+                    const linkExistsFlag = await sql.isWorldIdLinked(worldId);
                     if (!linkExistsFlag && (congressTitle === 101 || congressTitle === 102)) {
                         await sql.addGuildContinent(guildId, worldId);
                     }
 
-                    const continent = (await sql.getGuildContinent(guildId))[0].continent;
-                    console.log('continent:', continent, 'Player World ID:', worldId, 'Kingdom ID:', kingdomId, 'Kingdom Name:', kingdomName);
-                    console.log(typeof continent, typeof worldId);
+                    const guildWorldIds = await sql.getGuildWorldIds(guildId);
+                    console.log('guildWorldIds:', guildWorldIds, 'Player World ID:', worldId, 'Kingdom ID:', kingdomId, 'Kingdom Name:', kingdomName);
 
                     const playerInfo = await updateInfo.updateInfo(queenToken, kingdomId, "", "");
 
-                    if (String(continent) !== String(playerInfo.continent)) {
+                    const playerWorldIdRaw = playerInfo?.continent ?? playerInfo?.worldId ?? worldId;
+                    const playerWorldId = playerWorldIdRaw !== null && playerWorldIdRaw !== undefined ? Number(playerWorldIdRaw) : null;
+                    if (!Array.isArray(guildWorldIds) || guildWorldIds.length === 0 || !Number.isFinite(playerWorldId) || !guildWorldIds.includes(playerWorldId)) {
                         const user = await interaction.client.users.fetch(userId);
                         await user.send(`Your kingdom is not in the correct continent. Please verify a kingdom that is in the correct continent.`);
                         return;

@@ -2325,19 +2325,13 @@ async function processRankChange({ interaction, sql, api, guildId, kingdomId, re
         const playerContinentRaw = profile.worldId ?? profile.continent ?? profile.world ?? profile.location?.continent ?? null;
         const playerContinent = playerContinentRaw !== null && playerContinentRaw !== undefined ? Number(playerContinentRaw) : null;
 
-        let guildContinentRows = [];
+        let guildContinents = [];
         try {
-            const rows = await sql.getGuildContinent(guildId);
-            if (Array.isArray(rows)) {
-                guildContinentRows = rows;
-            }
+            const worldIds = await sql.getGuildWorldIds(guildId);
+            if (Array.isArray(worldIds)) guildContinents = worldIds;
         } catch (continentError) {
             console.error('Failed to fetch guild continents for rank change:', continentError);
         }
-
-        const guildContinents = guildContinentRows
-            .map(row => Number(row?.continent))
-            .filter(continent => Number.isFinite(continent));
 
         if (!guildContinents.length) {
             await interaction.editReply({ content: 'No continents are linked to this guild. Configure a continent before changing ranks.', components: [] });
@@ -2693,12 +2687,8 @@ async function attemptKickFromAlliance({
 
     let guildContinents = [];
     try {
-        const guildContinentRows = await sql.getGuildContinent(guildId);
-        if (Array.isArray(guildContinentRows)) {
-            guildContinents = guildContinentRows
-                .map((row) => Number(row?.continent))
-                .filter((continent) => !Number.isNaN(continent));
-        }
+        const worldIds = await sql.getGuildWorldIds(guildId);
+        if (Array.isArray(worldIds)) guildContinents = worldIds;
     } catch (error) {
         console.error('Error fetching guild continents:', error);
     }

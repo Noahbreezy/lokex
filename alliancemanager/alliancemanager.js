@@ -109,7 +109,7 @@ class AllianceManager {
   }
 
   async kick(token, maxkick, cvcmode, titleGrace) {
-    console.log("kick function");
+    // console.log("kick function: ", this.allianceTag);
     try {
       const membersListResponse = await this.api.request(
         "https://api-lok-live.leagueofkingdoms.com/api/alliance/members/list",
@@ -737,7 +737,7 @@ class AllianceManager {
                     token,
                     kid
                   );
-
+                // console.log(`Speed check for ${name} (${kid}) in ${this.allianceTag}: ${playerSpeed}% (required: ${speedlimit}%)`);
                 if (playerSpeed < speedlimit) {
                   await this.api.request(
                     "https://api-lok-live.leagueofkingdoms.com/api/alliance/request/deny",
@@ -918,8 +918,10 @@ class AllianceManager {
                 continue;
               }
 
+              // console.log(`Attempting to accept ${name} (${kid}) into ${this.allianceTag}...`);
               if (numtkn < 99) {
                 const acceptResponse = await this.acceptRequest(kid, token);
+                // console.log('acceptResponse:', acceptResponse.data);
 
                 if (
                   acceptResponse.status === 200 &&

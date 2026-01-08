@@ -100,15 +100,15 @@ module.exports = {
                         individualPledgers = await sql.getIndividualPledgeTotalMergedByContinent(continent);
                     } else {
                         // Fallback to guild-linked continent
-                        const guildContinents = await sql.getGuildContinent(guildId);
-                        if (!guildContinents || guildContinents.length === 0) {
+                        const guildWorldIds = await sql.getGuildWorldIds(guildId);
+                        if (!guildWorldIds || guildWorldIds.length === 0) {
                             await interaction.editReply({
                                 content: "This guild is not linked to any continent.",
                                 ...ephemeral,
                             });
                             return;
                         }
-                        continent = guildContinents[0].continent;
+                        continent = guildWorldIds[0];
                         individualPledgers = await sql.getIndividualPledgeTotalMerged(guildId);
                     }
 

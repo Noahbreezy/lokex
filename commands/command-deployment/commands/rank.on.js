@@ -146,19 +146,16 @@ async function handleChangeRank(interaction, sql, ephemeral) {
         // Step 4: Ensure the player belongs to one of this guild's linked continents
         const playerContinentRaw = basicPlayerInfo.worldId ?? basicPlayerInfo.continent ?? basicPlayerInfo.world ?? basicPlayerInfo.location?.continent ?? null;
         const playerContinent = playerContinentRaw !== null && playerContinentRaw !== undefined ? Number(playerContinentRaw) : null;
-        const guildContinentRows = await sql.getGuildContinent(guildId);
-        const allowedContinents = guildContinentRows
-            .map(row => Number(row.continent))
-            .filter(continent => !Number.isNaN(continent));
+        const allowedWorldIds = await sql.getGuildWorldIds(guildId);
 
-        if (!allowedContinents.length) {
+        if (!allowedWorldIds.length) {
             return await interaction.editReply({
                 content: 'No continents are linked to this guild. Please configure a continent before changing ranks.',
                 ...ephemeral
             });
         }
 
-        if (playerContinent === null || Number.isNaN(playerContinent) || !allowedContinents.includes(playerContinent)) {
+        if (playerContinent === null || Number.isNaN(playerContinent) || !allowedWorldIds.includes(playerContinent)) {
             return await interaction.editReply({
                 content: 'This player is not on a continent linked to this guild.',
                 ...ephemeral

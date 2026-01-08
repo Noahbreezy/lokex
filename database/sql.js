@@ -552,12 +552,11 @@ class sqlFunctions {
     // Get latest activity (info rows) for a set of kingdoms within last N days constrained to guild's linked continents
     async getRecentlyActiveKingdoms(kingdomIds, guildId, days = 7) {
         if (!kingdomIds || kingdomIds.length === 0) return [];
-        const continents = await this.getGuildContinent(guildId); // existing method returns rows with continent
-        const continentList = continents.map(r => r.continent).filter(c => c !== null && c !== undefined);
-        if (continentList.length === 0) return []; // no linked continents means none considered active
+        const worldIdList = await this.getGuildWorldIds(guildId);
+        if (!worldIdList || worldIdList.length === 0) return []; // no linked worldIds means none considered active
         const kingdomPlaceholders = kingdomIds.map(() => '?').join(',');
-        const continentPlaceholders = continentList.map(() => '?').join(',');
-        const params = [...kingdomIds, ...continentList, days];
+        const continentPlaceholders = worldIdList.map(() => '?').join(',');
+        const params = [...kingdomIds, ...worldIdList, days];
         const sql = `
             SELECT DISTINCT kingdomId
             FROM info
@@ -578,7 +577,7 @@ class sqlFunctions {
     // Check if a kingdom is verified in any guild, and return discordId and the continent linked to the guild
     async isKingdomVerifiedAnyGuild(kingdomId) {
         const query = `
-            SELECT v.discordId, gcl.continent, v.guild
+            SELECT v.discordId, COALESCE(gcl.new_continent, gcl.continent) AS continent, v.guild
             FROM verified v
             INNER JOIN guild_continent_link gcl ON v.guild = gcl.guild_id
             WHERE v.kingdomId = ? AND v.status = 1
@@ -936,10 +935,37 @@ class sqlFunctions {
         return this.query(query, [guildId]);
     }
 
+    // Get all worldIds linked to a guild.
+    // Returns a de-duplicated list containing both legacy `continent` and migrated `new_continent` values.
+    async getGuildWorldIds(guildId) {
+        const query = "SELECT DISTINCT continent, new_continent FROM guild_continent_link WHERE guild_id = ?;";
+        const rows = await this.query(query, [guildId]);
+        const worldIds = [];
+
+        if (Array.isArray(rows)) {
+            for (const row of rows) {
+                const legacy = Number(row?.continent);
+                if (Number.isFinite(legacy)) worldIds.push(legacy);
+
+                const migrated = Number(row?.new_continent);
+                if (Number.isFinite(migrated)) worldIds.push(migrated);
+            }
+        }
+
+        return Array.from(new Set(worldIds));
+    }
+
+    // Check if any link to a specific worldId already exists (matches either `continent` or `new_continent`)
+    async isWorldIdLinked(worldId) {
+        const query = "SELECT guild_id FROM guild_continent_link WHERE continent = ? OR new_continent = ? LIMIT 1;";
+        const results = await this.query(query, [worldId, worldId]);
+        return results.length > 0;
+    }
+
     // Check if any link to a specific continent already exists
     async isContinentLinked(continent) {
-        const query = "SELECT guild_id FROM guild_continent_link WHERE continent = ?;";
-        const results = await this.query(query, [continent]);
+        const query = "SELECT guild_id FROM guild_continent_link WHERE continent = ? OR new_continent = ? LIMIT 1;";
+        const results = await this.query(query, [continent, continent]);
         return results.length > 0;
     }
 

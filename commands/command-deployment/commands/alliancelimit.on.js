@@ -6,13 +6,12 @@ async function handleAllianceAutocomplete(interaction, sql) {
     const guildId = interaction.guild.id;
     const alliances = await sql.getGuildAlliances(focusedValue, guildId);
 
-    // Ensure each alliance object has both name and value properties
-    const choices = alliances.map(nameObj => ({
+    // Discord limits autocomplete results to 25 choices.
+    const choices = alliances.slice(0, 25).map(nameObj => ({
         name: nameObj.tag || 'Unknown',
-        value: nameObj.allianceId || 'Unknown'
+        value: String(nameObj.allianceId ?? 'Unknown')
     }));
 
-    console.log(choices);
     await interaction.respond(choices);
 }
 

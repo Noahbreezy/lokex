@@ -500,12 +500,8 @@ async function handleBlacklistModal(interaction, sql, api, ephemeral) {
 
         let guildContinents = [];
         try {
-            const guildContinentRows = await sql.getGuildContinent(guild);
-            if (Array.isArray(guildContinentRows)) {
-                guildContinents = guildContinentRows
-                    .map((row) => Number(row?.continent))
-                    .filter((continent) => !Number.isNaN(continent));
-            }
+            const worldIds = await sql.getGuildWorldIds(guild);
+            if (Array.isArray(worldIds)) guildContinents = worldIds;
         } catch (error) {
             console.error("Error fetching guild continents:", error);
         }

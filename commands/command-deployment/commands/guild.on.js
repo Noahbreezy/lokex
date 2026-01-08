@@ -592,7 +592,7 @@ module.exports = {
                             populationStats,
                             currencyEmojiRaw
                         ] = await Promise.all([
-                            sql.getGuildContinent(guildId),
+                            sql.getGuildWorldIds(guildId),
                             sql.getActiveVerifiedKingdoms(guildId),
                             sql.getActiveVerifiedDiscordIds(guildId),
                             sql.getCmineAndDsaLevels(guildId),
@@ -614,7 +614,7 @@ module.exports = {
                         ]);
 
                         const uniqueContinentList = Array.isArray(continentRows)
-                            ? [...new Set(continentRows.map(row => row?.continent).filter(Boolean))]
+                            ? [...new Set(continentRows.map(value => Number(value)).filter(Number.isFinite))]
                             : [];
 
                         const kingdomIds = activeKingdomRows
