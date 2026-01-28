@@ -66,7 +66,7 @@ module.exports = {
                 )
                 .addIntegerOption(option =>
                     option.setName('max_entry')
-                        .setDescription('Max alliance entries. Set to 0 (zero) to disable.')
+                        .setDescription('Max alliance account entries per discord user. Set to 0 (zero) to disable.')
                 )
                 .addBooleanOption(option =>
                     option.setName('verified')

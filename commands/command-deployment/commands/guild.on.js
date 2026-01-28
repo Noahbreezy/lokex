@@ -79,6 +79,28 @@ module.exports = {
         )
         .addSubcommand((subcommand) =>
             subcommand
+                .setName("cmine-whitelist-channel")
+                .setDescription("channel to log C-Mine whitelist updates")
+                .addChannelOption((option) =>
+                    option
+                        .setName("channel")
+                        .setDescription("Channel to log C-Mine whitelist updates")
+                        .setRequired(true)
+                )
+        )
+        .addSubcommand((subcommand) =>
+            subcommand
+                .setName("dsa-whitelist-channel")
+                .setDescription("channel to log DSA whitelist updates")
+                .addChannelOption((option) =>
+                    option
+                        .setName("channel")
+                        .setDescription("Channel to log DSA whitelist updates")
+                        .setRequired(true)
+                )
+        )
+        .addSubcommand((subcommand) =>
+            subcommand
                 .setName("announcement-channel")
                 .setDescription("channel for bot announcements and notifications")
                 .addChannelOption((option) =>
@@ -305,6 +327,24 @@ module.exports = {
                         const channelName = channel.name;
                         await sql.setGuildBlacklistLogChannel(channelId, guildId);
                         await interaction.reply({ content: `Channel ${channelName} has been set as the blacklist log channel.`, ...ephemeral });
+                        break;
+                    }
+                case "cmine-whitelist-channel":
+                    {
+                        const channel = options.getChannel("channel");
+                        const channelId = channel.id;
+                        const channelName = channel.name;
+                        await sql.setGuildCmineWhitelistChannel(channelId, guildId);
+                        await interaction.reply({ content: `Channel ${channelName} has been set as the C-Mine whitelist channel.`, ...ephemeral });
+                        break;
+                    }
+                case "dsa-whitelist-channel":
+                    {
+                        const channel = options.getChannel("channel");
+                        const channelId = channel.id;
+                        const channelName = channel.name;
+                        await sql.setGuildDsaWhitelistChannel(channelId, guildId);
+                        await interaction.reply({ content: `Channel ${channelName} has been set as the DSA whitelist channel.`, ...ephemeral });
                         break;
                     }
                 case "announcement-channel":

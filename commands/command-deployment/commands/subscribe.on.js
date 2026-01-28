@@ -1,4 +1,4 @@
-const { SlashCommandBuilder, PermissionFlagsBits, StringSelectMenuBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, ModalBuilder, TextInputBuilder, TextInputStyle } = require("discord.js");
+const { SlashCommandBuilder, PermissionFlagsBits, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, ModalBuilder, TextInputBuilder, TextInputStyle } = require("discord.js");
 const ethers = require("ethers");
 require('dotenv').config();
 
@@ -51,48 +51,49 @@ module.exports = {
         const subcommand = interaction.options.getSubcommand();
 
         if (subcommand === "renew") {
+            const sql = module.exports.sql;
             const continent = interaction.options.getString("continent");
-            const selectMenu = new StringSelectMenuBuilder()
-                .setCustomId(`subscription_select:${continent}`)
-                .setPlaceholder("Select subscriptions (you can choose multiple)")
-                .setMinValues(1)
-                .setMaxValues(5)
-                .addOptions([
-                    {
-                        label: "Subscription 1",
-                        value: "1",
-                        description: "Alliance manager, blacklist command",
-                    },
-                    {
-                        label: "Subscription 2",
-                        value: "2",
-                        description: "Discord verification, titles distribution, buff alert, pledge alert",
-                    },
-                    {
-                        label: "Subscription 3",
-                        value: "3",
-                        description: "Requires Subscription 1. monitor rally starters, auto-start king buffs",
-                    },
-                    {
-                        label: "Subscription 4",
-                        value: "4",
-                        description: "CvC points monitor/kicker, drago info command and breed monitoring, gate opening monitor",
-                    },
-                    {
-                        label: "Subscription 5",
-                        value: "5",
-                        description: "Requires all previous subscriptions. land program with shop, DSA/Cmine violation scanner",
-                    },
-                ]);
+            const selected = ["12345"];
+            const totalCost = 30;
 
-            const row = new ActionRowBuilder().addComponents(selectMenu);
+            try {
+                const timestamp = new Date().toISOString().slice(0, 19).replace('T', ' ');
+                await sql.storePendingPayment(
+                    interaction.user.id,
+                    interaction.guild.id,
+                    continent,
+                    JSON.stringify(selected),
+                    totalCost,
+                    timestamp
+                );
 
-            const embed = new EmbedBuilder()
-                .setTitle("Subscription Options")
-                .setDescription("Select the subscriptions you wish to purchase.")
-                .setColor("Blue");
+                const paymentInfoEmbed = new EmbedBuilder()
+                    .setTitle("Subscription Payment")
+                    .setDescription(
+                        [
+                            `Single subscription price: ${totalCost} USDT (Polygon)`,
+                            `Recipient address: ${process.env.PAYMENT_ADDRESS}`,
+                            "After sending, press the 'Pay' button below and paste the transaction hash.",
+                            `Continent: ${continent}`
+                        ].join("\n")
+                    )
+                    .setColor("Blue");
 
-            await interaction.reply({ embeds: [embed], components: [row], flags: 64 });
+                const payButton = new ButtonBuilder()
+                    .setCustomId(`pay_${interaction.user.id}_${timestamp}`)
+                    .setLabel("Pay")
+                    .setStyle(ButtonStyle.Primary);
+
+                const actionRow = new ActionRowBuilder().addComponents(payButton);
+
+                await interaction.reply({ embeds: [paymentInfoEmbed], components: [actionRow], flags: 64 });
+            } catch (error) {
+                console.error("Error storing payment request:", error);
+                return interaction.reply({
+                    content: "Error storing payment request. Please try again.",
+                    flags: 64,
+                });
+            }
         } else if (subcommand === "expiration-dates") {
             const sql = module.exports.sql;
             try {
@@ -150,86 +151,11 @@ module.exports = {
     },
 
     async stringselect(interaction) {
-        const sql = module.exports.sql;
-        const subscriptionQuery = await sql.getSubscriptionCosts();
-        const subscriptionCosts = subscriptionQuery.reduce((acc, item) => {
-            acc[item.subscription] = item.cost;
-            return acc;
-        }, {});
-        console.log(subscriptionCosts);
-        const [baseId, continent] = interaction.customId.split(":");
-        if (baseId === "subscription_select") {
-            await interaction.deferReply({ flags: 64 });
-            const selected = interaction.values;
-
-            // Dependency validation
-            if (selected.includes("3") && !selected.includes("1")) {
-                return interaction.followUp({
-                    content: "Subscription 3 requires Subscription 1.",
-                    flags: 64,
-                });
-            }
-
-            if (selected.includes("5")) {
-                const required = ["2"];
-                const missing = required.filter((r) => !selected.includes(r));
-                if (missing.length > 0) {
-                    return interaction.followUp({
-                        content: "Subscription 5 requires subscriptions 2.",
-                        flags: 64,
-                    });
-                }
-            }
-
-            // Calculate total cost
-            const totalCost = selected.reduce((sum, sub) =>
-                sum + subscriptionCosts[sub], 0);
-            console.log(`Total cost: $${totalCost}`);
-
-            // Store in database
-            try {
-                const timestamp = new Date().toISOString().slice(0, 19).replace('T', ' ');
-                await sql.storePendingPayment(
-                    interaction.user.id,
-                    interaction.guild.id,
-                    continent,
-                    JSON.stringify(selected),
-                    totalCost,
-                    timestamp
-                );
-
-                const paymentInfoEmbed = new EmbedBuilder()
-                    .setTitle("Payment Details")
-                    .setDescription(`
-                        Please send ${totalCost} USDT on Polygon to:
-                        \`${process.env.PAYMENT_ADDRESS}\`
-                        
-                        After sending, press the "Pay" button below and paste the transaction hash.
-                        Selected subscriptions: ${selected.map(v => `Sub ${v}`).join(", ")}
-                        Total: $${totalCost} USDT
-                    `)
-                    .setColor("Green");
-
-                const payButton = new ButtonBuilder()
-                    .setCustomId(`pay_${interaction.user.id}_${timestamp}`)
-                    .setLabel("Pay")
-                    .setStyle(ButtonStyle.Primary);
-
-                const actionRow = new ActionRowBuilder().addComponents(payButton);
-
-                await interaction.followUp({
-                    embeds: [paymentInfoEmbed],
-                    components: [actionRow],
-                    flags: 64,
-                });
-            } catch (error) {
-                console.error(error);
-                return interaction.followUp({
-                    content: "Error storing payment request. Please try again.",
-                    flags: 64,
-                });
-            }
-        }
+        // Legacy handler kept to avoid component errors; selection UI removed in the new single-subscription flow.
+        return interaction.reply({
+            content: "Subscription selection is no longer required. Please use /subscription renew.",
+            flags: 64,
+        });
     },
 
     async button(interaction) {
@@ -278,10 +204,8 @@ module.exports = {
                 }
 
                 const pendingPayment = pendingPaymentQuery[0];
-                const selected = JSON.parse(pendingPayment.selected_subscriptions);
                 const totalCost = pendingPayment.total_cost;
                 const continent = pendingPayment.continent;
-                const paymentTimestamp = new Date(pendingPayment.timestamp);
 
                 // Fetch transaction details
                 const tx = await provider.getTransaction(txHash);
@@ -383,16 +307,8 @@ module.exports = {
                     });
                 }
 
-                // Payment verified - store subscriptions
-                const subscriptionCosts = await sql.getSubscriptionCosts();
-                const subscriptionData = selected.map(sub => ({
-                    subscription: parseInt(sub),
-                    cost: subscriptionCosts.find(s => s.subscription === parseInt(sub)).cost
-                }));
-                const subscriptionType = subscriptionData.map(s => s.subscription).join("");
-                console.log(`Subscription type: ${subscriptionType}`);
-
-                // Add subscriptions to guild_continent_link
+                // Payment verified - store subscription (single plan)
+                const subscriptionType = "12345";
                 await sql.addSubscription(
                     interaction.guild.id,
                     continent,
@@ -407,7 +323,7 @@ module.exports = {
                 );
 
                 return interaction.reply({
-                    content: `Payment verified! Subscriptions activated for continent ${continent}: ${selected.map(s => `Sub ${s}`).join(", ")}`,
+                    content: `Payment verified! Subscription activated for continent ${continent}.`,
                     flags: 64,
                 });
 

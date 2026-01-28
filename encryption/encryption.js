@@ -58,19 +58,16 @@ class Encryption {
 
     async createXorMessage(plaintext, password) {
         const text = this._toJsonString(plaintext);
-        if (!this.shouldUseXor(password)) {
-            // No XOR required for this environment/endpoint.
-            // Return the plaintext that callers would normally obtain after decrypting.
-            return text;
+
+        // Websocket payloads in this project expect a base64 string.
+        // If XOR is enabled, we XOR first then base64.
+        // If XOR is not enabled, we base64 the plaintext JSON.
+        if (this.shouldUseXor(password)) {
+            const xorEncrypted = await this.decryptXor(text, password);
+            return this.encryptBase64(xorEncrypted);
         }
 
-        // Encrypt the message with XOR
-        const xorEncrypted = await this.decryptXor(text, password);
-
-        // Encrypt the XOR encrypted message with Base64
-        const base64Encrypted = await this.encryptBase64(xorEncrypted);
-
-        return base64Encrypted;
+        return this.encryptBase64(text);
     }
 
     async decryptXorMessage(message, password) {
@@ -85,19 +82,17 @@ class Encryption {
             }
         }
 
-        if (!this.shouldUseXor(password)) {
-            // Response is already plaintext. Normalize to string so existing
-            // call sites that do JSON.parse(...) keep working.
-            return this._toJsonString(message);
-        }
 
-        // Decrypt the Base64 encrypted message
+        // Decrypt the Base64 layer first (always present for websocket payloads)
         const base64Decrypted = await this.decryptBase64(message);
 
-        // Decrypt the message with XOR
-        const xorDecrypted = await this.decryptXor(base64Decrypted, password);
+        // If XOR is disabled, base64-decoded text is the plaintext JSON.
+        if (!this.shouldUseXor(password)) {
+            return base64Decrypted;
+        }
 
-        return xorDecrypted;
+        // Otherwise, XOR-decrypt after base64.
+        return this.decryptXor(base64Decrypted, password);
     }
 
     async buildRequestBody(payload, password) {

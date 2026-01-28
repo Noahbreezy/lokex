@@ -35,16 +35,25 @@ module.exports = {
 
 		try {
 			const kingdoms = await sql.checkVerifiedKingdoms(targetUserId, guildId);
-			if (!kingdoms || kingdoms.length === 0) {
+			const uniqueKingdoms = [];
+			const seenIds = new Set();
+			for (const k of kingdoms || []) {
+				const id = String(k.kingdomId);
+				if (seenIds.has(id)) continue; // avoid duplicated option values
+				seenIds.add(id);
+				uniqueKingdoms.push(k);
+			}
+
+			if (!uniqueKingdoms || uniqueKingdoms.length === 0) {
 				await interaction.reply({ content: targetUserId === invokingUserId ? 'You have no verified kingdoms.' : 'That user has no verified kingdoms.', ...ephemeral });
 				return;
 			}
 
 			// Direct unverify when only one kingdom
-			if (kingdoms.length === 1) {
-				await sql.setKingdomStatusToZero(kingdoms[0].kingdomId, guildId);
-				await postUnverifyCleanup(interaction, sql, targetUserId, kingdoms[0].kingdomName, guildId, invokingUserId !== targetUserId);
-				await interaction.reply({ content: `Kingdom **${kingdoms[0].kingdomName}** has been unverified.`, ...ephemeral });
+			if (uniqueKingdoms.length === 1) {
+				await sql.setKingdomStatusToZero(uniqueKingdoms[0].kingdomId, guildId);
+				await postUnverifyCleanup(interaction, sql, targetUserId, uniqueKingdoms[0].kingdomName, guildId, invokingUserId !== targetUserId);
+				await interaction.reply({ content: `Kingdom **${uniqueKingdoms[0].kingdomName}** has been unverified.`, ...ephemeral });
 				return;
 			}
 
@@ -52,7 +61,7 @@ module.exports = {
 				.setCustomId(`unverify_select_${targetUserId}_${Date.now()}`)
 				.setPlaceholder('Select a kingdom to unverify')
 				.addOptions(
-					kingdoms.slice(0, 25).map(k => ({
+					uniqueKingdoms.slice(0, 25).map(k => ({
 						label: k.kingdomName.substring(0, 100),
 						value: String(k.kingdomId),
 						description: `ID: ${k.kingdomId}`.substring(0, 100)
@@ -71,7 +80,7 @@ module.exports = {
 
 			collector.on('collect', async (i) => {
 				const kingdomId = i.values[0];
-				const selected = kingdoms.find(k => String(k.kingdomId) === String(kingdomId));
+				const selected = uniqueKingdoms.find(k => String(k.kingdomId) === String(kingdomId));
 				if (!selected) {
 					await i.update({ content: 'Selected kingdom not found.', components: [], ...ephemeral });
 					return;

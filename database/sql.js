@@ -1012,7 +1012,16 @@ class sqlFunctions {
 
     // Get all guild continent with a certain subscription_type
     async getGuildContinentWithSubscription(subscription) {
-        const query = "SELECT guild_id, continent FROM guild_continent_link WHERE subscription_type LIKE ?;";
+        const query = `
+            SELECT
+                guild_id,
+                continent AS legacy_continent,
+                new_continent,
+                COALESCE(new_continent, continent) AS continent
+            FROM guild_continent_link
+            WHERE subscription_type LIKE ?
+              AND COALESCE(new_continent, continent) IS NOT NULL;
+        `;
         return this.query(query, [`%${subscription}%`]);
     }
 
