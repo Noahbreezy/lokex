@@ -42,7 +42,7 @@ module.exports = {
 
             const subscriptionFlagInfo = await sql.checkSubscriptionValid(guildId, "2");
             if (!subscriptionFlagInfo) {
-                await interaction.editReply({ content: "Your continent needs to have a valid subscription to use this command. Use `/subscribe` to get a new subscription.", flags: 64 });
+                await interaction.editReply({ content: "Your continent needs to have a valid subscription to use this command. Use `/subscription renew` to get a new subscription.", flags: 64 });
                 return;
             }
 

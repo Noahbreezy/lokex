@@ -249,7 +249,7 @@ class UpdateStakers {
 
                 const subscriptionFlagInfo = await this.sql.checkSubscriptionValid(guildId, "2");
                 if (!subscriptionFlagInfo) {
-                    await channel.send("A pledge was made to a continent, but you have no valid subscription for this service.  Use `/subscribe` to get a new subscription.");
+                    await channel.send("A pledge was made to a continent, but you have no valid subscription for this service.  Use `/subscription renew` to get a new subscription.");
                     continue;
                 }
 

@@ -43,7 +43,7 @@ module.exports = {
             // Check subscription
             const subscriptionFlagInfo = await sql.checkSubscriptionValid(guildId, "3");
             if (!subscriptionFlagInfo) {
-                await interaction.reply({ content: "Your continent needs to have a valid subscription to use this command. Use `/subscribe` to get a new subscription. ", flags: 64 });
+                await interaction.reply({ content: "Your continent needs to have a valid subscription to use this command. Use `/subscription renew` to get a new subscription. ", flags: 64 });
                 return;
             }
 
@@ -693,6 +693,9 @@ async function getKingdomLicenseSummary(sql, kingdomId, continent, guildId) {
 
         if (!Number.isFinite(resolvedContinent) || resolvedContinent === 0) {
             return null;
+        } else {
+            resolvedContinent = (await sql.getGuildContinent(guildId))[0]?.continent;
+            console.log('continent:', resolvedContinent);
         }
 
         const rows = await sql.getKingdomLicenses(kingdomId, resolvedContinent, guildId);
@@ -2720,6 +2723,7 @@ async function attemptKickFromAlliance({
             { memberKingdomId: kingdomId },
             { 'x-access-token': managerToken, 'Content-Type': 'application/json' }
         );
+        console.log('Kick API response:', response?.data);
 
         if (response?.data?.result) {
             await interaction.followUp({ content: `${displayName} (${kingdomId}) has been removed from the alliance.`, flags: 64 });

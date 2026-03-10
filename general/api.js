@@ -247,6 +247,23 @@ class Api {
         return response;
     }
 
+    async requestNoProxy(url, body, header) {
+        const config = {
+            headers: header
+        };
+
+        try {
+            const response = await axios.post(url, body, config);
+            if (response.status !== 200) {
+                console.error(`Request without proxy failed with status ${response.status}`);
+            }
+            return response;
+        } catch (error) {
+            console.error('Request without proxy threw', error);
+            throw error;
+        }
+    }
+
     async requestIgnore403(url, body, header) {
         const proxies = await this.sql.getProxies();
         proxies.push({ ip: null });

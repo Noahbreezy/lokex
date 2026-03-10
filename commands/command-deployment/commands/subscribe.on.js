@@ -30,7 +30,6 @@ module.exports = {
     data: new SlashCommandBuilder()
         .setName("subscription")
         .setDescription("Manage your server's subscription to our services.")
-        .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
         .addSubcommand((subcommand) =>
             subcommand
                 .setName("renew")

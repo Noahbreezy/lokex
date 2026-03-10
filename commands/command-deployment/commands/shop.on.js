@@ -359,6 +359,13 @@ module.exports = {
                 await sql.addGuild(guildId, guildName);
             }
 
+            // Add check for valid subscription before executing any shop command
+            const hasValidSubscription = await sql.checkSubscriptionValid(guildId, "1");
+            if (!hasValidSubscription) {
+                await interaction.reply({ content: "❌ Your server does not have a valid subscription to use the shop commands. Please renew your subscription using the `/subscription renew` command.", flags: 64 });
+                return;
+            }
+
             // Get currency emoji for this guild
             const currencyEmoji = await getCurrencyEmoji(guildId, sql);
 
@@ -795,6 +802,7 @@ module.exports = {
                             const Api = require('../../../general/api.js');
                             const api = new Api(sql);
                             const DST_CONTRACT = '0x3b7e1ce09afe2bb3a23919afb65a38e627cfbe97';
+                            const POLYGON_RPC_URL = 'https://polygon.drpc.org/';
 
                             // Get transaction receipt
                             const requestBody = {
@@ -804,7 +812,7 @@ module.exports = {
                                 id: 1
                             };
 
-                            const receipt = await api.request('https://polygon-rpc.com', requestBody, {
+                            const receipt = await api.requestNoProxy(POLYGON_RPC_URL, requestBody, {
                                 'Content-Type': 'application/json'
                             });
 

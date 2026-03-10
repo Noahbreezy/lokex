@@ -1,5 +1,15 @@
 const { Client, GatewayIntentBits, EmbedBuilder } = require('discord.js');
 
+function maskRpcUrl(rawUrl) {
+    if (!rawUrl) return null;
+    try {
+        const url = new URL(rawUrl);
+        return `${url.protocol}//${url.host}${url.pathname || ''}`;
+    } catch {
+        return String(rawUrl).slice(0, 32);
+    }
+}
+
 /**
  * UpdateTransactions - Multi-network DST transaction monitor
  * 
@@ -19,7 +29,7 @@ class UpdateTransactions {
         // Network configurations
         this.networks = {
             polygon: {
-                rpcUrl: 'https://polygon-rpc.com',
+                rpcUrl: 'https://polygon.drpc.org/',
                 dstContractAddress: '0x3b7e1ce09afe2bb3a23919afb65a38e627cfbe97',
                 lastCheckedBlock: null,
                 explorerUrl: 'https://polygonscan.com/tx/'
@@ -208,14 +218,14 @@ class UpdateTransactions {
 
     // Get DST transfer events from blockchain
     async getDSTTransfers(network, fromBlock, toBlock) {
-        // Polygon RPC rejects wide ranges; fetch in chunks to avoid -32062 errors.
-        const MAX_RANGE = network.maxBlockRange || 2000;
-        const MIN_RANGE = 100;
+        // Some RPCs reject wide ranges; fetch in chunks and adapt on -32062 errors.
+        let maxRange = network.maxBlockRange || 2000;
+        const minRange = network.minBlockRange || 10;
         const transfers = [];
         let start = fromBlock;
 
         while (start <= toBlock) {
-            let end = Math.min(start + MAX_RANGE - 1, toBlock);
+            let end = Math.min(start + maxRange - 1, toBlock);
             let currentRange = end - start + 1;
 
             // Retry with shrinking ranges when providers complain about large spans.
@@ -231,11 +241,18 @@ class UpdateTransactions {
                     const code = error?.code;
                     const tooLarge = code === -32062 || message.includes('block range is too large');
 
-                    if (tooLarge && currentRange > MIN_RANGE) {
-                        currentRange = Math.max(MIN_RANGE, Math.floor(currentRange / 2));
-                        end = start + currentRange - 1;
-                        console.warn(`Block range too large on ${network.rpcUrl}; retrying with range ${currentRange} blocks (${start}-${end}).`);
-                        continue;
+                    if (tooLarge) {
+                        if (currentRange > minRange) {
+                            currentRange = Math.max(minRange, Math.floor(currentRange / 2));
+                            maxRange = Math.min(maxRange, currentRange);
+                            network.maxBlockRange = maxRange;
+                            end = start + currentRange - 1;
+                            console.warn(`Block range too large on ${network.rpcUrl}; retrying with range ${currentRange} blocks (${start}-${end}).`);
+                            continue;
+                        }
+                        const rangeError = new Error(`Block range too large even at min range ${minRange} (${start}-${end})`);
+                        rangeError.code = code || -32062;
+                        throw rangeError;
                     }
 
                     console.error('Error getting DST transfers:', error);
@@ -424,7 +441,12 @@ class UpdateTransactions {
 
             const receipt = response.data.result;
             if (!receipt) {
-                console.log('Transaction not found');
+                console.warn('[UpdateTransactions] Transaction receipt not found', {
+                    ts: new Date().toISOString(),
+                    txHash,
+                    networkName,
+                    rpcHint: maskRpcUrl(network.rpcUrl),
+                });
                 return;
             }
 

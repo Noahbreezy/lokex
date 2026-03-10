@@ -113,7 +113,7 @@ class UpdateReminders {
             }
 
             // Create the reminder message
-            const message = `<@&${adminRole.id}> :warning: **Subscription Reminder** :warning:\nYour subscription will expire <t:${validUntil}:R> (<t:${validUntil}:F>). Please renew your subscription using \`/subscribe renew\` to avoid interruption of services. Contact support if you have any issues.`;
+            const message = `<@&${adminRole.id}> :warning: **Subscription Reminder** :warning:\nYour subscription will expire <t:${validUntil}:R> (<t:${validUntil}:F>). Please renew your subscription using \`/subscription renew\` to avoid interruption of services. Contact support if you have any issues.`;
 
             // Send the message
             await channel.send(message);
