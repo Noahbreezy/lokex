@@ -1,0 +1,32 @@
+{
+  "name": "jsscanner",
+  "version": "1.0.0",
+  "description": "Standalone League of Kingdoms scanner for zone and object discovery",
+  "main": "startScanner.js",
+  "scripts": {
+    "start": "node startScanner.js",
+    "test": "node testScanBlocks.js",
+    "debug": "DEBUG_SCANNER=true node startScanner.js"
+  },
+  "keywords": [
+    "scanner",
+    "league-of-kingdoms",
+    "websocket",
+    "proxy"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "axios": "^1.6.0",
+    "discord.js": "^14.0.0",
+    "dotenv": "^16.0.0",
+    "https-proxy-agent": "^7.0.0",
+    "jsonwebtoken": "^9.0.0",
+    "mysql2": "^3.0.0",
+    "node-cron": "^3.0.0",
+    "websocket": "^1.0.34"
+  },
+  "engines": {
+    "node": ">=14.0.0"
+  }
+}
